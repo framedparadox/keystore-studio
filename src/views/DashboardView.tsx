@@ -192,7 +192,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       <div className="bg-white rounded-[24px] p-7 mt-4 border border-[#E2E8F0]/80 shadow-[0_1px_3px_rgba(0,0,0,0.02)] grid grid-cols-1 lg:grid-cols-12 gap-6 items-center">
         <div className="lg:col-span-6 space-y-4">
           <h2 className="text-[22px] font-bold text-[#1E293B] leading-snug">
-            CertForge is built with native Rust cryptography that processes your keystores locally on your device
+            xkeystore is built with native Rust cryptography that processes your keystores locally on your device
           </h2>
           <p className="text-[13.5px] text-[#475569] leading-relaxed">
             Every KeyStore Explorer capability—generating RSA/ECDSA/Ed25519/Post-Quantum key pairs, converting JKS &amp; PKCS#12 binaries, signing CSRs, issuing CRLs, signing JAR archives, and inspecting live TLS servers—executes directly in memory without Java or OpenSSL.

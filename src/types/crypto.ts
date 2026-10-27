@@ -1,6 +1,7 @@
 export type TabType =
+  | "home"
+  | "workspaces"
   | "keystores"
-  | "dashboard"
   | "ca_signing"
   | "examine"
   | "scanner"
@@ -8,6 +9,17 @@ export type TabType =
   | "settings";
 
 export type KeystoreFormat = "PKCS12" | "JKS" | "JCEKS" | "BKS" | "BCFKS" | "UBER";
+
+export interface Workspace {
+  id: string;
+  name: string;
+  description: string;
+  environment: "Production" | "Staging" | "Development" | "Compliance";
+  color: "blue" | "emerald" | "purple" | "amber";
+  created_at: string;
+  updated_at: string;
+  entryIds: string[];
+}
 
 export interface X509ExtensionInfo {
   oid: string;

@@ -45,7 +45,7 @@ export const ScannerView: React.FC<ScannerViewProps> = ({
         key_size: targetBits,
         curve: targetAlg === "ECDSA" ? "secp256r1 (P-256)" : null,
         common_name: entry.alias,
-        organization: "CertForge Auto-Rotated Security",
+        organization: "xkeystore Auto-Rotated Security",
         organizational_unit: "Automated Compliance Engine",
         locality: "San Francisco",
         state: "CA",

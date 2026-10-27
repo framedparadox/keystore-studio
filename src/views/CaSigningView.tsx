@@ -45,8 +45,8 @@ export const CaSigningView: React.FC<CaSigningViewProps> = ({
   const [busy, setBusy] = useState(false);
 
   // 1. Sign CSR State
-  const [csrSubject, setCsrSubject] = useState("CN=microservice-orders.certforge.internal, O=CertForge Inc, C=US");
-  const [csrSans, setCsrSans] = useState("microservice-orders.certforge.internal, 10.20.30.40");
+  const [csrSubject, setCsrSubject] = useState("CN=microservice-orders.xkeystore.internal, O=xkeystore Inc, C=US");
+  const [csrSans, setCsrSans] = useState("microservice-orders.xkeystore.internal, 10.20.30.40");
   const [csrDays, setCsrDays] = useState(365);
   const [csrPemInput, setCsrPemInput] = useState(
     "-----BEGIN CERTIFICATE REQUEST-----\nMIICvDCCAaQCAQAwdzELMAkGA1UEBhMCVVMxEzARBgNVBAgMCkNhbGlmb3JuaWEx...\n-----END CERTIFICATE REQUEST-----"
@@ -67,9 +67,9 @@ export const CaSigningView: React.FC<CaSigningViewProps> = ({
   const [crlResult, setCrlResult] = useState<CrlResult | null>(null);
 
   // 3. Sign JAR State
-  const [jarName, setJarName] = useState("certforge-payment-agent-2.4.0.jar");
+  const [jarName, setJarName] = useState("xkeystore-payment-agent-2.4.0.jar");
   const [jarEntriesText, setJarEntriesText] = useState(
-    "com/certforge/agent/PaymentService.class\ncom/certforge/agent/TlsGuard.class\nMETA-INF/spring.factories"
+    "io/xkeystore/agent/PaymentService.class\nio/xkeystore/agent/TlsGuard.class\nMETA-INF/spring.factories"
   );
   const [jarTsa, setJarTsa] = useState("http://timestamp.digicert.com");
   const [jarResult, setJarResult] = useState<JarSignatureResult | null>(null);
@@ -83,9 +83,9 @@ export const CaSigningView: React.FC<CaSigningViewProps> = ({
   const [cmsVerifyStatus, setCmsVerifyStatus] = useState<string | null>(null);
 
   // 5. Sign JWT State
-  const [jwtIss, setJwtIss] = useState("https://auth.certforge.internal");
+  const [jwtIss, setJwtIss] = useState("https://auth.xkeystore.internal");
   const [jwtSub, setJwtSub] = useState("service-account:orders-engine");
-  const [jwtAud, setJwtAud] = useState("https://api.certforge.internal");
+  const [jwtAud, setJwtAud] = useState("https://api.xkeystore.internal");
   const [jwtHours, setJwtHours] = useState(24);
   const [jwtCustom, setJwtCustom] = useState("{\"scope\":\"keystore:admin certs:sign\",\"mfa\":true}");
   const [signedJwtToken, setSignedJwtToken] = useState<string | null>(null);

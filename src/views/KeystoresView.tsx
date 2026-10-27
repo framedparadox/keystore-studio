@@ -22,6 +22,7 @@ import {
   CheckCircle2,
   AlertTriangle,
   FolderArchive,
+  Layers,
   X,
   Info,
   Play,
@@ -34,6 +35,7 @@ import {
   GenerateSecretKeyInput,
   CsrResult,
   ExportPayloadResult,
+  Workspace,
 } from "../types/crypto";
 
 interface KeystoresViewProps {
@@ -44,6 +46,8 @@ interface KeystoresViewProps {
   onDeleteKeystore: (id: string) => void;
   onOpenNewKeystoreModal: () => void;
   onRecordOp: (increment?: number, isSig?: boolean) => void;
+  workspaces?: Workspace[];
+  onToggleEntryInWorkspace?: (workspaceId: string, entryId: string) => void;
 }
 
 export const KeystoresView: React.FC<KeystoresViewProps> = ({
@@ -53,6 +57,8 @@ export const KeystoresView: React.FC<KeystoresViewProps> = ({
   onUpdateKeystore,
   onOpenNewKeystoreModal,
   onRecordOp,
+  workspaces = [],
+  onToggleEntryInWorkspace,
 }) => {
   const activeKs = keystores.find((k) => k.id === activeKeystoreId) || keystores[0];
 
@@ -83,6 +89,7 @@ export const KeystoresView: React.FC<KeystoresViewProps> = ({
     | "ks_properties"
     | "add_label"
     | "rename_entry"
+    | "assign_workspace"
   >(null);
 
   const [selectedEntry, setSelectedEntry] = useState<KeystoreEntry | null>(null);
@@ -96,13 +103,13 @@ export const KeystoresView: React.FC<KeystoresViewProps> = ({
   const [kpAlias, setKpAlias] = useState("payment-service-tls");
   const [kpAlg, setKpAlg] = useState("RSA");
   const [kpBits, setKpBits] = useState(4096);
-  const [kpCn, setKpCn] = useState("payment.certforge.internal");
-  const [kpOrg, setKpOrg] = useState("CertForge Financial Systems");
+  const [kpCn, setKpCn] = useState("payment.xkeystore.internal");
+  const [kpOrg, setKpOrg] = useState("xkeystore Financial Systems");
   const [kpOu, setKpOu] = useState("Core Infrastructure");
   const [kpCountry, setKpCountry] = useState("US");
   const [kpDays, setKpDays] = useState(365);
   const [kpIsCa, setKpIsCa] = useState(false);
-  const [kpSans, setKpSans] = useState("payment.certforge.internal, 10.0.10.50");
+  const [kpSans, setKpSans] = useState("payment.xkeystore.internal, 10.0.10.50");
   const [kpSignerAlias, setKpSignerAlias] = useState<string>("");
 
   // Form states for Generate Secret Key
@@ -835,8 +842,19 @@ export const KeystoresView: React.FC<KeystoresViewProps> = ({
                     <span className="text-[11px] text-[#94A3B8]">Exp: {entry.expiry_date}</span>
                   </div>
 
-                  {/* Labels */}
+                  {/* Labels & Workspaces */}
                   <div className="col-span-2 flex flex-wrap gap-1">
+                    {workspaces
+                      .filter((ws) => ws.entryIds.includes(entry.id))
+                      .map((ws) => (
+                        <span
+                          key={ws.id}
+                          className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-[#EFF6FF] text-[#1D4ED8] border border-[#BFDBFE]"
+                          title={`Assigned to Workspace: ${ws.name}`}
+                        >
+                          WS: {ws.name.split(" ")[0]}
+                        </span>
+                      ))}
                     {entry.labels.map((lbl, idx) => (
                       <span
                         key={idx}
@@ -852,6 +870,19 @@ export const KeystoresView: React.FC<KeystoresViewProps> = ({
                     className="col-span-2 flex items-center justify-end space-x-1"
                     onClick={(e) => e.stopPropagation()}
                   >
+                    {onToggleEntryInWorkspace && (
+                      <button
+                        onClick={() => {
+                          setSelectedEntry(entry);
+                          setActiveModal("assign_workspace");
+                        }}
+                        className="p-1.5 rounded-lg text-[#475569] hover:text-[#2563EB] hover:bg-[#EFF6FF] cursor-pointer"
+                        title="Add / Assign to Workspace"
+                      >
+                        <Layers className="w-4 h-4" />
+                      </button>
+                    )}
+
                     <button
                       onClick={() => {
                         setSelectedEntry(entry);
@@ -1601,22 +1632,35 @@ export const KeystoresView: React.FC<KeystoresViewProps> = ({
               )}
             </div>
 
-            <div className="pt-3 border-t border-[#E2E8F0] flex justify-end space-x-2">
-              <button
-                onClick={() => {
-                  setExportResult(null);
-                  setActiveModal("export_entry");
-                }}
-                className="px-4 py-2 rounded-xl bg-[#C2E7FF] text-[#0A3464] text-[12.5px] font-semibold cursor-pointer"
-              >
-                Export Formats...
-              </button>
-              <button
-                onClick={() => setActiveModal(null)}
-                className="px-4 py-2 rounded-xl bg-[#0A3464] text-white text-[12.5px] font-semibold cursor-pointer"
-              >
-                Done
-              </button>
+            <div className="pt-3 border-t border-[#E2E8F0] flex justify-between items-center">
+              {onToggleEntryInWorkspace ? (
+                <button
+                  onClick={() => setActiveModal("assign_workspace")}
+                  className="px-4 py-2 rounded-xl bg-[#EFF6FF] hover:bg-[#DBEAFE] text-[#1D4ED8] text-[12.5px] font-semibold flex items-center space-x-1.5 cursor-pointer"
+                >
+                  <Layers className="w-4 h-4" />
+                  <span>Assign to Workspace...</span>
+                </button>
+              ) : (
+                <div />
+              )}
+              <div className="flex space-x-2">
+                <button
+                  onClick={() => {
+                    setExportResult(null);
+                    setActiveModal("export_entry");
+                  }}
+                  className="px-4 py-2 rounded-xl bg-[#C2E7FF] text-[#0A3464] text-[12.5px] font-semibold cursor-pointer"
+                >
+                  Export Formats...
+                </button>
+                <button
+                  onClick={() => setActiveModal(null)}
+                  className="px-4 py-2 rounded-xl bg-[#0A3464] text-white text-[12.5px] font-semibold cursor-pointer"
+                >
+                  Done
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -1739,7 +1783,7 @@ export const KeystoresView: React.FC<KeystoresViewProps> = ({
               </div>
               <div className="flex justify-between">
                 <span className="text-[#64748B]">Cryptographic Provider:</span>
-                <span className="font-semibold text-[#0F172A]">CertForge Native Rust Core</span>
+                <span className="font-semibold text-[#0F172A]">xkeystore Native Rust Core</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-[#64748B]">Total Entries:</span>
@@ -1812,6 +1856,82 @@ export const KeystoresView: React.FC<KeystoresViewProps> = ({
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* ====================================================================
+          MODAL 9: Assign Entry to Workspaces
+          ==================================================================== */}
+      {activeModal === "assign_workspace" && selectedEntry && onToggleEntryInWorkspace && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4">
+          <div className="w-full max-w-md bg-white rounded-3xl border border-[#CBD5E1] shadow-2xl p-6">
+            <div className="flex items-center justify-between pb-3 border-b border-[#E2E8F0]">
+              <div>
+                <h3 className="text-[16px] font-bold text-[#0F172A] flex items-center space-x-2">
+                  <Layers className="w-4 h-4 text-[#2563EB]" />
+                  <span>Assign to Workspaces</span>
+                </h3>
+                <p className="text-[12px] text-[#64748B] mt-0.5">
+                  Toggle which Workspaces include <strong>{selectedEntry.alias}</strong>
+                </p>
+              </div>
+              <button
+                onClick={() => setActiveModal(null)}
+                className="p-1 text-[#64748B] hover:text-[#0F172A] cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="py-4 space-y-2">
+              {workspaces.map((ws) => {
+                const isAssigned = ws.entryIds.includes(selectedEntry.id);
+                return (
+                  <div
+                    key={ws.id}
+                    onClick={() => {
+                      onToggleEntryInWorkspace(ws.id, selectedEntry.id);
+                      showToast(
+                        isAssigned
+                          ? `Removed '${selectedEntry.alias}' from ${ws.name}`
+                          : `Added '${selectedEntry.alias}' to ${ws.name}`
+                      );
+                    }}
+                    className={`p-3.5 rounded-2xl border flex items-center justify-between cursor-pointer transition ${
+                      isAssigned
+                        ? "bg-[#EFF6FF] border-[#93C5FD]"
+                        : "bg-[#F8FAFC] border-[#E2E8F0] hover:border-[#CBD5E1]"
+                    }`}
+                  >
+                    <div>
+                      <div className="text-[13.5px] font-bold text-[#0F172A]">{ws.name}</div>
+                      <div className="text-[11.5px] text-[#64748B]">
+                        {ws.environment} • {ws.entryIds.length} Certs
+                      </div>
+                    </div>
+                    <span
+                      className={`px-3 py-1 rounded-full text-[11.5px] font-semibold ${
+                        isAssigned
+                          ? "bg-[#DCFCE7] text-[#15803D]"
+                          : "bg-white border border-[#CBD5E1] text-[#475569]"
+                      }`}
+                    >
+                      {isAssigned ? "✓ Assigned" : "+ Add"}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="pt-3 border-t border-[#E2E8F0] flex justify-end">
+              <button
+                onClick={() => setActiveModal(null)}
+                className="px-5 py-2 rounded-full bg-[#0A3464] text-white text-[12.5px] font-semibold cursor-pointer"
+              >
+                Done
+              </button>
+            </div>
           </div>
         </div>
       )}

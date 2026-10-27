@@ -440,32 +440,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "certforge"
-version = "0.1.0"
-dependencies = [
- "base64 0.22.1",
- "byteorder",
- "chrono",
- "crc32fast",
- "dirs",
- "ed25519-dalek",
- "hex",
- "hmac",
- "p256",
- "pem",
- "rand",
- "rcgen",
- "rsa",
- "serde",
- "serde_json",
- "sha2",
- "tauri",
- "tauri-build",
- "tauri-plugin-opener",
- "uuid",
-]
-
-[[package]]
 name = "cesu8"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5149,6 +5123,32 @@ dependencies = [
  "libc",
  "once_cell",
  "pkg-config",
+]
+
+[[package]]
+name = "xkeystore"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "byteorder",
+ "chrono",
+ "crc32fast",
+ "dirs",
+ "ed25519-dalek",
+ "hex",
+ "hmac",
+ "p256",
+ "pem",
+ "rand",
+ "rcgen",
+ "rsa",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-opener",
+ "uuid",
 ]
 
 [[package]]

@@ -117,7 +117,7 @@ fn save_keystore_file(ks: KeystoreFile, password: String) -> Result<ExportPayloa
 
     let mut saved_path = None;
     if let Some(mut dl_dir) = dirs::download_dir().or_else(dirs::home_dir) {
-        dl_dir.push("CertForge_Exports");
+        dl_dir.push("xkeystore_Exports");
         let _ = std::fs::create_dir_all(&dl_dir);
         dl_dir.push(&filename);
         if std::fs::write(&dl_dir, &jks_bytes).is_ok() {

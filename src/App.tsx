@@ -2,20 +2,30 @@ import React, { useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { Header } from "./components/Header";
 import { Sidebar } from "./components/Sidebar";
+import { HomeView } from "./views/HomeView";
+import { WorkspacesView } from "./views/WorkspacesView";
 import { KeystoresView } from "./views/KeystoresView";
-import { DashboardView } from "./views/DashboardView";
 import { CaSigningView } from "./views/CaSigningView";
 import { ExamineView } from "./views/ExamineView";
 import { ScannerView } from "./views/ScannerView";
 import { NewKeystoreModal } from "./components/NewKeystoreModal";
-import { TabType, KeystoreFile, ExportPayloadResult } from "./types/crypto";
-import { initialKeystores } from "./data/mockData";
+import {
+  TabType,
+  KeystoreFile,
+  KeystoreFormat,
+  Workspace,
+} from "./types/crypto";
+import { initialKeystores, initialWorkspaces } from "./data/mockData";
 import { KeyRound, ShieldCheck, CheckCircle2, Lock, Unlock, Eye, EyeOff } from "lucide-react";
 
 export const App: React.FC = () => {
-  const [currentTab, setCurrentTab] = useState<TabType>("keystores");
+  const [currentTab, setCurrentTab] = useState<TabType>("home");
   const [keystores, setKeystores] = useState<KeystoreFile[]>(initialKeystores);
   const [activeKeystoreId, setActiveKeystoreId] = useState<string>(initialKeystores[0].id);
+
+  // Workspaces State
+  const [workspaces, setWorkspaces] = useState<Workspace[]>(initialWorkspaces);
+  const [activeWorkspaceId, setActiveWorkspaceId] = useState<string>(initialWorkspaces[0].id);
 
   // Undo / Redo History Stack
   const [history, setHistory] = useState<KeystoreFile[][]>([]);
@@ -26,6 +36,7 @@ export const App: React.FC = () => {
   const [signaturesCount, setSignaturesCount] = useState<number>(18);
 
   const [isNewKeystoreModalOpen, setIsNewKeystoreModalOpen] = useState(false);
+  const [newKeystoreFormat, setNewKeystoreFormat] = useState<KeystoreFormat>("PKCS12");
   const [showPasswords, setShowPasswords] = useState(false);
 
   const pushState = (nextKeystores: KeystoreFile[]) => {
@@ -88,12 +99,34 @@ export const App: React.FC = () => {
     }
   };
 
-  const handleLockAll = () => {
-    pushState(
-      keystores.map((ks) => ({
-        ...ks,
-        entries: ks.entries.map((e) => ({ ...e, locked: true })),
-      }))
+  // Workspace Handlers
+  const handleCreateWorkspace = (ws: Workspace) => {
+    setWorkspaces((prev) => [ws, ...prev]);
+    setActiveWorkspaceId(ws.id);
+  };
+
+  const handleDeleteWorkspace = (wsId: string) => {
+    if (workspaces.length <= 1) return;
+    const next = workspaces.filter((w) => w.id !== wsId);
+    setWorkspaces(next);
+    if (activeWorkspaceId === wsId) {
+      setActiveWorkspaceId(next[0].id);
+    }
+  };
+
+  const handleToggleEntryInWorkspace = (workspaceId: string, entryId: string) => {
+    setWorkspaces((prev) =>
+      prev.map((ws) => {
+        if (ws.id !== workspaceId) return ws;
+        const exists = ws.entryIds.includes(entryId);
+        return {
+          ...ws,
+          updated_at: "Just now",
+          entryIds: exists
+            ? ws.entryIds.filter((id) => id !== entryId)
+            : [...ws.entryIds, entryId],
+        };
+      })
     );
   };
 
@@ -103,15 +136,18 @@ export const App: React.FC = () => {
     <div className="h-screen w-screen flex flex-col bg-[#DDE5F0] select-none overflow-hidden font-sans">
       {/* Top Application Header */}
       <Header
-        totalEntries={totalEntries}
-        totalKeystores={keystores.length}
-        opsCount={opsCount}
+        workspaces={workspaces}
+        activeWorkspaceId={activeWorkspaceId}
         canUndo={history.length > 0}
         canRedo={redoStack.length > 0}
         onUndo={handleUndo}
         onRedo={handleRedo}
-        onOpenNewKeystoreModal={() => setIsNewKeystoreModalOpen(true)}
-        onQuickExamineSsl={() => setCurrentTab("examine")}
+        onSelectTab={setCurrentTab}
+        onSelectWorkspace={setActiveWorkspaceId}
+        onOpenNewKeystoreModal={() => {
+          setNewKeystoreFormat("PKCS12");
+          setIsNewKeystoreModalOpen(true);
+        }}
       />
 
       {/* Main Container: Left Navigation Rail + Rounded Workspace Container */}
@@ -119,11 +155,44 @@ export const App: React.FC = () => {
         <Sidebar
           currentTab={currentTab}
           onSelectTab={setCurrentTab}
-          onLockAll={handleLockAll}
         />
 
         {/* Central Elevated Workspace Container */}
         <main className="flex-1 mr-4 mb-3 bg-[#EEF2F7] rounded-[24px] border border-[#CFD8E3] shadow-[0_2px_10px_rgba(0,0,0,0.03)] flex flex-col overflow-hidden relative">
+          {currentTab === "home" && (
+            <HomeView
+              keystores={keystores}
+              workspaces={workspaces}
+              onSelectTab={setCurrentTab}
+              onSelectKeystoreAndOpen={(ksId) => {
+                setActiveKeystoreId(ksId);
+                setCurrentTab("keystores");
+              }}
+              onSelectWorkspaceAndOpen={(wsId) => {
+                setActiveWorkspaceId(wsId);
+                setCurrentTab("workspaces");
+              }}
+              onOpenNewKeystoreWithFormat={(fmt) => {
+                setNewKeystoreFormat(fmt || "PKCS12");
+                setIsNewKeystoreModalOpen(true);
+              }}
+            />
+          )}
+
+          {currentTab === "workspaces" && (
+            <WorkspacesView
+              workspaces={workspaces}
+              activeWorkspaceId={activeWorkspaceId}
+              onSelectWorkspace={setActiveWorkspaceId}
+              onCreateWorkspace={handleCreateWorkspace}
+              onDeleteWorkspace={handleDeleteWorkspace}
+              onToggleEntryInWorkspace={handleToggleEntryInWorkspace}
+              keystores={keystores}
+              onNavigateTab={setCurrentTab}
+              onSelectKeystore={setActiveKeystoreId}
+            />
+          )}
+
           {currentTab === "keystores" && (
             <KeystoresView
               keystores={keystores}
@@ -131,18 +200,13 @@ export const App: React.FC = () => {
               onSelectKeystore={setActiveKeystoreId}
               onUpdateKeystore={handleUpdateKeystore}
               onDeleteKeystore={handleDeleteKeystore}
-              onOpenNewKeystoreModal={() => setIsNewKeystoreModalOpen(true)}
+              onOpenNewKeystoreModal={() => {
+                setNewKeystoreFormat("PKCS12");
+                setIsNewKeystoreModalOpen(true);
+              }}
               onRecordOp={handleRecordOp}
-            />
-          )}
-
-          {currentTab === "dashboard" && (
-            <DashboardView
-              keystores={keystores}
-              opsCount={opsCount}
-              signaturesCount={signaturesCount}
-              onSelectTab={setCurrentTab}
-              onExportAllCsv={handleExportAllCsv}
+              workspaces={workspaces}
+              onToggleEntryInWorkspace={handleToggleEntryInWorkspace}
             />
           )}
 
@@ -259,7 +323,7 @@ export const App: React.FC = () => {
                     <span>Built-in Native Rust Cryptographic Providers</span>
                   </div>
                   <p className="text-[13px] text-[#475569] leading-relaxed">
-                    CertForge runs 100% self-contained in compiled Rust machine code. No external Java Runtime (JRE), `keytool`, `jarsigner`, or `openssl` binary is ever invoked.
+                    xkeystore runs 100% self-contained in compiled Rust machine code. No external Java Runtime (JRE), `keytool`, `jarsigner`, or `openssl` binary is ever invoked.
                   </p>
                   <div className="space-y-1.5 pt-2 text-[12px]">
                     {[
@@ -286,7 +350,7 @@ export const App: React.FC = () => {
                     All exported certificates, private keys, JWK bundles, CSV inventories, and binary `.jks` / `.p12` files are automatically written to:
                   </p>
                   <div className="p-3 rounded-xl bg-[#F8FAFC] border border-[#CBD5E1] font-mono text-[12px] text-[#0A3464]">
-                    ~/Downloads/CertForge_Exports/
+                    ~/Downloads/xkeystore_Exports/
                   </div>
                 </div>
               </div>
@@ -300,6 +364,7 @@ export const App: React.FC = () => {
         isOpen={isNewKeystoreModalOpen}
         onClose={() => setIsNewKeystoreModalOpen(false)}
         onAddKeystore={handleAddKeystore}
+        defaultFormat={newKeystoreFormat}
       />
     </div>
   );

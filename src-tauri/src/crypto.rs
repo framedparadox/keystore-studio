@@ -721,7 +721,7 @@ pub fn generate_csr_for_entry(entry: &KeystoreEntry, format: &str) -> Result<Csr
     let sha256_digest = compute_sha256_colon(csr_der);
     let spkac_b64 = B64.encode(csr_der);
     let spkac_data = format!(
-        "SPKAC={}\nCN={}\norganizationName=CertForge KeyStore\ncountryName=US",
+        "SPKAC={}\nCN={}\norganizationName=xkeystore KeyStore\ncountryName=US",
         spkac_b64, entry.alias
     );
 
@@ -1413,10 +1413,10 @@ pub fn export_entry_in_format(
         ),
     };
 
-    // Also save directly to user's Downloads/CertForgeExports directory so it's immediately on disk!
+    // Also save directly to user's Downloads/xkeystore_Exports directory so it's immediately on disk!
     let mut saved_path = None;
     if let Some(mut dl_dir) = dirs::download_dir().or_else(dirs::home_dir) {
-        dl_dir.push("CertForge_Exports");
+        dl_dir.push("xkeystore_Exports");
         let _ = std::fs::create_dir_all(&dl_dir);
         dl_dir.push(&filename);
         if std::fs::write(&dl_dir, content.as_bytes()).is_ok() {
@@ -1456,7 +1456,7 @@ pub fn export_keystore_csv(ks: &KeystoreFile) -> Result<ExportPayloadResult, Str
     let filename = format!("{}-inventory.csv", ks.name.replace('.', "-"));
     let mut saved_path = None;
     if let Some(mut dl_dir) = dirs::download_dir().or_else(dirs::home_dir) {
-        dl_dir.push("CertForge_Exports");
+        dl_dir.push("xkeystore_Exports");
         let _ = std::fs::create_dir_all(&dl_dir);
         dl_dir.push(&filename);
         if std::fs::write(&dl_dir, csv.as_bytes()).is_ok() {

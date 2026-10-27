@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "certforge",
+  "productName": "xkeystore",
   "version": "0.1.0",
-  "identifier": "dev.certforge.app",
+  "identifier": "io.xkeystore.desktop",
   "build": {
     "beforeDevCommand": "pnpm dev",
     "devUrl": "http://localhost:1420",
@@ -12,13 +12,11 @@
   "app": {
     "windows": [
       {
-        "title": "CertForge",
-        "width": 1200,
-        "height": 800,
-        "minWidth": 960,
-        "minHeight": 640,
-        "titleBarStyle": "Overlay",
-        "hiddenTitle": true
+        "title": "xkeystore — KeyStore Explorer",
+        "width": 1280,
+        "height": 840,
+        "minWidth": 1024,
+        "minHeight": 680
       }
     ],
     "security": {

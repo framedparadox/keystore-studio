@@ -2,5 +2,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
-    certforge_lib::run()
+    xkeystore_lib::run()
 }

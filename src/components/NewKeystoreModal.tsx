@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { X, FolderPlus, Sparkles } from "lucide-react";
 import { KeystoreFile, KeystoreFormat, KeystoreEntry, GenerateKeyPairInput } from "../types/crypto";
@@ -7,19 +7,40 @@ interface NewKeystoreModalProps {
   isOpen: boolean;
   onClose: () => void;
   onAddKeystore: (ks: KeystoreFile) => void;
+  defaultFormat?: KeystoreFormat;
 }
 
 export const NewKeystoreModal: React.FC<NewKeystoreModalProps> = ({
   isOpen,
   onClose,
   onAddKeystore,
+  defaultFormat = "PKCS12",
 }) => {
   const [name, setName] = useState("custom-vault.p12");
-  const [format, setFormat] = useState<KeystoreFormat>("PKCS12");
+  const [format, setFormat] = useState<KeystoreFormat>(defaultFormat);
   const [password, setPassword] = useState("changeit");
   const [initialAlias, setInitialAlias] = useState("default-root-key");
   const [alg, setAlg] = useState("RSA");
   const [busy, setBusy] = useState(false);
+
+  const extMap: Record<KeystoreFormat, string> = {
+    PKCS12: ".p12",
+    JKS: ".jks",
+    JCEKS: ".jceks",
+    BKS: ".bks",
+    BCFKS: ".bcfks",
+    UBER: ".uber",
+  };
+
+  useEffect(() => {
+    if (isOpen && defaultFormat) {
+      setFormat(defaultFormat);
+      setName((prev) => {
+        const base = prev.replace(/\.[^/.]+$/, "");
+        return `${base}${extMap[defaultFormat]}`;
+      });
+    }
+  }, [isOpen, defaultFormat]);
 
   if (!isOpen) return null;
 
@@ -41,16 +62,16 @@ export const NewKeystoreModal: React.FC<NewKeystoreModalProps> = ({
         algorithm: alg,
         key_size: alg === "RSA" ? 4096 : alg === "ML-DSA-65" ? 1952 : 256,
         curve: alg === "ECDSA" ? "secp256r1 (P-256)" : null,
-        common_name: `${initialAlias}.certforge.internal`,
-        organization: "CertForge KeyStore",
+        common_name: `${initialAlias}.xkeystore.internal`,
+        organization: "xkeystore KeyStore",
         organizational_unit: "Security Operations",
         locality: "San Francisco",
         state: "CA",
         country: "US",
-        email: `admin@certforge.internal`,
+        email: `admin@xkeystore.internal`,
         validity_days: 1095,
         is_ca: true,
-        sans: [`${initialAlias}.certforge.internal`],
+        sans: [`${initialAlias}.xkeystore.internal`],
         key_usage: ["Digital Signature", "Key Cert Sign", "CRL Sign"],
         extended_key_usage: ["TLS Web Server Authentication"],
         signer_alias: null,
