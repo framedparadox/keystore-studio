@@ -444,9 +444,15 @@ name = "certforge"
 version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
+ "byteorder",
  "chrono",
+ "crc32fast",
+ "dirs",
  "ed25519-dalek",
+ "hex",
+ "hmac",
  "p256",
+ "pem",
  "rand",
  "rcgen",
  "rsa",

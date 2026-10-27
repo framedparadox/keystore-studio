@@ -28,6 +28,12 @@ p256 = "0.13"
 ed25519-dalek = { version = "2.1", features = ["rand_core"] }
 rand = "0.8"
 sha2 = "0.10"
+hmac = "0.12"
+hex = "0.4"
+pem = "3.0"
+byteorder = "1.5"
+crc32fast = "1.5"
+dirs = "7.0"
 base64 = "0.22"
 chrono = { version = "0.4", features = ["serde"] }
 uuid = { version = "1", features = ["v4"] }

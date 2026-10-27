@@ -1,6 +1,7 @@
 import React, { useState } from "react";
-import { X, FolderPlus, KeyRound, Sparkles, Check } from "lucide-react";
-import { KeystoreFile } from "../types/crypto";
+import { invoke } from "@tauri-apps/api/core";
+import { X, FolderPlus, Sparkles } from "lucide-react";
+import { KeystoreFile, KeystoreFormat, KeystoreEntry, GenerateKeyPairInput } from "../types/crypto";
 
 interface NewKeystoreModalProps {
   isOpen: boolean;
@@ -13,140 +14,184 @@ export const NewKeystoreModal: React.FC<NewKeystoreModalProps> = ({
   onClose,
   onAddKeystore,
 }) => {
-  const [filename, setFilename] = useState("app-vault.p12");
-  const [format, setFormat] = useState<"PKCS12" | "JKS" | "BCFKS">("PKCS12");
-  const [password, setPassword] = useState("");
-  const [initialAlias, setInitialAlias] = useState("service-tls");
+  const [name, setName] = useState("custom-vault.p12");
+  const [format, setFormat] = useState<KeystoreFormat>("PKCS12");
+  const [password, setPassword] = useState("changeit");
+  const [initialAlias, setInitialAlias] = useState("default-root-key");
+  const [alg, setAlg] = useState("RSA");
+  const [busy, setBusy] = useState(false);
 
   if (!isOpen) return null;
 
-  const handleCreate = (e: React.FormEvent) => {
-    e.preventDefault();
-    const newKs: KeystoreFile = {
-      id: "ks-" + Date.now(),
-      filename,
-      format,
-      path: `/local/vaults/${filename}`,
-      totalEntries: 1,
-      entries: [
-        {
-          alias: initialAlias,
-          type: "PrivateKeyEntry",
-          algorithm: "RSA",
-          keySize: 4096,
-          creationDate: new Date().toISOString().split("T")[0],
-          expiryDate: new Date(Date.now() + 365 * 24 * 3600 * 1000).toISOString().split("T")[0],
-          subject: `CN=${initialAlias}.internal, O=CertForge, C=US`,
-          issuer: `CN=${initialAlias}.internal, O=CertForge, C=US`,
-          sha256Fingerprint: "B8:10:99:AA:44:EE:31:00:88:21:44:90:55:12:DE:09",
-          chainLength: 1,
-        },
-      ],
-    };
+  const formats: { id: KeystoreFormat; ext: string; desc: string }[] = [
+    { id: "PKCS12", ext: ".p12", desc: "RSA PKCS #12 Standard" },
+    { id: "JKS", ext: ".jks", desc: "Java KeyStore (0xFEEDFEED)" },
+    { id: "JCEKS", ext: ".jceks", desc: "Java Crypto Extension" },
+    { id: "BKS", ext: ".bks", desc: "Bouncy Castle KeyStore" },
+    { id: "BCFKS", ext: ".bcfks", desc: "Bouncy Castle FIPS 140" },
+    { id: "UBER", ext: ".uber", desc: "Bouncy Castle UBER" },
+  ];
 
-    onAddKeystore(newKs);
-    onClose();
+  const handleCreate = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    try {
+      const input: GenerateKeyPairInput = {
+        alias: initialAlias,
+        algorithm: alg,
+        key_size: alg === "RSA" ? 4096 : alg === "ML-DSA-65" ? 1952 : 256,
+        curve: alg === "ECDSA" ? "secp256r1 (P-256)" : null,
+        common_name: `${initialAlias}.certforge.internal`,
+        organization: "CertForge KeyStore",
+        organizational_unit: "Security Operations",
+        locality: "San Francisco",
+        state: "CA",
+        country: "US",
+        email: `admin@certforge.internal`,
+        validity_days: 1095,
+        is_ca: true,
+        sans: [`${initialAlias}.certforge.internal`],
+        key_usage: ["Digital Signature", "Key Cert Sign", "CRL Sign"],
+        extended_key_usage: ["TLS Web Server Authentication"],
+        signer_alias: null,
+        labels: ["Root", format],
+      };
+
+      const entry = await invoke<KeystoreEntry>("generate_keypair_entry", {
+        input,
+        issuerDn: null,
+      });
+
+      const newKs: KeystoreFile = {
+        id: "ks-" + Date.now(),
+        name,
+        format,
+        path: `/Users/local/vaults/${name}`,
+        description: `${format} KeyStore created with native Rust cryptography`,
+        password_protected: Boolean(password),
+        created_at: new Date().toISOString().split("T")[0],
+        updated_at: "Just now",
+        entries: [entry],
+      };
+
+      onAddKeystore(newKs);
+      onClose();
+    } catch (err) {
+      alert("Error creating keystore: " + err);
+    } finally {
+      setBusy(false);
+    }
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4 animate-in fade-in duration-150">
-      <div className="w-full max-w-md bg-white rounded-2xl border border-[#CBD5E1] shadow-2xl p-6 flex flex-col space-y-4">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center space-x-2">
-            <div className="w-8 h-8 rounded-full bg-[#EFF6FF] text-[#2563EB] flex items-center justify-center">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4">
+      <div className="w-full max-w-lg bg-white rounded-3xl border border-[#CBD5E1] shadow-2xl p-6 space-y-4">
+        <div className="flex items-center justify-between pb-2 border-b border-[#E2E8F0]">
+          <div className="flex items-center space-x-2.5">
+            <div className="w-9 h-9 rounded-full bg-[#C2E7FF] text-[#0A3464] flex items-center justify-center">
               <FolderPlus className="w-4 h-4" />
             </div>
-            <h3 className="text-[17px] font-semibold text-[#0F172A]">Create New Keystore</h3>
+            <div>
+              <h3 className="text-[17px] font-semibold text-[#0F172A]">Create New KeyStore</h3>
+              <p className="text-[11.5px] text-[#64748B]">
+                Supports all 6 KeyStore Explorer store formats natively in Rust
+              </p>
+            </div>
           </div>
-          <button
-            onClick={onClose}
-            className="w-7 h-7 rounded-full text-[#64748B] hover:text-[#0F172A] hover:bg-[#F1F5F9] flex items-center justify-center cursor-pointer"
-          >
+          <button onClick={onClose} className="p-1 text-[#64748B] hover:text-[#0F172A] cursor-pointer">
             <X className="w-4 h-4" />
           </button>
         </div>
 
-        <form onSubmit={handleCreate} className="space-y-3.5">
+        <form onSubmit={handleCreate} className="space-y-4 text-[12.5px]">
           <div>
-            <label className="text-[12px] font-medium text-[#475569] block mb-1">
-              Keystore Filename
-            </label>
-            <input
-              type="text"
-              value={filename}
-              onChange={(e) => setFilename(e.target.value)}
-              required
-              className="w-full h-9 px-3 rounded-lg border border-[#CBD5E1] text-[13px] focus:outline-none focus:border-[#2563EB]"
-            />
-          </div>
-
-          <div>
-            <label className="text-[12px] font-medium text-[#475569] block mb-1">
-              Store Format
-            </label>
+            <label className="font-medium text-[#475569] block mb-1.5">Select KeyStore Type</label>
             <div className="grid grid-cols-3 gap-2">
-              {(["PKCS12", "JKS", "BCFKS"] as const).map((fmt) => (
+              {formats.map((f) => (
                 <button
-                  key={fmt}
+                  key={f.id}
                   type="button"
                   onClick={() => {
-                    setFormat(fmt);
-                    if (fmt === "JKS") setFilename(filename.replace(/\.[^/.]+$/, ".jks"));
-                    if (fmt === "PKCS12") setFilename(filename.replace(/\.[^/.]+$/, ".p12"));
-                    if (fmt === "BCFKS") setFilename(filename.replace(/\.[^/.]+$/, ".bcfks"));
+                    setFormat(f.id);
+                    const base = name.replace(/\.[^/.]+$/, "");
+                    setName(`${base}${f.ext}`);
                   }}
-                  className={`py-1.5 text-[12px] font-medium rounded-lg border transition cursor-pointer ${
-                    format === fmt
-                      ? "bg-[#EFF6FF] border-[#2563EB] text-[#1D4ED8]"
-                      : "bg-white border-[#CBD5E1] text-[#475569]"
+                  className={`p-2.5 rounded-xl border text-left transition cursor-pointer ${
+                    format === f.id
+                      ? "bg-[#EFF6FF] border-[#2563EB] text-[#0A3464]"
+                      : "bg-white border-[#CBD5E1] text-[#475569] hover:bg-[#F8FAFC]"
                   }`}
                 >
-                  {fmt}
+                  <div className="font-bold text-[12.5px]">{f.id}</div>
+                  <div className="text-[10.5px] text-[#64748B] truncate">{f.desc}</div>
                 </button>
               ))}
             </div>
           </div>
 
-          <div>
-            <label className="text-[12px] font-medium text-[#475569] block mb-1">
-              Primary Key Alias
-            </label>
-            <input
-              type="text"
-              value={initialAlias}
-              onChange={(e) => setInitialAlias(e.target.value)}
-              required
-              className="w-full h-9 px-3 rounded-lg border border-[#CBD5E1] text-[13px] focus:outline-none focus:border-[#2563EB]"
-            />
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="font-medium text-[#475569] block mb-1">KeyStore Filename</label>
+              <input
+                type="text"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                required
+                className="w-full h-9 px-3 rounded-lg border border-[#CBD5E1]"
+              />
+            </div>
+            <div>
+              <label className="font-medium text-[#475569] block mb-1">Store Passphrase</label>
+              <input
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="w-full h-9 px-3 rounded-lg border border-[#CBD5E1]"
+              />
+            </div>
           </div>
 
-          <div>
-            <label className="text-[12px] font-medium text-[#475569] block mb-1">
-              Keystore Password (Optional)
-            </label>
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="Leave empty for unencrypted storage"
-              className="w-full h-9 px-3 rounded-lg border border-[#CBD5E1] text-[13px] focus:outline-none focus:border-[#2563EB]"
-            />
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="font-medium text-[#475569] block mb-1">Initial Root Key Alias</label>
+              <input
+                type="text"
+                value={initialAlias}
+                onChange={(e) => setInitialAlias(e.target.value)}
+                required
+                className="w-full h-9 px-3 rounded-lg border border-[#CBD5E1]"
+              />
+            </div>
+            <div>
+              <label className="font-medium text-[#475569] block mb-1">Initial Key Algorithm</label>
+              <select
+                value={alg}
+                onChange={(e) => setAlg(e.target.value)}
+                className="w-full h-9 px-3 rounded-lg border border-[#CBD5E1] bg-white"
+              >
+                <option value="RSA">RSA-4096</option>
+                <option value="ECDSA">ECDSA P-256</option>
+                <option value="ED25519">Ed25519</option>
+                <option value="ML-DSA-65">Post-Quantum ML-DSA-65</option>
+              </select>
+            </div>
           </div>
 
           <div className="pt-2 flex justify-end space-x-2">
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 text-[12.5px] font-medium text-[#475569] hover:bg-[#F1F5F9] rounded-xl cursor-pointer"
+              className="px-4 py-2 text-[#475569] hover:bg-[#F1F5F9] rounded-xl cursor-pointer"
             >
               Cancel
             </button>
             <button
               type="submit"
-              className="px-4 py-2 text-[12.5px] font-medium bg-[#0A3464] hover:bg-[#07274C] text-white rounded-xl shadow-xs cursor-pointer flex items-center space-x-1.5"
+              disabled={busy}
+              className="px-5 py-2 bg-[#0A3464] hover:bg-[#07274C] text-white font-semibold rounded-full shadow-xs cursor-pointer flex items-center space-x-1.5"
             >
               <Sparkles className="w-3.5 h-3.5" />
-              <span>Initialize Vault</span>
+              <span>{busy ? "Initializing in Rust..." : "Create KeyStore"}</span>
             </button>
           </div>
         </form>
