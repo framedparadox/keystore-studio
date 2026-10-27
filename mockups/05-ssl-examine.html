@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Mock 05 — SSL Examine Console · xkeystore</title>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg: #e7eef7; --ink: #0c1929; --muted: #5a6d82; --line: #c5d2e3;
+      --card: #fff; --ok: #027a48; --accent: #1d4ed8;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: "Space Grotesk", system-ui, sans-serif; background:
+      radial-gradient(700px 300px at 50% -20%, #bfd4f0, transparent),
+      var(--bg); color: var(--ink); min-height: 100vh; }
+    .wrap { max-width: 1080px; margin: 0 auto; padding: 36px 24px 48px; }
+    h1 { font-size: 34px; font-weight: 700; letter-spacing: -.03em; }
+    .lede { color: var(--muted); margin: 8px 0 28px; font-size: 15px; }
+    .probe {
+      display: grid; grid-template-columns: 1fr auto auto; gap: 10px;
+      background: var(--card); border: 1px solid var(--line); border-radius: 18px;
+      padding: 14px; box-shadow: 0 10px 30px rgba(15,40,80,.05);
+    }
+    .probe input {
+      height: 48px; border: 1px solid var(--line); border-radius: 12px;
+      padding: 0 16px; font: inherit; font-size: 16px; font-weight: 500;
+    }
+    .btn {
+      height: 48px; padding: 0 22px; border-radius: 12px; border: 0;
+      font: inherit; font-weight: 700; font-size: 14px; cursor: pointer;
+      background: var(--accent); color: #fff;
+    }
+    .btn.ghost { background: #f1f5f9; color: var(--ink); }
+    .meta {
+      display: flex; flex-wrap: wrap; gap: 10px; margin: 22px 0 18px;
+    }
+    .pill {
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 8px 12px; border-radius: 999px; background: #fff;
+      border: 1px solid var(--line); font-size: 12.5px; font-weight: 600;
+    }
+    .pill.ok { background: #ecfdf3; border-color: #abefc6; color: var(--ok); }
+    .pill .m { font-family: "IBM Plex Mono", monospace; font-weight: 500; color: var(--muted); }
+    .chain { display: grid; gap: 12px; }
+    .cert {
+      background: var(--card); border: 1px solid var(--line); border-radius: 16px;
+      padding: 18px 20px; display: grid; grid-template-columns: 56px 1fr auto; gap: 16px; align-items: center;
+    }
+    .lvl {
+      width: 56px; height: 56px; border-radius: 14px; display: grid; place-items: center;
+      font-weight: 700; font-size: 12px; letter-spacing: .04em;
+    }
+    .lvl.root { background: #eff8ff; color: #175cd3; }
+    .lvl.int { background: #f4f3ff; color: #5925dc; }
+    .lvl.leaf { background: #ecfdf3; color: #027a48; }
+    .cn { font-size: 16px; font-weight: 700; }
+    .dn { font-size: 12px; color: var(--muted); margin-top: 3px; font-family: "IBM Plex Mono", monospace; }
+    .bits { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
+    .bit { font-size: 11px; font-weight: 650; padding: 3px 8px; border-radius: 6px; background: #f2f4f7; color: #344054; }
+    .side { text-align: right; }
+    .side .d { font-size: 20px; font-weight: 700; }
+    .side .l { font-size: 11px; color: var(--muted); }
+    .foot { margin-top: 20px; display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+    .foot p { font-size: 13px; color: var(--muted); }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div style="font-size:13px;font-weight:700;color:var(--accent);margin-bottom:8px;">xkeystore · Examine</div>
+    <h1>SSL / TLS Examine Console</h1>
+    <p class="lede">Connect to any host:port, inspect the live certificate chain, and import peers into an open KeyStore.</p>
+
+    <div class="probe">
+      <input value="github.com:443" aria-label="Host and port" />
+      <button class="btn ghost">Clipboard</button>
+      <button class="btn">Inspect</button>
+    </div>
+
+    <div class="meta">
+      <span class="pill ok">● Peer verified</span>
+      <span class="pill">Protocol <span class="m">TLS 1.3</span></span>
+      <span class="pill">Cipher <span class="m">TLS_AES_128_GCM_SHA256</span></span>
+      <span class="pill">Inspected <span class="m">just now</span></span>
+    </div>
+
+    <div class="chain">
+      <div class="cert">
+        <div class="lvl root">ROOT</div>
+        <div>
+          <div class="cn">DigiCert Global Root G2</div>
+          <div class="dn">O=DigiCert Inc · RSA-2048 · Self-signed</div>
+          <div class="bits"><span class="bit">CA:TRUE</span><span class="bit">SHA256withRSA</span><span class="bit">Valid → 2038</span></div>
+        </div>
+        <div class="side"><div class="d">4100</div><div class="l">days left</div></div>
+      </div>
+      <div class="cert">
+        <div class="lvl int">INT</div>
+        <div>
+          <div class="cn">DigiCert TLS Hybrid ECC SHA384 2020 CA1</div>
+          <div class="dn">Issued by DigiCert Global Root G2</div>
+          <div class="bits"><span class="bit">Intermediate</span><span class="bit">ECDSA</span></div>
+        </div>
+        <div class="side"><div class="d">980</div><div class="l">days left</div></div>
+      </div>
+      <div class="cert">
+        <div class="lvl leaf">LEAF</div>
+        <div>
+          <div class="cn">github.com</div>
+          <div class="dn">SAN: github.com, www.github.com · ECDSA P-256</div>
+          <div class="bits"><span class="bit">Server Auth</span><span class="bit">SAN × 2</span><span class="bit">Chain depth 3</span></div>
+        </div>
+        <div class="side"><div class="d">214</div><div class="l">days left</div></div>
+      </div>
+    </div>
+
+    <div class="foot">
+      <p>Import selected certificates into <strong>production-identity.p12</strong> or the CA truststore.</p>
+      <div style="display:flex;gap:8px;">
+        <button class="btn ghost" style="height:40px;">View PEM</button>
+        <button class="btn" style="height:40px;">Import to KeyStore</button>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

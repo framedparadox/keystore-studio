@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Mock 01 — Quick Start Bento · xkeystore</title>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --shell: #dde5f0; --panel: #eef2f7; --card: #fff; --ink: #0f172a;
+      --muted: #64748b; --line: #cfd8e3; --accent: #0a3464; --blue: #2563eb;
+      --soft: #c2e7ff;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: Outfit, system-ui, sans-serif; background: var(--shell); color: var(--ink); min-height: 100vh; }
+    .app { height: 100vh; display: flex; flex-direction: column; }
+    header { height: 56px; padding: 0 24px; display: flex; align-items: center; justify-content: space-between; }
+    .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 17px; }
+    .logo { width: 28px; height: 28px; border-radius: 8px; background: linear-gradient(135deg,#0a3464,#2563eb); display:grid; place-items:center; }
+    .logo i { width: 10px; height: 10px; border-radius: 50%; background:#fff; }
+    .ws { display:flex; align-items:center; gap:8px; padding:6px 12px; border-radius:999px; background:rgba(255,255,255,.9); border:1px solid var(--line); font-size:12px; font-weight:600; color:var(--accent); }
+    .btn { border:0; border-radius:999px; padding:8px 16px; font:inherit; font-size:12.5px; font-weight:600; cursor:pointer; }
+    .btn-primary { background: var(--accent); color:#fff; }
+    .btn-ghost { background:#fff; border:1px solid var(--line); color:var(--ink); }
+    .body { flex:1; display:flex; overflow:hidden; }
+    nav { width:88px; display:flex; flex-direction:column; align-items:center; gap:10px; padding:12px 6px; }
+    .nav-item { width:100%; text-align:center; color:#475569; font-size:11px; font-weight:500; }
+    .nav-item .ico { width:52px; height:32px; margin:0 auto 4px; border-radius:999px; display:grid; place-items:center; font-size:14px; }
+    .nav-item.active { color:var(--accent); font-weight:700; }
+    .nav-item.active .ico { background:var(--soft); }
+    main { flex:1; margin:0 16px 12px 0; background:var(--panel); border:1px solid var(--line); border-radius:24px; overflow:auto; padding:28px 32px; }
+    .hero { display:flex; justify-content:space-between; align-items:flex-end; gap:16px; margin-bottom:24px; flex-wrap:wrap; }
+    .badge { display:inline-flex; align-items:center; gap:6px; padding:4px 12px; border-radius:999px; background:rgba(194,231,255,.8); color:var(--accent); font-size:11.5px; font-weight:700; margin-bottom:8px; }
+    h1 { font-size:30px; letter-spacing:-.03em; }
+    h1 span { font-weight:400; color:var(--blue); }
+    .sub { color:#475569; font-size:13.5px; margin-top:4px; }
+    .actions { display:flex; gap:8px; }
+    .bento { display:grid; grid-template-columns: repeat(12, 1fr); gap:16px; }
+    .card { background:var(--card); border:1px solid #e2e8f0; border-radius:24px; padding:24px; display:flex; flex-direction:column; justify-content:space-between; min-height:210px; transition:border-color .15s, box-shadow .15s; }
+    .card:hover { border-color:#60a5fa; box-shadow:0 8px 20px rgba(37,99,235,.08); }
+    .card.span4 { grid-column: span 4; }
+    .card.span6 { grid-column: span 6; }
+    .card.span8 { grid-column: span 8; }
+    .ico-box { width:48px; height:48px; border-radius:16px; display:grid; place-items:center; background:linear-gradient(135deg,#eff6ff,#dbeafe); border:1px solid #bfdbfe; color:#1d4ed8; font-size:20px; }
+    .pill { font-size:11px; font-weight:600; padding:4px 10px; border-radius:999px; background:#f1f5f9; color:#475569; }
+    .row { display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:16px; }
+    .card h2 { font-size:17px; font-weight:700; margin-bottom:6px; }
+    .card p { font-size:12.5px; color:var(--muted); line-height:1.5; }
+    .fmts { display:flex; flex-wrap:wrap; gap:6px; margin-top:14px; }
+    .fmt { padding:5px 10px; border-radius:8px; background:#f8fafc; border:1px solid #e2e8f0; font-size:11px; font-weight:700; color:#334155; }
+    .list { margin-top:14px; display:flex; flex-direction:column; gap:8px; }
+    .list-item { display:flex; align-items:center; justify-content:space-between; padding:10px 12px; border-radius:12px; background:#f8fafc; border:1px solid #e2e8f0; font-size:12.5px; }
+    .list-item strong { font-weight:600; }
+    .tag { font-size:10.5px; font-weight:700; padding:3px 8px; border-radius:999px; background:#eff6ff; color:var(--blue); }
+    @media (max-width: 980px) {
+      .bento { grid-template-columns: 1fr 1fr; }
+      .card.span4, .card.span6, .card.span8 { grid-column: span 1; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header>
+      <div style="display:flex;align-items:center;gap:16px">
+        <div class="brand"><span class="logo"><i></i></span> xkeystore</div>
+        <div class="ws">Workspace · Production Edge & TLS Mesh</div>
+      </div>
+      <div class="actions">
+        <button class="btn btn-ghost">Manage Workspaces (3)</button>
+        <button class="btn btn-primary">Open KeyStore Explorer →</button>
+      </div>
+    </header>
+    <div class="body">
+      <nav>
+        <div class="nav-item active"><div class="ico">⌂</div>Home</div>
+        <div class="nav-item"><div class="ico">◫</div>Workspaces</div>
+        <div class="nav-item"><div class="ico">▤</div>KeyStores</div>
+        <div class="nav-item"><div class="ico">✎</div>CA & Sign</div>
+        <div class="nav-item"><div class="ico">⌕</div>Examine</div>
+        <div class="nav-item"><div class="ico">⛨</div>Security</div>
+      </nav>
+      <main>
+        <div class="hero">
+          <div>
+            <div class="badge">✦ Zero-Dependency Native Rust Engine</div>
+            <h1>xkeystore <span>Quick Start</span></h1>
+            <p class="sub">Interactive cryptographic workstation for KeyStores, X.509 certificates, CA signing, and Workspaces.</p>
+          </div>
+        </div>
+        <div class="bento">
+          <div class="card span4">
+            <div>
+              <div class="row"><div class="ico-box">＋</div><span class="pill">6 Formats</span></div>
+              <h2>Create a new KeyStore</h2>
+              <p>Initialize PKCS#12, JKS, JCEKS, BKS, BCFKS, or UBER with an optional root key pair.</p>
+              <div class="fmts">
+                <span class="fmt">+ PKCS12</span><span class="fmt">+ JKS</span><span class="fmt">+ JCEKS</span>
+                <span class="fmt">+ BKS</span><span class="fmt">+ BCFKS</span><span class="fmt">+ UBER</span>
+              </div>
+            </div>
+          </div>
+          <div class="card span4">
+            <div>
+              <div class="row"><div class="ico-box">↗</div><span class="pill">Open</span></div>
+              <h2>Open an existing KeyStore</h2>
+              <p>Browse disk for .p12 / .jks / .bcfks stores. Passphrases stay in memory only.</p>
+            </div>
+            <button class="btn btn-ghost" style="align-self:flex-start;margin-top:16px">Choose File…</button>
+          </div>
+          <div class="card span4">
+            <div>
+              <div class="row"><div class="ico-box">◎</div><span class="pill">Default</span></div>
+              <h2>Open the Default KeyStore</h2>
+              <p>Jump to <code>~/.keystore</code> (BCFKS FIPS 140-3) with one click.</p>
+            </div>
+            <div class="list-item" style="margin-top:16px"><strong>default.keystore</strong><span class="tag">BCFKS</span></div>
+          </div>
+          <div class="card span6">
+            <div>
+              <div class="row"><div class="ico-box">⛨</div><span class="pill">Trust</span></div>
+              <h2>Open the CA Certificates KeyStore</h2>
+              <p>Inspect DigiCert, ISRG Root X1, and other system trust anchors.</p>
+              <div class="list">
+                <div class="list-item"><strong>cacerts-truststore.jks</strong><span class="tag">JKS · 2 entries</span></div>
+              </div>
+            </div>
+          </div>
+          <div class="card span6">
+            <div>
+              <div class="row"><div class="ico-box">⌕</div><span class="pill">Examine</span></div>
+              <h2>Examine a Certificate</h2>
+              <p>Parse PEM/DER from clipboard, file, or live SSL host — then import into any open store.</p>
+            </div>
+            <div class="actions" style="margin-top:16px">
+              <button class="btn btn-ghost">Clipboard</button>
+              <button class="btn btn-ghost">File</button>
+              <button class="btn btn-primary">SSL Host…</button>
+            </div>
+          </div>
+        </div>
+      </main>
+    </div>
+  </div>
+</body>
+</html>

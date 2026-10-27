@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Mock 06 — Security Posture · xkeystore</title>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg: #f0f3f8; --ink: #111827; --muted: #6b7280; --line: #d1d5db;
+      --danger: #b42318; --warn: #b54708; --ok: #067647; --accent: #1e3a5f;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: "Plus Jakarta Sans", system-ui, sans-serif; background: var(--bg); color: var(--ink); min-height: 100vh; }
+    .wrap { max-width: 1120px; margin: 0 auto; padding: 32px 24px 48px; }
+    header { display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; flex-wrap: wrap; margin-bottom: 24px; }
+    .eyebrow { font-size: 12px; font-weight: 700; color: var(--danger); letter-spacing: .06em; text-transform: uppercase; }
+    h1 { font-size: 30px; font-weight: 800; letter-spacing: -.03em; margin-top: 4px; }
+    .sub { color: var(--muted); font-size: 14px; margin-top: 6px; }
+    .score {
+      width: 140px; height: 140px; border-radius: 28px; background: #fff;
+      border: 1px solid var(--line); display: grid; place-items: center; text-align: center;
+      box-shadow: 0 8px 24px rgba(0,0,0,.04);
+    }
+    .score .n { font-size: 40px; font-weight: 800; color: var(--warn); line-height: 1; }
+    .score .l { font-size: 11px; font-weight: 700; color: var(--muted); margin-top: 4px; text-transform: uppercase; letter-spacing: .06em; }
+    .kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 20px; }
+    .kpi { background: #fff; border: 1px solid var(--line); border-radius: 16px; padding: 16px; }
+    .kpi .l { font-size: 12px; font-weight: 600; color: var(--muted); }
+    .kpi .v { font-size: 28px; font-weight: 800; margin-top: 4px; letter-spacing: -.02em; }
+    .kpi.warn .v { color: var(--warn); }
+    .kpi.danger .v { color: var(--danger); }
+    .kpi.ok .v { color: var(--ok); }
+    .findings { background: #fff; border: 1px solid var(--line); border-radius: 20px; overflow: hidden; }
+    .fh { padding: 16px 20px; border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; align-items: center; }
+    .fh h2 { font-size: 16px; font-weight: 750; }
+    .row {
+      display: grid; grid-template-columns: 1fr 160px 200px 220px; gap: 12px;
+      padding: 16px 20px; border-bottom: 1px solid #eef2f6; align-items: center;
+    }
+    .row:last-child { border-bottom: 0; }
+    .alias { font-weight: 700; font-size: 14px; }
+    .path { font-size: 11.5px; color: var(--muted); font-family: "JetBrains Mono", monospace; margin-top: 3px; }
+    .sev { font-size: 11px; font-weight: 800; padding: 4px 8px; border-radius: 6px; display: inline-block; }
+    .sev.high { background: #fee4e2; color: var(--danger); }
+    .sev.med { background: #fef0c7; color: var(--warn); }
+    .issue { font-size: 13px; font-weight: 600; }
+    .issue small { display: block; font-weight: 500; color: var(--muted); margin-top: 2px; }
+    .btns { display: flex; gap: 6px; flex-wrap: wrap; }
+    .btn {
+      height: 32px; padding: 0 12px; border-radius: 8px; border: 1px solid var(--line);
+      background: #fff; font: inherit; font-size: 12px; font-weight: 700; cursor: pointer;
+    }
+    .btn.p { background: var(--accent); color: #fff; border-color: var(--accent); }
+    .btn.pq { background: #eff8ff; color: #175cd3; border-color: #b2ddff; }
+    @media (max-width: 900px) {
+      .kpis { grid-template-columns: 1fr 1fr; }
+      .row { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <div>
+        <div class="eyebrow">Security · Scanner</div>
+        <h1>Posture &amp; key rotation</h1>
+        <p class="sub">Flags weak keys (RSA &lt; 2048) and rotates them in-place to RSA-4096 or post-quantum ML-DSA-65.</p>
+      </div>
+      <div class="score"><div><div class="n">72</div><div class="l">Posture score</div></div></div>
+    </header>
+
+    <div class="kpis">
+      <div class="kpi danger"><div class="l">Critical findings</div><div class="v">1</div></div>
+      <div class="kpi warn"><div class="l">Expiring &lt; 30d</div><div class="v">1</div></div>
+      <div class="kpi ok"><div class="l">Post-quantum ready</div><div class="v">2</div></div>
+      <div class="kpi"><div class="l">Stores scanned</div><div class="v">3</div></div>
+    </div>
+
+    <div class="findings">
+      <div class="fh">
+        <h2>Findings requiring action</h2>
+        <button class="btn">Rescan all stores</button>
+      </div>
+      <div class="row">
+        <div>
+          <div class="alias">legacy-jar-signer-1024</div>
+          <div class="path">production-identity.p12 · RSA-1024 · SHA1withRSA</div>
+        </div>
+        <div><span class="sev high">CRITICAL</span></div>
+        <div class="issue">Weak key size<small>RSA &lt; 2048 bits</small></div>
+        <div class="btns">
+          <button class="btn p">Rotate → RSA-4096</button>
+          <button class="btn pq">Rotate → ML-DSA-65</button>
+        </div>
+      </div>
+      <div class="row">
+        <div>
+          <div class="alias">legacy-jar-signer-1024</div>
+          <div class="path">Expires 2026-11-12 · 19 days remaining</div>
+        </div>
+        <div><span class="sev med">WARNING</span></div>
+        <div class="issue">Near expiry<small>Renew during rotation</small></div>
+        <div class="btns">
+          <button class="btn">Extend + re-sign</button>
+        </div>
+      </div>
+      <div class="row">
+        <div>
+          <div class="alias">api-gateway-tls</div>
+          <div class="path">ECDSA P-256 · healthy</div>
+        </div>
+        <div><span class="sev" style="background:#ecfdf3;color:var(--ok);">PASS</span></div>
+        <div class="issue">No action needed<small>128 days remaining</small></div>
+        <div class="btns">
+          <button class="btn">Inspect</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

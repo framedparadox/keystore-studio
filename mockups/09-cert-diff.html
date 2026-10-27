@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Mock 09 — Certificate Diff · xkeystore</title>
+  <link href="https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg: #eef1f6; --ink: #121826; --muted: #667085; --line: #d0d5dd;
+      --left: #eff8ff; --right: #fef6ee; --diff: #fef3f2; --same: #f6fef9;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: "Schibsted Grotesk", system-ui, sans-serif; background: var(--bg); color: var(--ink); min-height: 100vh; }
+    .wrap { max-width: 1180px; margin: 0 auto; padding: 32px 24px 48px; }
+    header { margin-bottom: 22px; }
+    .brand { font-size: 12px; font-weight: 700; color: #1d4ed8; letter-spacing: .06em; text-transform: uppercase; }
+    h1 { font-size: 30px; font-weight: 700; letter-spacing: -.03em; margin-top: 6px; }
+    .sub { color: var(--muted); font-size: 14px; margin-top: 6px; }
+    .pickers {
+      display: grid; grid-template-columns: 1fr auto 1fr; gap: 12px; align-items: end; margin-bottom: 18px;
+    }
+    .pick { background: #fff; border: 1px solid var(--line); border-radius: 14px; padding: 14px; }
+    .pick label { display: block; font-size: 11px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; margin-bottom: 8px; }
+    .pick select { width: 100%; border: 0; font: inherit; font-size: 14px; font-weight: 650; background: transparent; }
+    .vs {
+      width: 48px; height: 48px; border-radius: 50%; background: #0f172a; color: #fff;
+      display: grid; place-items: center; font-size: 12px; font-weight: 800; margin-bottom: 4px;
+    }
+    .legend { display: flex; gap: 10px; margin-bottom: 14px; flex-wrap: wrap; }
+    .lg { font-size: 11.5px; font-weight: 650; padding: 5px 10px; border-radius: 8px; }
+    .lg.diff { background: var(--diff); color: #b42318; }
+    .lg.same { background: var(--same); color: #067647; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+    .pane { background: #fff; border: 1px solid var(--line); border-radius: 18px; overflow: hidden; }
+    .ph { padding: 14px 16px; font-size: 13px; font-weight: 700; border-bottom: 1px solid var(--line); }
+    .ph.a { background: var(--left); }
+    .ph.b { background: var(--right); }
+    .row {
+      display: grid; grid-template-columns: 120px 1fr; gap: 10px;
+      padding: 10px 16px; border-bottom: 1px solid #f2f4f7; font-size: 12.5px;
+    }
+    .row:last-child { border-bottom: 0; }
+    .row.changed { background: var(--diff); }
+    .row.ok { background: var(--same); }
+    .k { color: var(--muted); font-weight: 600; }
+    .v { font-family: "IBM Plex Mono", monospace; font-size: 11.5px; word-break: break-all; }
+    @media (max-width: 800px) {
+      .pickers, .grid { grid-template-columns: 1fr; }
+      .vs { margin: 0 auto; }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <div class="brand">xkeystore · Examine</div>
+      <h1>Compare certificates</h1>
+      <p class="sub">Side-by-side diff of any two certificates — subjects, algorithms, validity, and extensions.</p>
+    </header>
+
+    <div class="pickers">
+      <div class="pick">
+        <label>Certificate A</label>
+        <select><option>api-gateway-tls · ECDSA P-256</option></select>
+      </div>
+      <div class="vs">VS</div>
+      <div class="pick">
+        <label>Certificate B</label>
+        <select><option>legacy-jar-signer-1024 · RSA-1024</option></select>
+      </div>
+    </div>
+
+    <div class="legend">
+      <span class="lg diff">● Differs</span>
+      <span class="lg same">● Identical</span>
+      <span class="lg" style="background:#f2f4f7;color:var(--muted);">4 fields changed · 3 match</span>
+    </div>
+
+    <div class="grid">
+      <section class="pane">
+        <div class="ph a">A · api-gateway-tls</div>
+        <div class="row ok"><div class="k">Version</div><div class="v">v3</div></div>
+        <div class="row changed"><div class="k">Algorithm</div><div class="v">ECDSA / secp256r1</div></div>
+        <div class="row changed"><div class="k">Key size</div><div class="v">256</div></div>
+        <div class="row changed"><div class="k">Signature</div><div class="v">SHA256withECDSA</div></div>
+        <div class="row changed"><div class="k">Subject</div><div class="v">CN=api.xkeystore.internal</div></div>
+        <div class="row ok"><div class="k">Issuer</div><div class="v">CN=xkeystore Global Root CA G3</div></div>
+        <div class="row ok"><div class="k">Is CA</div><div class="v">false</div></div>
+        <div class="row changed"><div class="k">EKU</div><div class="v">TLS Server + Client Auth</div></div>
+      </section>
+      <section class="pane">
+        <div class="ph b">B · legacy-jar-signer-1024</div>
+        <div class="row ok"><div class="k">Version</div><div class="v">v3</div></div>
+        <div class="row changed"><div class="k">Algorithm</div><div class="v">RSA</div></div>
+        <div class="row changed"><div class="k">Key size</div><div class="v">1024 ⚠ weak</div></div>
+        <div class="row changed"><div class="k">Signature</div><div class="v">SHA1withRSA</div></div>
+        <div class="row changed"><div class="k">Subject</div><div class="v">CN=legacy-applet.corp.local</div></div>
+        <div class="row ok"><div class="k">Issuer</div><div class="v">CN=xkeystore Global Root CA G3</div></div>
+        <div class="row ok"><div class="k">Is CA</div><div class="v">false</div></div>
+        <div class="row changed"><div class="k">EKU</div><div class="v">Code Signing</div></div>
+      </section>
+    </div>
+  </div>
+</body>
+</html>

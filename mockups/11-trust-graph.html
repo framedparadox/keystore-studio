@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Mock 11 — Trust Hierarchy Graph · xkeystore</title>
+  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@500;600;700;800&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg: #e4ecf5; --ink: #0b1a2b; --muted: #5b6d80; --line: #b9c9db;
+      --node: #fff; --accent: #1d4ed8; --root: #0f766e; --leaf: #c2410c;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: "IBM Plex Sans", system-ui, sans-serif;
+      background:
+        radial-gradient(circle at 20% 10%, #c9daf0 0%, transparent 40%),
+        radial-gradient(circle at 80% 0%, #d5e4d8 0%, transparent 35%),
+        var(--bg);
+      color: var(--ink); min-height: 100vh;
+    }
+    .wrap { max-width: 1100px; margin: 0 auto; padding: 32px 24px 48px; }
+    header { display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; flex-wrap: wrap; margin-bottom: 28px; }
+    .brand { font-family: Syne, sans-serif; font-size: 12px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--accent); }
+    h1 { font-family: Syne, sans-serif; font-size: 34px; font-weight: 800; letter-spacing: -.03em; margin-top: 6px; }
+    .sub { color: var(--muted); font-size: 14px; margin-top: 6px; max-width: 46ch; }
+    .controls { display: flex; gap: 8px; }
+    .btn {
+      height: 38px; padding: 0 14px; border-radius: 10px; border: 1px solid var(--line);
+      background: #fff; font: inherit; font-weight: 650; font-size: 12.5px; cursor: pointer;
+    }
+    .btn.p { background: #0f2744; color: #fff; border-color: #0f2744; }
+    .canvas {
+      background: rgba(255,255,255,.65); border: 1px solid var(--line);
+      border-radius: 24px; padding: 36px 28px 40px; min-height: 560px;
+      position: relative; overflow: hidden;
+    }
+    .level { display: flex; justify-content: center; gap: 28px; position: relative; z-index: 1; }
+    .level + .level { margin-top: 56px; }
+    .node {
+      width: 240px; background: var(--node); border: 1.5px solid var(--line);
+      border-radius: 16px; padding: 14px 16px; box-shadow: 0 8px 20px rgba(15,40,70,.06);
+      position: relative;
+    }
+    .node.root { border-color: #5eead4; box-shadow: 0 0 0 3px rgba(15,118,110,.08); }
+    .node.leaf { border-color: #fdba74; }
+    .node.selected { border-color: #93c5fd; box-shadow: 0 0 0 3px rgba(29,78,216,.12); }
+    .role {
+      font-size: 10px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase;
+      margin-bottom: 6px;
+    }
+    .role.root { color: var(--root); }
+    .role.int { color: #6d28d9; }
+    .role.leaf { color: var(--leaf); }
+    .role.trust { color: var(--accent); }
+    .cn { font-family: Syne, sans-serif; font-size: 14px; font-weight: 700; line-height: 1.25; }
+    .meta { font-size: 11px; color: var(--muted); margin-top: 4px; font-family: "IBM Plex Mono", monospace; }
+    .tags { display: flex; gap: 5px; margin-top: 8px; flex-wrap: wrap; }
+    .tag { font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: 5px; background: #f1f5f9; }
+    svg.links {
+      position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 0;
+    }
+    .footer-bar {
+      margin-top: 16px; display: flex; justify-content: space-between; align-items: center;
+      font-size: 12.5px; color: var(--muted); flex-wrap: wrap; gap: 8px;
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <div>
+        <div class="brand">xkeystore · Graph</div>
+        <h1>Trust hierarchy</h1>
+        <p class="sub">Visual chain from root CA through issued leaves — across production-identity.p12.</p>
+      </div>
+      <div class="controls">
+        <button class="btn">Fit</button>
+        <button class="btn">List view</button>
+        <button class="btn p">Inspect selected</button>
+      </div>
+    </header>
+
+    <div class="canvas">
+      <svg class="links" viewBox="0 0 1000 520" preserveAspectRatio="none" aria-hidden="true">
+        <path d="M500 95 C500 140, 280 140, 280 190" fill="none" stroke="#94a3b8" stroke-width="2" />
+        <path d="M500 95 C500 140, 500 140, 500 190" fill="none" stroke="#94a3b8" stroke-width="2" />
+        <path d="M500 95 C500 140, 720 140, 720 190" fill="none" stroke="#94a3b8" stroke-width="2" />
+        <path d="M280 275 C280 320, 280 320, 280 360" fill="none" stroke="#94a3b8" stroke-width="2" stroke-dasharray="4 4" />
+      </svg>
+
+      <div class="level">
+        <div class="node root">
+          <div class="role root">Root CA</div>
+          <div class="cn">xkeystore Global Root CA G3</div>
+          <div class="meta">RSA-4096 · self-signed · 2035</div>
+          <div class="tags"><span class="tag">CA</span><span class="tag">Production</span></div>
+        </div>
+      </div>
+
+      <div class="level">
+        <div class="node leaf selected">
+          <div class="role leaf">Leaf · TLS</div>
+          <div class="cn">api-gateway-tls</div>
+          <div class="meta">ECDSA P-256 · 128d left</div>
+          <div class="tags"><span class="tag">Mesh</span><span class="tag">SAN × 3</span></div>
+        </div>
+        <div class="node leaf">
+          <div class="role leaf">Leaf · PQC</div>
+          <div class="cn">quantum-mtls-signer</div>
+          <div class="meta">ML-DSA-65 · FIPS 204</div>
+          <div class="tags"><span class="tag">Post-Quantum</span></div>
+        </div>
+        <div class="node leaf">
+          <div class="role leaf">Leaf · Legacy</div>
+          <div class="cn">legacy-jar-signer-1024</div>
+          <div class="meta">RSA-1024 · weak · 19d</div>
+          <div class="tags"><span class="tag">⚠ Rotate</span></div>
+        </div>
+      </div>
+
+      <div class="level">
+        <div class="node">
+          <div class="role trust">External Trust</div>
+          <div class="cn">DigiCert Global Root G2</div>
+          <div class="meta">TrustedCertificate · anchor</div>
+          <div class="tags"><span class="tag">Imported</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="footer-bar">
+      <span>Selected: <strong style="color:var(--ink)">api-gateway-tls</strong> · issued by xkeystore-root-ca</span>
+      <span>Drag canvas · scroll to zoom</span>
+    </div>
+  </div>
+</body>
+</html>

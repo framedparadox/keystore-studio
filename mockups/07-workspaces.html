@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Mock 07 — Workspace Board · xkeystore</title>
+  <link href="https://fonts.googleapis.com/css2?family=Literata:opsz,wght@7..72,500;7..72,700&family=Figtree:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg: #e8eef4; --ink: #132033; --muted: #5d6e81; --line: #cad5e2; --card: #fff;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: Figtree, system-ui, sans-serif; background:
+      linear-gradient(160deg, #dce7f2 0%, #e8eef4 40%, #e3ebe4 100%);
+      color: var(--ink); min-height: 100vh; }
+    .wrap { max-width: 1180px; margin: 0 auto; padding: 36px 24px 48px; }
+    header { display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 28px; gap: 16px; flex-wrap: wrap; }
+    .brand { font-size: 12px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: #1d4ed8; }
+    h1 { font-family: Literata, Georgia, serif; font-size: 36px; font-weight: 700; letter-spacing: -.02em; margin-top: 6px; }
+    .sub { color: var(--muted); font-size: 14.5px; margin-top: 6px; max-width: 46ch; }
+    .btn {
+      height: 40px; padding: 0 16px; border-radius: 12px; border: 1px solid var(--line);
+      background: #fff; font: inherit; font-weight: 700; font-size: 13px; cursor: pointer;
+    }
+    .btn.p { background: #0f2744; color: #fff; border-color: #0f2744; }
+    .board { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+    .col {
+      background: rgba(255,255,255,.55); border: 1px solid var(--line);
+      border-radius: 22px; padding: 16px; backdrop-filter: blur(8px);
+      min-height: 520px; display: flex; flex-direction: column; gap: 12px;
+    }
+    .col-h { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
+    .env {
+      font-size: 11px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase;
+      padding: 4px 9px; border-radius: 999px;
+    }
+    .env.prod { background: #dbeafe; color: #1e40af; }
+    .env.comp { background: #d1fae5; color: #065f46; }
+    .env.stg { background: #ede9fe; color: #5b21b6; }
+    .col h2 { font-family: Literata, Georgia, serif; font-size: 20px; font-weight: 700; line-height: 1.25; }
+    .desc { font-size: 12.5px; color: var(--muted); line-height: 1.45; }
+    .card {
+      background: var(--card); border: 1px solid var(--line); border-radius: 14px;
+      padding: 12px 14px; display: flex; flex-direction: column; gap: 6px;
+    }
+    .card .a { font-size: 13.5px; font-weight: 700; }
+    .card .m { font-size: 11.5px; color: var(--muted); }
+    .tags { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 4px; }
+    .tag { font-size: 10.5px; font-weight: 700; padding: 3px 7px; border-radius: 6px; background: #f1f5f9; color: #334155; }
+    .add {
+      margin-top: auto; border: 1.5px dashed #b7c5d6; border-radius: 14px;
+      padding: 14px; text-align: center; font-size: 12.5px; font-weight: 650; color: var(--muted);
+      background: rgba(255,255,255,.35);
+    }
+    .meta { font-size: 11px; color: var(--muted); }
+    @media (max-width: 900px) { .board { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <div>
+        <div class="brand">xkeystore · Workspaces</div>
+        <h1>Certificate workspaces</h1>
+        <p class="sub">Assign key pairs, trusted CAs, and secret keys across stores into logical environments.</p>
+      </div>
+      <button class="btn p">+ New Workspace</button>
+    </header>
+
+    <div class="board">
+      <section class="col">
+        <div class="col-h"><span class="env prod">Production</span><span class="meta">Updated 10 mins ago</span></div>
+        <h2>Production Edge &amp; TLS Mesh</h2>
+        <p class="desc">Active mTLS, ingress gateway, and symmetric envelope keys for production clusters.</p>
+        <div class="card">
+          <div class="a">xkeystore-root-ca</div>
+          <div class="m">KeyPair · RSA-4096 · production-identity.p12</div>
+          <div class="tags"><span class="tag">CA</span><span class="tag">Root</span></div>
+        </div>
+        <div class="card">
+          <div class="a">api-gateway-tls</div>
+          <div class="m">KeyPair · ECDSA P-256 · Leaf TLS</div>
+          <div class="tags"><span class="tag">TLS</span><span class="tag">Mesh</span></div>
+        </div>
+        <div class="card">
+          <div class="a">master-envelope-aes256</div>
+          <div class="m">SecretKey · AES-256-GCM</div>
+          <div class="tags"><span class="tag">Encryption</span></div>
+        </div>
+        <div class="card">
+          <div class="a">bastion-ed25519-signing</div>
+          <div class="m">KeyPair · Ed25519 · cacerts-truststore.jks</div>
+          <div class="tags"><span class="tag">ZeroTrust</span></div>
+        </div>
+        <div class="add">+ Assign entry</div>
+      </section>
+
+      <section class="col">
+        <div class="col-h"><span class="env comp">Compliance</span><span class="meta">Updated 2 hours ago</span></div>
+        <h2>Global Trust &amp; Root CAs</h2>
+        <p class="desc">Root authorities, DigiCert &amp; Let’s Encrypt ISRG trust anchors.</p>
+        <div class="card">
+          <div class="a">xkeystore-root-ca</div>
+          <div class="m">Self-signed Global Root CA G3</div>
+          <div class="tags"><span class="tag">CA</span></div>
+        </div>
+        <div class="card">
+          <div class="a">digicert-global-root-g2</div>
+          <div class="m">TrustedCertificate · RSA-2048</div>
+          <div class="tags"><span class="tag">Root-Anchor</span></div>
+        </div>
+        <div class="card">
+          <div class="a">letsencrypt-isrg-root-x1</div>
+          <div class="m">TrustedCertificate · RSA-4096 · JKS</div>
+          <div class="tags"><span class="tag">ACME</span></div>
+        </div>
+        <div class="add">+ Assign entry</div>
+      </section>
+
+      <section class="col">
+        <div class="col-h"><span class="env stg">Staging</span><span class="meta">Updated Yesterday</span></div>
+        <h2>Post-Quantum PQC Migration</h2>
+        <p class="desc">NIST FIPS 204 ML-DSA-65, FIPS 203 ML-KEM, and quantum-resistant secrets.</p>
+        <div class="card">
+          <div class="a">quantum-mtls-signer</div>
+          <div class="m">KeyPair · ML-DSA-65 · FIPS 204</div>
+          <div class="tags"><span class="tag">Post-Quantum</span><span class="tag">mTLS</span></div>
+        </div>
+        <div class="card">
+          <div class="a">master-envelope-aes256</div>
+          <div class="m">SecretKey · AES-256</div>
+          <div class="tags"><span class="tag">PQ-ready</span></div>
+        </div>
+        <div class="card">
+          <div class="a">jwt-hmac-sha512-secret</div>
+          <div class="m">SecretKey · HMAC-SHA512 · default.keystore</div>
+          <div class="tags"><span class="tag">FIPS</span></div>
+        </div>
+        <div class="add">+ Assign entry</div>
+      </section>
+    </div>
+  </div>
+</body>
+</html>
