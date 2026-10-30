@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Home F — Ledger Home · xkeystore</title>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<style>
+:root{--bg:#f2efe8;--ink:#1c1914;--muted:#6b6458;--line:#d4cec2;--accent:#8a4b12;--panel:#faf8f3}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:"Instrument Sans",system-ui,sans-serif;background:
+  repeating-linear-gradient(0deg,transparent,transparent 27px,rgba(212,206,194,.35) 28px),
+  linear-gradient(180deg,#efebe3,#e4ddd2);color:var(--ink);min-height:100vh}
+/* avoid broadsheet: keep single column ledger, soft radius, not dense newspaper */
+.frame{max-width:820px;margin:0 auto;padding:48px 28px 64px}
+.brand{font-size:13px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--accent);margin-bottom:28px}
+h1{font-size:clamp(34px,4.5vw,46px);letter-spacing:-.04em;font-weight:700;line-height:1.05}
+.sub{margin-top:10px;color:var(--muted);font-size:15px;max-width:42ch;line-height:1.5}
+.ledger{margin-top:36px;border-top:2px solid var(--ink)}
+.item{display:grid;grid-template-columns:64px 1fr auto;gap:18px;align-items:center;padding:18px 4px;border-bottom:1px solid var(--line)}
+.item:hover{background:rgba(255,255,255,.45)}
+.code{font-family:"IBM Plex Mono",monospace;font-size:12px;font-weight:500;color:var(--accent)}
+.item h2{font-size:16px;font-weight:650;letter-spacing:-.02em}
+.item p{font-size:12.5px;color:var(--muted);margin-top:3px;line-height:1.4}
+.go{font-size:12px;font-weight:700;color:var(--ink);opacity:.55}
+.foot{margin-top:28px;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
+.foot span{font-size:12.5px;color:var(--muted)}
+.foot .ws{font-family:"IBM Plex Mono",monospace;font-size:11.5px;padding:6px 10px;border:1px solid var(--line);border-radius:8px;background:var(--panel)}
+</style>
+</head>
+<body>
+<div class="frame">
+  <div class="brand">xkeystore · quick start</div>
+  <h1>Choose a starting action</h1>
+  <p class="sub">A quiet ledger of the same six KeyStore Explorer entry points — no tile noise, just the work.</p>
+  <div class="ledger">
+    <div class="item"><div class="code">01</div><div><h2>Create a new KeyStore</h2><p>PKCS#12, JKS, JCEKS, BKS, BCFKS, or UBER with optional root key pair</p></div><div class="go">Open →</div></div>
+    <div class="item"><div class="code">02</div><div><h2>Open an existing KeyStore</h2><p>prod-edge.p12 · default.keystore · cacerts-truststore.jks</p></div><div class="go">Open →</div></div>
+    <div class="item"><div class="code">03</div><div><h2>Open the Default KeyStore</h2><p>~/.keystore · BCFKS · 8 entries</p></div><div class="go">Open →</div></div>
+    <div class="item"><div class="code">04</div><div><h2>Open the CA Certificates KeyStore</h2><p>DigiCert Root G2 · ISRG Root X1 · xkeystore Root G3</p></div><div class="go">Open →</div></div>
+    <div class="item"><div class="code">05</div><div><h2>Examine a Certificate</h2><p>Live SSL host, clipboard PEM/ASN.1, or side-by-side diff</p></div><div class="go">Open →</div></div>
+    <div class="item"><div class="code">06</div><div><h2>Show the Help Pages</h2><p>Formats · Post-Quantum · Workspaces · CA & JAR signing</p></div><div class="go">Open →</div></div>
+  </div>
+  <div class="foot">
+    <span>Also: Workspaces (3) · CA & Signing Studio · Security posture</span>
+    <div class="ws">WS · Production Edge</div>
+  </div>
+</div>
+</body></html>
