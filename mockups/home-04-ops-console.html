@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Home D — Ops Console · xkeystore</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<style>
+:root{--bg:#dce3ea;--ink:#0e1a26;--muted:#5a6a7a;--line:#b7c4d2;--accent:#1f5f99;--panel:#eef2f6;--card:#f8fafc}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:"IBM Plex Sans",system-ui,sans-serif;background:var(--bg);color:var(--ink);min-height:100vh}
+.shell{height:100vh;display:grid;grid-template-columns:72px 1fr}
+nav{background:#0e1a26;color:#c9d5e2;padding:16px 8px;display:flex;flex-direction:column;align-items:center;gap:14px}
+.logo{width:36px;height:36px;border-radius:9px;background:linear-gradient(145deg,#1f5f99,#3d8fd4);display:grid;place-items:center;margin-bottom:8px}
+.logo i{width:10px;height:10px;border-radius:50%;background:#fff}
+.ni{width:100%;text-align:center;font-size:10px;font-weight:500;opacity:.7}
+.ni.on{opacity:1;color:#fff;font-weight:650}
+.ni .b{width:40px;height:28px;margin:0 auto 4px;border-radius:8px;display:grid;place-items:center;font-size:13px}
+.ni.on .b{background:#1f5f99}
+main{padding:22px 26px;overflow:auto;background:
+  linear-gradient(180deg,#e8eef4,#dce3ea)}
+.head{display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:18px;gap:16px;flex-wrap:wrap}
+.head h1{font-size:24px;letter-spacing:-.03em;font-weight:700}
+.head h1 span{font-weight:500;color:var(--accent)}
+.head p{font-size:13px;color:var(--muted);margin-top:4px}
+.btns{display:flex;gap:8px}
+.btn{border:1px solid var(--line);background:#fff;border-radius:8px;padding:8px 14px;font:inherit;font-size:12.5px;font-weight:600;cursor:pointer}
+.btn.p{background:var(--accent);color:#fff;border-color:var(--accent)}
+.kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px}
+.kpi{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px 16px}
+.kpi .l{font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
+.kpi .v{font-size:26px;font-weight:700;letter-spacing:-.03em;margin-top:4px;font-family:"IBM Plex Mono",monospace}
+.kpi .s{font-size:11.5px;color:var(--muted);margin-top:2px}
+.panes{display:grid;grid-template-columns:1.4fr 1fr;gap:12px}
+.panel{background:var(--card);border:1px solid var(--line);border-radius:14px;overflow:hidden}
+.ph{padding:12px 16px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center;font-size:13px;font-weight:650}
+.ph a{font-size:12px;color:var(--accent);text-decoration:none;font-weight:600}
+.row{display:grid;grid-template-columns:1fr auto auto;gap:12px;align-items:center;padding:11px 16px;border-bottom:1px solid #e6ecf2;font-size:13px}
+.row:last-child{border-bottom:0}
+.row .m{font-family:"IBM Plex Mono",monospace;font-size:11.5px;color:var(--muted)}
+.actrow{display:flex;flex-wrap:wrap;gap:8px;padding:14px 16px}
+.chip{font-size:12px;font-weight:600;padding:9px 12px;border-radius:8px;border:1px solid var(--line);background:#fff}
+.chip.p{background:#e5f0fa;border-color:#a8c8e4;color:var(--accent)}
+</style>
+</head>
+<body>
+<div class="shell">
+  <nav>
+    <div class="logo"><i></i></div>
+    <div class="ni on"><div class="b">⌂</div>Home</div>
+    <div class="ni"><div class="b">◫</div>WS</div>
+    <div class="ni"><div class="b">▤</div>KS</div>
+    <div class="ni"><div class="b">✎</div>Sign</div>
+    <div class="ni"><div class="b">⌕</div>Exam</div>
+    <div class="ni"><div class="b">⛨</div>Sec</div>
+  </nav>
+  <main>
+    <div class="head">
+      <div>
+        <h1>xkeystore <span>console</span></h1>
+        <p>Zero-dependency native Rust engine · 3 stores · 3 workspaces</p>
+      </div>
+      <div class="btns">
+        <button class="btn">Manage Workspaces</button>
+        <button class="btn p">Open KeyStore Explorer</button>
+      </div>
+    </div>
+    <div class="kpis">
+      <div class="kpi"><div class="l">Stores</div><div class="v">03</div><div class="s">PKCS12 · BCFKS · JKS</div></div>
+      <div class="kpi"><div class="l">Key pairs</div><div class="v">18</div><div class="s">RSA · ECDSA · ML-DSA</div></div>
+      <div class="kpi"><div class="l">Trust CAs</div><div class="v">06</div><div class="s">2 weak · rotate available</div></div>
+      <div class="kpi"><div class="l">Workspaces</div><div class="v">03</div><div class="s">Prod · Compliance · PQC</div></div>
+    </div>
+    <div class="panes">
+      <div class="panel">
+        <div class="ph">Quick start actions<a href="#">All tools →</a></div>
+        <div class="actrow">
+          <span class="chip p">＋ Create KeyStore</span>
+          <span class="chip">↗ Open existing</span>
+          <span class="chip">◎ Default ~/.keystore</span>
+          <span class="chip">⛨ CA Certificates</span>
+          <span class="chip">⌕ Examine SSL / PEM</span>
+          <span class="chip">? Help pages</span>
+          <span class="chip">✎ CA & JAR Signer</span>
+        </div>
+        <div class="ph" style="border-top:1px solid var(--line)">Recent stores</div>
+        <div class="row"><div><strong>prod-edge.p12</strong></div><div class="m">PKCS12 · 12</div><div class="m">2m ago</div></div>
+        <div class="row"><div><strong>default.keystore</strong></div><div class="m">BCFKS · 8</div><div class="m">1h ago</div></div>
+        <div class="row"><div><strong>cacerts-truststore.jks</strong></div><div class="m">JKS · 2</div><div class="m">yesterday</div></div>
+      </div>
+      <div class="panel">
+        <div class="ph">Security posture<a href="#">Scanner →</a></div>
+        <div class="row"><div><strong>rsa-legacy-1024</strong></div><div class="m">WEAK</div><div class="m">Rotate</div></div>
+        <div class="row"><div><strong>edge-leaf-tls</strong></div><div class="m">RSA-2048</div><div class="m">OK</div></div>
+        <div class="row"><div><strong>pqc-trial-mldsa</strong></div><div class="m">ML-DSA-65</div><div class="m">PQC</div></div>
+        <div class="ph" style="border-top:1px solid var(--line)">Examine shortcuts</div>
+        <div class="actrow">
+          <span class="chip">github.com:443</span>
+          <span class="chip">Paste clipboard</span>
+          <span class="chip">Compare certs</span>
+        </div>
+      </div>
+    </div>
+  </main>
+</div>
+</body></html>

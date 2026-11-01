@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Home H — Dual Pane · xkeystore</title>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<style>
+:root{--ink:#0f1c2e;--muted:#5c6d82;--line:#c7d3e2;--accent:#1a5f9e;--left:#edf3fa;--right:#f7f9fc;--card:#fff}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:"Plus Jakarta Sans",system-ui,sans-serif;color:var(--ink);min-height:100vh;background:#d9e3ef}
+.shell{height:100vh;display:grid;grid-template-rows:56px 1fr}
+header{display:flex;align-items:center;justify-content:space-between;padding:0 24px;background:rgba(255,255,255,.75);border-bottom:1px solid var(--line);backdrop-filter:blur(8px)}
+.brand{display:flex;align-items:center;gap:10px;font-weight:800;letter-spacing:-.03em}
+.mark{width:28px;height:28px;border-radius:8px;background:linear-gradient(135deg,#0a3464,#2b7bc4);display:grid;place-items:center}
+.mark i{width:9px;height:9px;border-radius:50%;background:#fff}
+.ws{font-size:12px;font-weight:650;color:var(--accent);padding:6px 12px;border:1px solid var(--line);border-radius:999px;background:#fff}
+.split{display:grid;grid-template-columns:1fr 1fr;min-height:0}
+.pane{padding:36px 36px 28px;overflow:auto}
+.pane.l{background:
+  radial-gradient(600px 320px at 20% 0%,#c9ddf3,transparent 60%),
+  var(--left);border-right:1px solid var(--line)}
+.pane.r{background:var(--right)}
+.kicker{font-size:11.5px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--accent);margin-bottom:10px}
+h1{font-size:clamp(28px,3.2vw,36px);letter-spacing:-.04em;font-weight:800;line-height:1.05;max-width:12ch}
+.lede{margin-top:10px;font-size:14px;color:var(--muted);line-height:1.5;max-width:36ch}
+.stack{margin-top:28px;display:flex;flex-direction:column;gap:10px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:16px 18px;display:flex;gap:14px;align-items:flex-start;transition:border-color .15s,box-shadow .15s}
+.card:hover{border-color:#8eb6de;box-shadow:0 10px 24px rgba(15,40,70,.06)}
+.ico{width:40px;height:40px;border-radius:12px;background:#e4eef8;color:var(--accent);display:grid;place-items:center;font-weight:800;flex-shrink:0}
+.card h2{font-size:14.5px;font-weight:750;letter-spacing:-.02em}
+.card p{font-size:12px;color:var(--muted);margin-top:3px;line-height:1.4}
+.list{margin-top:22px;display:flex;flex-direction:column;gap:8px}
+.row{background:#fff;border:1px solid var(--line);border-radius:14px;padding:14px 16px;display:flex;justify-content:space-between;align-items:center}
+.row strong{font-size:13.5px;display:block}
+.row span{font-family:"IBM Plex Mono",monospace;font-size:11px;color:var(--muted)}
+.tag{font-size:11px;font-weight:700;padding:4px 9px;border-radius:8px;background:#e5f0fa;color:var(--accent)}
+.tools{margin-top:18px;display:flex;flex-wrap:wrap;gap:8px}
+.chip{font-size:12px;font-weight:650;padding:8px 12px;border-radius:10px;border:1px solid var(--line);background:#fff}
+@media(max-width:900px){.split{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="shell">
+  <header>
+    <div class="brand"><span class="mark"><i></i></span>xkeystore</div>
+    <div class="ws">Production Edge & TLS Mesh</div>
+  </header>
+  <div class="split">
+    <section class="pane l">
+      <div class="kicker">Start</div>
+      <h1>Begin a new task</h1>
+      <p class="lede">Primary KeyStore Explorer actions for creating, opening, trusting, and examining crypto material.</p>
+      <div class="stack">
+        <div class="card"><div class="ico">＋</div><div><h2>Create a new KeyStore</h2><p>PKCS12 · JKS · JCEKS · BKS · BCFKS · UBER</p></div></div>
+        <div class="card"><div class="ico">↗</div><div><h2>Open an existing KeyStore</h2><p>Browse disk or pick from recent stores</p></div></div>
+        <div class="card"><div class="ico">◎</div><div><h2>Open Default KeyStore</h2><p>~/.keystore · BCFKS · 8 entries</p></div></div>
+        <div class="card"><div class="ico">⛨</div><div><h2>CA Certificates KeyStore</h2><p>DigiCert · ISRG Root X1 · enterprise roots</p></div></div>
+        <div class="card"><div class="ico">⌕</div><div><h2>Examine a Certificate</h2><p>SSL host · clipboard · file · cert diff</p></div></div>
+      </div>
+    </section>
+    <section class="pane r">
+      <div class="kicker">Continue</div>
+      <h1>Pick up where you left off</h1>
+      <p class="lede">Recent stores and shortcuts into workspaces, signing, and help.</p>
+      <div class="list">
+        <div class="row"><div><strong>prod-edge.p12</strong><span>PKCS12 · 12 entries</span></div><span class="tag">Open</span></div>
+        <div class="row"><div><strong>default.keystore</strong><span>BCFKS · ~/.keystore</span></div><span class="tag">Open</span></div>
+        <div class="row"><div><strong>cacerts-truststore.jks</strong><span>JKS · trust anchors</span></div><span class="tag">Open</span></div>
+      </div>
+      <div class="tools">
+        <span class="chip">Workspaces (3)</span>
+        <span class="chip">CA & JAR Signer</span>
+        <span class="chip">Security posture</span>
+        <span class="chip">Help pages</span>
+      </div>
+    </section>
+  </div>
+</div>
+</body></html>

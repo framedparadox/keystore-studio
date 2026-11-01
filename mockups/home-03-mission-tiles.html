@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Home C — Mission Tiles · xkeystore</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<style>
+:root{--bg:#ebe7df;--ink:#1a1f24;--muted:#66707a;--line:#d2cbc0;--accent:#b84a1b;--panel:#f6f3ec;--card:#fffcf7}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:"Space Grotesk",system-ui,sans-serif;background:
+  radial-gradient(800px 360px at 0% 0%,#e4d5c4,transparent 55%),
+  radial-gradient(700px 400px at 100% 10%,#d8e0e6,transparent 50%),
+  var(--bg);color:var(--ink);min-height:100vh}
+.app{max-width:1120px;margin:0 auto;padding:28px 28px 48px}
+.bar{display:flex;justify-content:space-between;align-items:center;margin-bottom:36px}
+.brand{font-weight:700;font-size:18px;letter-spacing:-.03em;display:flex;align-items:center;gap:10px}
+.dot{width:12px;height:12px;border-radius:3px;background:var(--accent)}
+.meta{font-size:12px;font-weight:600;color:var(--muted);font-family:"IBM Plex Mono",monospace}
+.hero{margin-bottom:28px}
+.hero h1{font-size:clamp(36px,5vw,52px);letter-spacing:-.045em;line-height:1;font-weight:700;max-width:12ch}
+.hero p{margin-top:12px;max-width:46ch;color:var(--muted);font-size:15px;line-height:1.5}
+.tiles{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+.tile{background:var(--card);border:1px solid var(--line);border-radius:18px;min-height:180px;padding:22px;display:flex;flex-direction:column;justify-content:space-between;transition:transform .15s,border-color .15s}
+.tile:hover{transform:translateY(-2px);border-color:#b89a7a}
+.tile .top{display:flex;justify-content:space-between;align-items:flex-start}
+.num{font-family:"IBM Plex Mono",monospace;font-size:12px;color:var(--accent);font-weight:500}
+.ico{width:42px;height:42px;border-radius:12px;background:#efe8dc;display:grid;place-items:center;font-size:18px;font-weight:700;color:var(--accent)}
+.tile h2{font-size:18px;font-weight:700;letter-spacing:-.02em;margin-top:18px}
+.tile p{font-size:12.5px;color:var(--muted);line-height:1.45;margin-top:6px}
+.tile.wide{grid-column:span 2}
+@media(max-width:860px){.tiles{grid-template-columns:1fr 1fr}.tile.wide{grid-column:span 2}}
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="bar">
+    <div class="brand"><span class="dot"></span>xkeystore</div>
+    <div class="meta">WS · Production Edge & TLS Mesh</div>
+  </div>
+  <div class="hero">
+    <h1>Mission control</h1>
+    <p>Six primary KeyStore Explorer actions — create, open, trust, examine — tuned for a desktop crypto workstation.</p>
+  </div>
+  <div class="tiles">
+    <div class="tile"><div class="top"><div class="ico">＋</div><span class="num">01</span></div><div><h2>Create KeyStore</h2><p>PKCS12 · JKS · JCEKS · BKS · BCFKS · UBER</p></div></div>
+    <div class="tile"><div class="top"><div class="ico">↗</div><span class="num">02</span></div><div><h2>Open existing</h2><p>3 active stores · browse disk or recent</p></div></div>
+    <div class="tile"><div class="top"><div class="ico">◎</div><span class="num">03</span></div><div><h2>Default store</h2><p>~/.keystore · BCFKS · 8 entries</p></div></div>
+    <div class="tile"><div class="top"><div class="ico">⛨</div><span class="num">04</span></div><div><h2>CA Certificates</h2><p>DigiCert Root G2 · ISRG Root X1 · xkeystore Root G3</p></div></div>
+    <div class="tile"><div class="top"><div class="ico">⌕</div><span class="num">05</span></div><div><h2>Examine</h2><p>Live SSL · clipboard PEM · certificate diff</p></div></div>
+    <div class="tile"><div class="top"><div class="ico">?</div><span class="num">06</span></div><div><h2>Help pages</h2><p>Formats · Post-Quantum · Workspaces · Signing</p></div></div>
+    <div class="tile wide"><div class="top"><div class="ico">✎</div><span class="num">CA</span></div><div><h2>CA Authority & JAR Signer</h2><p>Sign CSRs, issue CRLs, sign JARs / CMS / JWTs — zero CLI, all native Rust.</p></div></div>
+    <div class="tile"><div class="top"><div class="ico">◫</div><span class="num">WS</span></div><div><h2>Workspaces</h2><p>3 environments · 29 assigned certs</p></div></div>
+  </div>
+</div>
+</body></html>

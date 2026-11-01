@@ -44,7 +44,7 @@
     .mark i { width: 9px; height: 9px; border-radius: 50%; background: #fff; display: block; }
     h1 {
       font-size: clamp(32px, 4vw, 46px); font-weight: 700;
-      letter-spacing: -0.035em; line-height: 1.1; max-width: 16ch;
+      letter-spacing: -0.035em; line-height: 1.1; max-width: 18ch;
     }
     h1 span { color: var(--accent); font-weight: 500; }
     .lede {
@@ -58,6 +58,21 @@
       font-size: 12px; font-weight: 600; padding: 6px 12px;
       border-radius: 999px; background: rgba(255,255,255,0.72);
       border: 1px solid var(--line); color: var(--ink);
+    }
+    .section {
+      margin-top: 44px;
+    }
+    .section:first-of-type { margin-top: 8px; }
+    .section-head {
+      display: flex; flex-wrap: wrap; align-items: baseline;
+      justify-content: space-between; gap: 10px;
+      margin-bottom: 18px;
+    }
+    .section-head h2 {
+      font-size: 22px; font-weight: 700; letter-spacing: -0.025em;
+    }
+    .section-head p {
+      font-size: 14px; color: var(--muted); max-width: 52ch; line-height: 1.45;
     }
     .grid {
       display: grid;
@@ -96,7 +111,7 @@
       font-size: 11px; font-weight: 500;
       color: var(--accent); letter-spacing: 0.04em;
     }
-    .card h2 {
+    .card h3 {
       font-size: 18px; font-weight: 650; letter-spacing: -0.02em;
       margin-top: 2px;
     }
@@ -120,26 +135,54 @@
       <div class="brand"><span class="mark"><i></i></span> xkeystore</div>
       <h1>GUI mockups for keystore &amp; <span>certificate tools</span></h1>
       <p class="lede">
-        Twelve clean interface directions for exploring KeyStores, X.509 certificates,
-        CA signing, SSL inspection, and security posture — referenced from the current xkeystore app.
+        Clean interface directions for KeyStores, X.509 certificates, CA signing,
+        SSL inspection — plus eight alternate compositions for the main Quick Start home.
       </p>
       <div class="meta">
-        <span class="chip">12 mockups</span>
+        <span class="chip">20 mockups</span>
+        <span class="chip">8 main-page variants</span>
         <span class="chip">Static HTML</span>
-        <span class="chip">Desktop workstation scale</span>
       </div>
     </header>
 
-    <div class="grid" id="gallery"></div>
+    <section class="section" aria-labelledby="home-heading">
+      <div class="section-head">
+        <div>
+          <h2 id="home-heading">Main page / Quick Start</h2>
+          <p>Distinct launcher compositions for the same six KSE-style actions, workspaces, and signing shortcuts.</p>
+        </div>
+      </div>
+      <div class="grid" id="home-gallery"></div>
+    </section>
+
+    <section class="section" aria-labelledby="tools-heading">
+      <div class="section-head">
+        <div>
+          <h2 id="tools-heading">Tool surfaces</h2>
+          <p>Explorer, inspector, signing studio, examine, posture, workspaces, and export flows.</p>
+        </div>
+      </div>
+      <div class="grid" id="tools-gallery"></div>
+    </section>
 
     <footer>
-      Open any card for a full-size interactive layout mockup. Brand and sample data match the current xkeystore app.
+      Open any card for a full-size layout mockup. Brand and sample data match the current xkeystore app.
     </footer>
   </div>
 
   <script>
-    const items = [
-      { n: "01", file: "01-quick-start.html", title: "Quick Start Bento", desc: "Home launcher with format pills and six primary actions — closest to the current app.", tags: ["Home", "Material soft"] },
+    const homeItems = [
+      { n: "H1", file: "home-01-spotlight.html", title: "Spotlight Launcher", desc: "Search-first home with ⌘K palette, ranked actions, and quiet secondary chips.", tags: ["Home", "Search"] },
+      { n: "H2", file: "home-02-split-rail.html", title: "Split Rail", desc: "Left action rail for the six starts; right pane for recent stores and workspaces.", tags: ["Home", "Split"] },
+      { n: "H3", file: "home-03-mission-tiles.html", title: "Mission Tiles", desc: "Numbered large tiles for Create / Open / Default / CA / Examine / Help plus CA studio.", tags: ["Home", "Tiles"] },
+      { n: "H4", file: "home-04-ops-console.html", title: "Ops Console", desc: "Dense console with KPIs, action chips, recent stores, and security posture side panel.", tags: ["Home", "Ops"] },
+      { n: "H5", file: "home-05-workshop.html", title: "Crypto Workshop", desc: "Editorial workshop hero with a stepped forge path and three bench tools.", tags: ["Home", "Workshop"] },
+      { n: "H6", file: "home-06-ledger.html", title: "Ledger Home", desc: "Single-column typographic ledger of the six Quick Start actions — minimal chrome.", tags: ["Home", "Minimal"] },
+      { n: "H7", file: "home-07-vault-gate.html", title: "Vault Gate", desc: "Unlock-default-store first; secondary create / open / CA / examine around the gate.", tags: ["Home", "Vault"] },
+      { n: "H8", file: "home-08-dual-pane.html", title: "Dual Pane", desc: "Start vs Continue split: new-task actions on the left, recents and shortcuts on the right.", tags: ["Home", "Dual"] },
+      { n: "01", file: "01-quick-start.html", title: "Quick Start Bento (baseline)", desc: "Original Material-soft bento home — closest to the current app Home tab.", tags: ["Home", "Baseline"] },
+    ];
+    const toolItems = [
       { n: "02", file: "02-keystore-explorer.html", title: "KeyStore Explorer", desc: "Store list + entry table with toolbar actions for cut, copy, export, and inspect.", tags: ["KeyStores", "Table"] },
       { n: "03", file: "03-cert-inspector.html", title: "Certificate Inspector", desc: "Master–detail X.509 viewer with extensions, fingerprints, and PEM pane.", tags: ["X.509", "Detail"] },
       { n: "04", file: "04-ca-signing-studio.html", title: "CA & Signing Studio", desc: "CSR, CRL, JAR, CMS, and JWT signing tools in a studio layout.", tags: ["CA", "Sign"] },
@@ -152,18 +195,21 @@
       { n: "11", file: "11-trust-graph.html", title: "Trust Hierarchy Graph", desc: "Visual chain from root CA through intermediates to leaf TLS identities.", tags: ["Graph", "Trust"] },
       { n: "12", file: "12-export-hub.html", title: "Export Hub", desc: "Multi-format export chooser for PEM, PKCS#7, JWK, PVK, and OpenSSH.", tags: ["Export", "Formats"] },
     ];
-    const g = document.getElementById("gallery");
-    g.innerHTML = items.map((it) => `
-      <a class="card" href="${it.file}">
-        <div class="preview"><iframe src="${it.file}" loading="lazy" title="${it.title}"></iframe></div>
-        <div>
-          <div class="num">MOCK ${it.n}</div>
-          <h2>${it.title}</h2>
-          <p>${it.desc}</p>
-        </div>
-        <div class="tags">${it.tags.map((t) => `<span class="tag">${t}</span>`).join("")}</div>
-      </a>
-    `).join("");
+    function render(id, items) {
+      document.getElementById(id).innerHTML = items.map((it) => `
+        <a class="card" href="${it.file}">
+          <div class="preview"><iframe src="${it.file}" loading="lazy" title="${it.title}"></iframe></div>
+          <div>
+            <div class="num">MOCK ${it.n}</div>
+            <h3>${it.title}</h3>
+            <p>${it.desc}</p>
+          </div>
+          <div class="tags">${it.tags.map((t) => `<span class="tag">${t}</span>`).join("")}</div>
+        </a>
+      `).join("");
+    }
+    render("home-gallery", homeItems);
+    render("tools-gallery", toolItems);
   </script>
 </body>
 </html>
