@@ -1,0 +1,67 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/xks-core",
+    "crates/xks-cli",
+    "crates/xks-gui",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.88"
+license = "MIT"
+repository = "https://github.com/framedparadox/xkeystore"
+
+[workspace.dependencies]
+# --- Certificates / CSR / CRL (pure Rust, "ring" crypto backend: no OpenSSL, no JVM) ---
+rcgen = { version = "0.14", default-features = false, features = ["ring", "pem", "x509-parser"] }
+rustls-pki-types = "1.4"
+x509-parser = { version = "0.18", features = ["verify"] }
+x509-cert = "0.3"
+der = { version = "0.8", features = ["alloc", "oid"] }
+spki = "0.8"
+pkcs8 = { version = "0.11", features = ["alloc", "encryption"] }
+pkcs5 = "0.8"
+const-oid = { version = "0.10", features = ["db"] }
+
+# --- Key material (pure Rust, RustCrypto; used only for RSA keygen, since the
+# "ring" backend behind rcgen cannot generate RSA keys). EC/Ed25519 keys are
+# generated directly through rcgen+ring. ---
+rsa = { version = "0.10.0-rc.19" }
+
+# --- Keystore container formats (pure Rust) ---
+# "pkcs12" feature is disabled: it pulls an older, API-incompatible pin of
+# p12-keystore that fails to build. We only use `jks` for the JKS format
+# itself and do our own PKCS#12 handling directly via `p12-keystore`.
+p12-keystore = "0.4"
+jks = { version = "0.3", default-features = false, features = ["rand"] }
+
+# --- Hashing / digests / randomness ---
+sha1 = "0.11"
+sha2 = "0.11"
+rand = "0.10"
+rand_core = "0.10"
+zeroize = { version = "1.9", features = ["derive"] }
+secrecy = "0.10"
+zxcvbn = "3"
+
+# --- Encoding ---
+pem = "4"
+base64 = "0.23"
+
+# --- Time ---
+time = { version = "0.3", features = ["formatting", "macros", "parsing"] }
+
+# --- App plumbing ---
+anyhow = "1"
+thiserror = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+clap = { version = "4", features = ["derive"] }
+
+# --- GUI ---
+eframe = "0.37"
+egui = "0.37"
+egui_extras = "0.37"
+rfd = "0.17"

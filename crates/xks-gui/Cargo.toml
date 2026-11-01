@@ -1,0 +1,22 @@
+[package]
+name = "xks-gui"
+description = "xkeystore desktop app (egui/eframe, no Java, no OpenSSL required)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "xks-gui"
+path = "src/main.rs"
+
+[dependencies]
+xks-core = { path = "../xks-core" }
+eframe = { workspace = true }
+egui = { workspace = true }
+egui_extras = { workspace = true }
+rfd = { workspace = true }
+anyhow = { workspace = true }
+pem = { workspace = true }
+time = { workspace = true }

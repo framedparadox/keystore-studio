@@ -1,0 +1,20 @@
+[package]
+name = "xks-cli"
+description = "xks: command-line certificate, key and keystore tool (no Java, no OpenSSL required)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "xks"
+path = "src/main.rs"
+
+[dependencies]
+xks-core = { path = "../xks-core" }
+clap = { workspace = true }
+anyhow = { workspace = true }
+pem = { workspace = true }
+rcgen = { workspace = true }
+time = { workspace = true }
