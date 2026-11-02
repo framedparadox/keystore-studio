@@ -8,15 +8,18 @@ import { KeystoresView } from "./views/KeystoresView";
 import { CaSigningView } from "./views/CaSigningView";
 import { ExamineView } from "./views/ExamineView";
 import { ScannerView } from "./views/ScannerView";
+import { VaultsView } from "./views/VaultsView";
+import { SettingsView } from "./views/SettingsView";
+import { TerminalProvider } from "./components/Terminal";
 import { NewKeystoreModal } from "./components/NewKeystoreModal";
 import {
   TabType,
   KeystoreFile,
   KeystoreFormat,
   Workspace,
+  ExportPayloadResult,
 } from "./types/crypto";
 import { initialKeystores, initialWorkspaces } from "./data/mockData";
-import { KeyRound, ShieldCheck, CheckCircle2, Lock, Unlock, Eye, EyeOff } from "lucide-react";
 
 export const App: React.FC = () => {
   const [currentTab, setCurrentTab] = useState<TabType>("home");
@@ -37,7 +40,7 @@ export const App: React.FC = () => {
 
   const [isNewKeystoreModalOpen, setIsNewKeystoreModalOpen] = useState(false);
   const [newKeystoreFormat, setNewKeystoreFormat] = useState<KeystoreFormat>("PKCS12");
-  const [showPasswords, setShowPasswords] = useState(false);
+  const [examineSeed, setExamineSeed] = useState<string | null>(null);
 
   const pushState = (nextKeystores: KeystoreFile[]) => {
     setHistory((prev) => [...prev.slice(-19), keystores]);
@@ -79,6 +82,18 @@ export const App: React.FC = () => {
     setActiveKeystoreId(newKs.id);
     setOpsCount((c) => c + 1024);
     setCurrentTab("keystores");
+  };
+
+  const handleImportKeystores = (list: KeystoreFile[]) => {
+    pushState([...list, ...keystores]);
+    setActiveKeystoreId(list[0].id);
+    setOpsCount((c) => c + 512 * list.length);
+    setCurrentTab("keystores");
+  };
+
+  const handleExamineText = (text: string) => {
+    setExamineSeed(text);
+    setCurrentTab("examine");
   };
 
   const handleRecordOp = (increment = 256, isSig = false) => {
@@ -133,7 +148,8 @@ export const App: React.FC = () => {
   const totalEntries = keystores.reduce((sum, k) => sum + k.entries.length, 0);
 
   return (
-    <div className="h-screen w-screen flex flex-col bg-[#DDE5F0] select-none overflow-hidden font-sans">
+    <TerminalProvider>
+    <div className="h-screen w-screen flex flex-col bg-chrome select-none overflow-hidden font-sans">
       {/* Top Application Header */}
       <Header
         workspaces={workspaces}
@@ -158,7 +174,7 @@ export const App: React.FC = () => {
         />
 
         {/* Central Elevated Workspace Container */}
-        <main className="flex-1 mr-4 mb-3 bg-[#EEF2F7] rounded-[24px] border border-[#CFD8E3] shadow-[0_2px_10px_rgba(0,0,0,0.03)] flex flex-col overflow-hidden relative">
+        <main className="flex-1 mr-4 mb-3 bg-canvas rounded-[24px] border border-[#CFD8E3] shadow-[0_2px_10px_rgba(0,0,0,0.03)] flex flex-col overflow-hidden relative">
           {currentTab === "home" && (
             <HomeView
               keystores={keystores}
@@ -176,6 +192,8 @@ export const App: React.FC = () => {
                 setNewKeystoreFormat(fmt || "PKCS12");
                 setIsNewKeystoreModalOpen(true);
               }}
+              onImportKeystores={handleImportKeystores}
+              onExamineText={handleExamineText}
             />
           )}
 
@@ -225,6 +243,7 @@ export const App: React.FC = () => {
               activeKeystoreId={activeKeystoreId}
               onUpdateKeystore={handleUpdateKeystore}
               onRecordOp={handleRecordOp}
+              initialInput={examineSeed}
             />
           )}
 
@@ -237,125 +256,10 @@ export const App: React.FC = () => {
           )}
 
           {currentTab === "passwords" && (
-            <div className="flex-1 overflow-y-auto px-8 py-6 bg-[#EEF2F7]">
-              <div className="flex items-center justify-between mb-5">
-                <div>
-                  <h1 className="text-[28px] font-normal text-[#1E293B] tracking-tight">
-                    KeyStore &amp; Entry Password Manager
-                  </h1>
-                  <p className="text-[13px] text-[#64748B]">
-                    Manage KeyStore passphrases and individual private/secret key entry protection in memory.
-                  </p>
-                </div>
-                <button
-                  onClick={() => setShowPasswords(!showPasswords)}
-                  className="px-4 py-2 rounded-full bg-white border border-[#E2E8F0] text-[#0F172A] text-[12.5px] font-semibold flex items-center space-x-2 cursor-pointer"
-                >
-                  {showPasswords ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                  <span>{showPasswords ? "Mask Passphrases" : "Reveal Passphrases"}</span>
-                </button>
-              </div>
-
-              <div className="space-y-4">
-                {keystores.map((ks) => (
-                  <div key={ks.id} className="bg-white rounded-[22px] p-5 border border-[#E2E8F0] space-y-3">
-                    <div className="flex items-center justify-between pb-2 border-b border-[#F1F5F9]">
-                      <div className="flex items-center space-x-2.5">
-                        <KeyRound className="w-4 h-4 text-[#2563EB]" />
-                        <span className="text-[15px] font-semibold text-[#0F172A]">{ks.name}</span>
-                        <span className="px-2 py-0.5 rounded-full bg-[#EFF6FF] text-[#2563EB] text-[11px] font-bold">
-                          {ks.format}
-                        </span>
-                      </div>
-                      <span className="font-mono text-[12.5px] text-[#475569]">
-                        Store Passphrase: <strong>{showPasswords ? "changeit#2026" : "••••••••••••"}</strong>
-                      </span>
-                    </div>
-
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
-                      {ks.entries.map((entry) => (
-                        <div
-                          key={entry.id}
-                          className="p-3 rounded-xl bg-[#F8FAFC] border border-[#E2E8F0] flex items-center justify-between text-[12.5px]"
-                        >
-                          <div>
-                            <div className="font-semibold text-[#0F172A]">{entry.alias}</div>
-                            <div className="text-[11px] text-[#64748B]">
-                              {entry.entry_type} • {showPasswords ? "unlocked-key-pass" : "••••••••"}
-                            </div>
-                          </div>
-                          <button
-                            onClick={() => {
-                              handleUpdateKeystore({
-                                ...ks,
-                                entries: ks.entries.map((en) =>
-                                  en.id === entry.id ? { ...en, locked: !en.locked } : en
-                                ),
-                              });
-                            }}
-                            className={`px-3 py-1 rounded-full text-[11.5px] font-semibold flex items-center space-x-1 cursor-pointer ${
-                              entry.locked
-                                ? "bg-[#FEE2E2] text-[#991B1B]"
-                                : "bg-[#DCFCE7] text-[#166534]"
-                            }`}
-                          >
-                            {entry.locked ? <Lock className="w-3 h-3" /> : <Unlock className="w-3 h-3" />}
-                            <span>{entry.locked ? "Locked" : "Unlocked"}</span>
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
+            <VaultsView keystores={keystores} onUpdateKeystore={handleUpdateKeystore} />
           )}
 
-          {currentTab === "settings" && (
-            <div className="flex-1 overflow-y-auto px-8 py-6 bg-[#EEF2F7]">
-              <h1 className="text-[28px] font-normal text-[#1E293B] tracking-tight mb-5">
-                Security Providers &amp; Preferences
-              </h1>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="bg-white rounded-[22px] p-6 border border-[#E2E8F0] space-y-3">
-                  <div className="flex items-center space-x-2 text-[#0A3464] font-semibold text-[15px]">
-                    <ShieldCheck className="w-5 h-5 text-[#2563EB]" />
-                    <span>Built-in Native Rust Cryptographic Providers</span>
-                  </div>
-                  <p className="text-[13px] text-[#475569] leading-relaxed">
-                    xkeystore runs 100% self-contained in compiled Rust machine code. No external Java Runtime (JRE), `keytool`, `jarsigner`, or `openssl` binary is ever invoked.
-                  </p>
-                  <div className="space-y-1.5 pt-2 text-[12px]">
-                    {[
-                      "X.509 v3 Certificate & PKCS#10 CSR Engine (rcgen 0.13)",
-                      "RSA PKCS#1 / PKCS#8 Asymmetric Engine (rsa 0.9)",
-                      "NIST P-256 / secp256r1 Elliptic Curve Engine (p256 0.13)",
-                      "Ed25519 / Curve25519 High-Speed Signatures (ed25519-dalek 2.2)",
-                      "NIST FIPS 203 & FIPS 204 Post-Quantum Engine (ML-KEM / ML-DSA)",
-                      "Java KeyStore (0xFEEDFEED) & PKCS#12 Binary Serializer",
-                    ].map((prov, i) => (
-                      <div key={i} className="flex items-center space-x-2 text-[#1E293B]">
-                        <CheckCircle2 className="w-3.5 h-3.5 text-[#059669]" />
-                        <span>{prov}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="bg-white rounded-[22px] p-6 border border-[#E2E8F0] space-y-3">
-                  <h3 className="text-[15px] font-semibold text-[#0F172A]">
-                    Default KeyStore &amp; Export Location
-                  </h3>
-                  <p className="text-[13px] text-[#475569]">
-                    All exported certificates, private keys, JWK bundles, CSV inventories, and binary `.jks` / `.p12` files are automatically written to:
-                  </p>
-                  <div className="p-3 rounded-xl bg-[#F8FAFC] border border-[#CBD5E1] font-mono text-[12px] text-[#0A3464]">
-                    ~/Downloads/xkeystore_Exports/
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
+          {currentTab === "settings" && <SettingsView />}
         </main>
       </div>
 
@@ -367,6 +271,7 @@ export const App: React.FC = () => {
         defaultFormat={newKeystoreFormat}
       />
     </div>
+    </TerminalProvider>
   );
 };
 

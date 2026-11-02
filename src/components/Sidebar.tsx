@@ -80,15 +80,15 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentTab, onSelectTab }) => 
               <div
                 className={`w-13 h-8 rounded-full flex items-center justify-center transition-all duration-200 ${
                   isActive
-                    ? "bg-[#C2E7FF] text-[#0A3464] shadow-2xs"
-                    : "text-[#475569] group-hover:bg-[#CBD5E1]/60 group-hover:text-[#0F172A]"
+                    ? "bg-brand-soft text-brand-deep shadow-2xs"
+                    : "text-muted group-hover:bg-line-strong/60 group-hover:text-ink"
                 }`}
               >
-                <IconComponent className={`w-[18px] h-[18px] ${isActive ? "text-[#0A3464]" : "text-[#475569]"}`} />
+                <IconComponent className={`w-[18px] h-[18px] ${isActive ? "text-brand-deep" : "text-muted"}`} />
               </div>
               <span
                 className={`text-[11px] tracking-tight mt-1 text-center transition-colors ${
-                  isActive ? "text-[#0A3464] font-bold" : "text-[#475569] font-medium group-hover:text-[#0F172A]"
+                  isActive ? "text-brand-deep font-bold" : "text-muted font-medium group-hover:text-ink"
                 }`}
               >
                 {item.label}
@@ -99,7 +99,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentTab, onSelectTab }) => 
       </div>
 
       {/* Bottom Utility Navigation Items: Vaults -> Settings */}
-      <div className="flex flex-col items-center space-y-2.5 w-full pt-3 border-t border-[#CBD5E1]/80">
+      <div className="flex flex-col items-center space-y-2.5 w-full pt-3 border-t border-line-strong/80">
         {bottomNavItems.map((item) => {
           const isActive = currentTab === item.id;
           const IconComponent = item.icon;
@@ -113,15 +113,15 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentTab, onSelectTab }) => 
               <div
                 className={`w-13 h-8 rounded-full flex items-center justify-center transition-all duration-200 ${
                   isActive
-                    ? "bg-[#C2E7FF] text-[#0A3464] shadow-2xs"
-                    : "text-[#475569] group-hover:bg-[#CBD5E1]/60 group-hover:text-[#0F172A]"
+                    ? "bg-brand-soft text-brand-deep shadow-2xs"
+                    : "text-muted group-hover:bg-line-strong/60 group-hover:text-ink"
                 }`}
               >
-                <IconComponent className={`w-[18px] h-[18px] ${isActive ? "text-[#0A3464]" : "text-[#475569]"}`} />
+                <IconComponent className={`w-[18px] h-[18px] ${isActive ? "text-brand-deep" : "text-muted"}`} />
               </div>
               <span
                 className={`text-[11px] tracking-tight mt-1 text-center transition-colors ${
-                  isActive ? "text-[#0A3464] font-bold" : "text-[#475569] font-medium group-hover:text-[#0F172A]"
+                  isActive ? "text-brand-deep font-bold" : "text-muted font-medium group-hover:text-ink"
                 }`}
               >
                 {item.label}

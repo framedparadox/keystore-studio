@@ -1,7 +1,7 @@
 [package]
 name = "xkeystore"
 version = "0.1.0"
-description = "xkeystore — Native Rust KeyStore Explorer"
+description = "xkeystore — Native keystore and certificate workbench"
 authors = ["you"]
 edition = "2024"
 

@@ -25,7 +25,6 @@ import {
   Layers,
   X,
   Info,
-  Play,
 } from "lucide-react";
 import {
   KeystoreFile,
@@ -453,103 +452,20 @@ export const KeystoresView: React.FC<KeystoresViewProps> = ({
   };
 
   return (
-    <div className="flex-1 flex flex-col overflow-hidden bg-[#EEF2F7] px-8 py-6 select-none relative">
+    <div className="flex-1 flex flex-col overflow-hidden bg-canvas px-8 py-6 select-none relative">
       {/* Floating Native Action Toast */}
       {toastMsg && (
-        <div className="fixed bottom-6 right-8 z-50 flex items-center space-x-2.5 bg-[#0F172A] text-white px-4 py-3 rounded-2xl shadow-xl border border-[#334155] text-[13px] animate-in fade-in slide-in-from-bottom-3">
+        <div className="fixed bottom-6 right-8 z-50 flex items-center space-x-2.5 bg-ink text-white px-4 py-3 rounded-2xl shadow-xl border border-ink-2 text-[13px] animate-in fade-in slide-in-from-bottom-3">
           <CheckCircle2 className="w-4 h-4 text-[#34D399] shrink-0" />
           <span>{toastMsg}</span>
         </div>
       )}
 
-      {/* KeyStore Switcher Tabs & Format Converter Bar */}
-      <div className="flex flex-wrap items-center justify-between gap-2 mb-4 pb-3 border-b border-[#DCE4EC]">
-        <div className="flex items-center space-x-2 overflow-x-auto">
-          {keystores.map((ks) => {
-            const isAct = ks.id === activeKs?.id;
-            return (
-              <button
-                key={ks.id}
-                onClick={() => onSelectKeystore(ks.id)}
-                className={`flex items-center space-x-2 px-3.5 py-1.5 rounded-full text-[12.5px] font-medium transition cursor-pointer ${
-                  isAct
-                    ? "bg-[#0A3464] text-white shadow-2xs"
-                    : "bg-white text-[#475569] hover:bg-[#F8FAFC] border border-[#E2E8F0]"
-                }`}
-              >
-                <FolderArchive className="w-3.5 h-3.5" />
-                <span>{ks.name}</span>
-                <span
-                  className={`px-1.5 py-0.2 text-[10px] rounded-full font-bold ${
-                    isAct ? "bg-white/20 text-white" : "bg-[#F1F5F9] text-[#334155]"
-                  }`}
-                >
-                  {ks.format}
-                </span>
-              </button>
-            );
-          })}
-          <button
-            onClick={onOpenNewKeystoreModal}
-            className="px-3 py-1.5 rounded-full bg-white border border-dashed border-[#94A3B8] text-[#475569] hover:text-[#0F172A] hover:border-[#475569] text-[12px] font-medium transition cursor-pointer"
-          >
-            + Open / New Vault
-          </button>
-        </div>
-
-        {/* Native KeyStore Operations Toolbar (Convert Type, Save Binary, CSV, Properties) */}
-        <div className="flex items-center space-x-2">
-          <div className="flex items-center space-x-1 bg-white border border-[#E2E8F0] rounded-full px-2.5 py-1 text-[11.5px]">
-            <span className="text-[#64748B]">Type:</span>
-            <select
-              value={activeKs?.format || "PKCS12"}
-              onChange={(e) => handleChangeKeystoreFormat(e.target.value as KeystoreFormat)}
-              className="font-semibold text-[#0A3464] bg-transparent focus:outline-none cursor-pointer"
-              title="Convert KeyStore Type In-Place"
-            >
-              <option value="PKCS12">PKCS#12 (.p12)</option>
-              <option value="JKS">JKS (.jks)</option>
-              <option value="JCEKS">JCEKS (.jceks)</option>
-              <option value="BKS">BKS (.bks)</option>
-              <option value="BCFKS">BCFKS (.bcfks)</option>
-              <option value="UBER">UBER (.uber)</option>
-            </select>
-          </div>
-
-          <button
-            onClick={handleSaveKeystoreBinary}
-            disabled={busy}
-            className="px-3 py-1 rounded-full bg-white border border-[#E2E8F0] hover:bg-[#F8FAFC] text-[#1E293B] text-[12px] font-medium flex items-center space-x-1 cursor-pointer shadow-2xs"
-            title="Write Native KeyStore Binary to Disk"
-          >
-            <Download className="w-3.5 h-3.5 text-[#2563EB]" />
-            <span>Save KeyStore</span>
-          </button>
-
-          <button
-            onClick={handleExportCsv}
-            className="px-3 py-1 rounded-full bg-white border border-[#E2E8F0] hover:bg-[#F8FAFC] text-[#1E293B] text-[12px] font-medium flex items-center space-x-1 cursor-pointer shadow-2xs"
-          >
-            <FileText className="w-3.5 h-3.5 text-[#059669]" />
-            <span>Export CSV</span>
-          </button>
-
-          <button
-            onClick={() => setActiveModal("ks_properties")}
-            className="p-1.5 rounded-full bg-white border border-[#E2E8F0] hover:bg-[#F8FAFC] text-[#475569] cursor-pointer"
-            title="KeyStore Properties & Digest"
-          >
-            <Info className="w-3.5 h-3.5" />
-          </button>
-        </div>
-      </div>
-
       {/* Header Row matching Screenshot 1 ("Knowledge Sources") */}
       <div className="flex items-center justify-between mb-3">
-        <h1 className="text-[28px] font-normal text-[#1E293B] tracking-tight">
+        <h1 className="text-[28px] font-normal text-ink-2 tracking-tight">
           KeyStore Sources
         </h1>
-        <Play className="w-3.5 h-3.5 text-[#334155] fill-[#334155]" />
       </div>
 
       {/* Pill Toggle: File list | Graph view (Exact match to Screenshot 1) */}
@@ -558,8 +474,8 @@ export const KeystoresView: React.FC<KeystoresViewProps> = ({
           onClick={() => setSubView("list")}
           className={`px-4 py-1.5 rounded-full text-[13px] font-semibold transition cursor-pointer ${
             subView === "list"
-              ? "bg-[#C2E7FF] text-[#0A3464]"
-              : "bg-white text-[#334155] hover:bg-[#F8FAFC]"
+              ? "bg-brand-soft text-brand-deep"
+              : "bg-white text-ink-2 hover:bg-surface-2"
           }`}
         >
           File list
@@ -568,8 +484,8 @@ export const KeystoresView: React.FC<KeystoresViewProps> = ({
           onClick={() => setSubView("graph")}
           className={`px-4 py-1.5 rounded-full text-[13px] font-semibold transition cursor-pointer ${
             subView === "graph"
-              ? "bg-[#C2E7FF] text-[#0A3464]"
-              : "bg-white text-[#334155] hover:bg-[#F8FAFC]"
+              ? "bg-brand-soft text-brand-deep"
+              : "bg-white text-ink-2 hover:bg-surface-2"
           }`}
         >
           Graph view
@@ -578,17 +494,17 @@ export const KeystoresView: React.FC<KeystoresViewProps> = ({
 
       {/* Search Bar & "+ Add source" Button Row (Exact match to Screenshot 1) */}
       <div className="flex items-center space-x-3 mb-3.5 relative">
-        <div className="flex-1 h-12 bg-white rounded-full px-5 flex items-center space-x-3 border border-[#E2E8F0]/80 shadow-[0_1px_2px_rgba(0,0,0,0.02)]">
-          <Search className="w-4 h-4 text-[#94A3B8]" />
+        <div className="flex-1 h-12 bg-white rounded-full px-5 flex items-center space-x-3 border border-line/80 shadow-[0_1px_2px_rgba(0,0,0,0.02)]">
+          <Search className="w-4 h-4 text-subtle" />
           <input
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Search keystore entries, aliases, subjects, algorithms, or SHA-256 fingerprints..."
-            className="w-full bg-transparent text-[14px] text-[#1E293B] placeholder-[#94A3B8] focus:outline-none"
+            className="w-full bg-transparent text-[14px] text-ink-2 placeholder-subtle focus:outline-none"
           />
           {searchQuery && (
-            <button onClick={() => setSearchQuery("")} className="text-[#94A3B8] hover:text-[#475569] cursor-pointer">
+            <button onClick={() => setSearchQuery("")} className="text-subtle hover:text-muted cursor-pointer">
               <X className="w-4 h-4" />
             </button>
           )}
@@ -598,25 +514,25 @@ export const KeystoresView: React.FC<KeystoresViewProps> = ({
         <div className="relative">
           <button
             onClick={() => setAddMenuOpen(!addMenuOpen)}
-            className="h-12 px-6 rounded-full bg-[#C2E7FF] hover:bg-[#AEDBFF] text-[#0A3464] font-semibold text-[13.5px] flex items-center space-x-2 transition cursor-pointer shadow-2xs"
+            className="h-12 px-6 rounded-full bg-brand-soft hover:bg-brand-soft-hover text-brand-deep font-semibold text-[13.5px] flex items-center space-x-2 transition cursor-pointer shadow-2xs"
           >
             <Plus className="w-4 h-4 stroke-[2.5]" />
             <span>Add source</span>
           </button>
 
           {addMenuOpen && (
-            <div className="absolute right-0 mt-2 w-64 bg-white rounded-2xl border border-[#CBD5E1] shadow-xl py-2 z-40 text-[13px]">
+            <div className="absolute right-0 mt-2 w-64 bg-white rounded-2xl border border-line-strong shadow-xl py-2 z-40 text-[13px]">
               <button
                 onClick={() => {
                   setAddMenuOpen(false);
                   setActiveModal("gen_keypair");
                 }}
-                className="w-full px-4 py-2.5 text-left hover:bg-[#F1F5F9] flex items-center space-x-2.5 text-[#0F172A] cursor-pointer"
+                className="w-full px-4 py-2.5 text-left hover:bg-surface-3 flex items-center space-x-2.5 text-ink cursor-pointer"
               >
-                <KeyRound className="w-4 h-4 text-[#2563EB]" />
+                <KeyRound className="w-4 h-4 text-brand" />
                 <div>
                   <div className="font-semibold">Generate Key Pair</div>
-                  <div className="text-[11px] text-[#64748B]">RSA, ECDSA, Ed25519, ML-DSA + Cert</div>
+                  <div className="text-[11px] text-faint">RSA, ECDSA, Ed25519, ML-DSA + Cert</div>
                 </div>
               </button>
 
@@ -625,12 +541,12 @@ export const KeystoresView: React.FC<KeystoresViewProps> = ({
                   setAddMenuOpen(false);
                   setActiveModal("gen_secret");
                 }}
-                className="w-full px-4 py-2.5 text-left hover:bg-[#F1F5F9] flex items-center space-x-2.5 text-[#0F172A] cursor-pointer"
+                className="w-full px-4 py-2.5 text-left hover:bg-surface-3 flex items-center space-x-2.5 text-ink cursor-pointer"
               >
                 <Lock className="w-4 h-4 text-[#7E22CE]" />
                 <div>
                   <div className="font-semibold">Generate Secret Key</div>
-                  <div className="text-[11px] text-[#64748B]">AES-256, ChaCha20, HMAC, 3DES</div>
+                  <div className="text-[11px] text-faint">AES-256, ChaCha20, HMAC, 3DES</div>
                 </div>
               </button>
 
@@ -639,12 +555,12 @@ export const KeystoresView: React.FC<KeystoresViewProps> = ({
                   setAddMenuOpen(false);
                   setActiveModal("import_cert");
                 }}
-                className="w-full px-4 py-2.5 text-left hover:bg-[#F1F5F9] flex items-center space-x-2.5 text-[#0F172A] cursor-pointer"
+                className="w-full px-4 py-2.5 text-left hover:bg-surface-3 flex items-center space-x-2.5 text-ink cursor-pointer"
               >
-                <ShieldCheck className="w-4 h-4 text-[#059669]" />
+                <ShieldCheck className="w-4 h-4 text-success" />
                 <div>
                   <div className="font-semibold">Import Trusted Certificate</div>
-                  <div className="text-[11px] text-[#64748B]">X.509 PEM, DER, PKCS#7</div>
+                  <div className="text-[11px] text-faint">X.509 PEM, DER, PKCS#7</div>
                 </div>
               </button>
 
@@ -654,12 +570,12 @@ export const KeystoresView: React.FC<KeystoresViewProps> = ({
                     setAddMenuOpen(false);
                     handlePasteEntry();
                   }}
-                  className="w-full px-4 py-2.5 text-left hover:bg-[#F1F5F9] flex items-center space-x-2.5 text-[#0A3464] border-t border-[#E2E8F0] cursor-pointer"
+                  className="w-full px-4 py-2.5 text-left hover:bg-surface-3 flex items-center space-x-2.5 text-brand-deep border-t border-line cursor-pointer"
                 >
                   <ClipboardPaste className="w-4 h-4 text-[#0284C7]" />
                   <div>
                     <div className="font-semibold">Paste '{clipboardEntry.entry.alias}'</div>
-                    <div className="text-[11px] text-[#64748B]">From KeyStore clipboard</div>
+                    <div className="text-[11px] text-faint">From KeyStore clipboard</div>
                   </div>
                 </button>
               )}
@@ -668,60 +584,15 @@ export const KeystoresView: React.FC<KeystoresViewProps> = ({
         </div>
       </div>
 
-      {/* "+ Add label" Dashed Pill & Filter Tags Row (Exact match to Screenshot 1) */}
-      <div className="flex flex-wrap items-center gap-2 mb-4">
-        <button
-          onClick={() => {
-            setSelectedEntry(activeKs.entries[0] || null);
-            setActiveModal("add_label");
-          }}
-          className="px-3.5 py-1.5 rounded-full border border-dashed border-[#94A3B8] bg-white/70 hover:bg-white text-[#334155] text-[12.5px] font-medium flex items-center space-x-1.5 cursor-pointer transition"
-        >
-          <Plus className="w-3.5 h-3.5" />
-          <span>Add label</span>
-        </button>
-
-        {["ALL", "KeyPair", "TrustedCertificate", "SecretKey", ...allLabels].map((lbl) => (
-          <button
-            key={lbl}
-            onClick={() => setSelectedLabelFilter(lbl)}
-            className={`px-3 py-1 rounded-full text-[12px] font-medium transition cursor-pointer ${
-              selectedLabelFilter === lbl
-                ? "bg-[#0A3464] text-white"
-                : "bg-white/80 text-[#475569] hover:bg-white border border-[#E2E8F0]"
-            }`}
-          >
-            {lbl === "ALL"
-              ? "All Entries"
-              : lbl === "KeyPair"
-              ? "Key Pairs"
-              : lbl === "TrustedCertificate"
-              ? "Trusted Certs"
-              : lbl === "SecretKey"
-              ? "Secret Keys"
-              : lbl}
-          </button>
-        ))}
-
-        {clipboardEntry && (
-          <button
-            onClick={handlePasteEntry}
-            className="ml-auto px-3 py-1 rounded-full bg-[#E0F2FE] text-[#0369A1] text-[12px] font-semibold flex items-center space-x-1 cursor-pointer"
-          >
-            <ClipboardPaste className="w-3.5 h-3.5" />
-            <span>Paste '{clipboardEntry.entry.alias}'</span>
-          </button>
-        )}
-      </div>
 
       {/* Indexed Count & Sort / View Switcher Row (Exact match to Screenshot 1) */}
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center space-x-2.5">
-          <span className="text-[13.5px] font-medium text-[#64748B]">
+          <span className="text-[13.5px] font-medium text-faint">
             {filteredEntries.length} sources indexed
           </span>
-          <div className="px-2.5 py-0.5 rounded-full bg-white border border-[#E2E8F0] flex items-center space-x-1 text-[12px] font-semibold text-[#334155] shadow-2xs">
-            <FileText className="w-3.5 h-3.5 text-[#475569]" />
+          <div className="px-2.5 py-0.5 rounded-full bg-white border border-line flex items-center space-x-1 text-[12px] font-semibold text-ink-2 shadow-2xs">
+            <FileText className="w-3.5 h-3.5 text-muted" />
             <span>{filteredEntries.length}</span>
           </div>
         </div>
@@ -730,18 +601,18 @@ export const KeystoresView: React.FC<KeystoresViewProps> = ({
           {/* Sort A -> Z Pill */}
           <button
             onClick={() => setSortAsc(!sortAsc)}
-            className="px-4 py-1.5 rounded-full bg-white border border-[#E2E8F0] text-[#334155] text-[12.5px] font-medium flex items-center space-x-2 hover:bg-[#F8FAFC] cursor-pointer shadow-2xs"
+            className="px-4 py-1.5 rounded-full bg-white border border-line text-ink-2 text-[12.5px] font-medium flex items-center space-x-2 hover:bg-surface-2 cursor-pointer shadow-2xs"
           >
-            <ArrowUpDown className="w-3.5 h-3.5 text-[#475569]" />
+            <ArrowUpDown className="w-3.5 h-3.5 text-muted" />
             <span>{sortAsc ? "A -> Z" : "Z -> A"}</span>
           </button>
 
           {/* Segmented List | Grid View Toggle */}
-          <div className="flex items-center bg-white rounded-full border border-[#E2E8F0] overflow-hidden shadow-2xs">
+          <div className="flex items-center bg-white rounded-full border border-line overflow-hidden shadow-2xs">
             <button
               onClick={() => setLayoutMode("table")}
               className={`px-3.5 py-1.5 flex items-center justify-center transition cursor-pointer ${
-                layoutMode === "table" ? "bg-[#C2E7FF] text-[#0A3464]" : "text-[#475569] hover:bg-[#F8FAFC]"
+                layoutMode === "table" ? "bg-brand-soft text-brand-deep" : "text-muted hover:bg-surface-2"
               }`}
               title="Table List View"
             >
@@ -750,7 +621,7 @@ export const KeystoresView: React.FC<KeystoresViewProps> = ({
             <button
               onClick={() => setLayoutMode("grid")}
               className={`px-3.5 py-1.5 flex items-center justify-center transition cursor-pointer ${
-                layoutMode === "grid" ? "bg-[#C2E7FF] text-[#0A3464]" : "text-[#475569] hover:bg-[#F8FAFC]"
+                layoutMode === "grid" ? "bg-brand-soft text-brand-deep" : "text-muted hover:bg-surface-2"
               }`}
               title="Card Grid View"
             >
@@ -764,21 +635,20 @@ export const KeystoresView: React.FC<KeystoresViewProps> = ({
       {subView === "list" ? (
         layoutMode === "table" ? (
           /* Rounded White Data Table matching Screenshot 1 */
-          <div className="flex-1 bg-white rounded-[20px] border border-[#E2E8F0]/80 shadow-[0_1px_4px_rgba(0,0,0,0.02)] flex flex-col overflow-hidden">
+          <div className="flex-1 bg-white rounded-[20px] border border-line/80 shadow-[0_1px_4px_rgba(0,0,0,0.02)] flex flex-col overflow-hidden">
             {/* Table Header */}
-            <div className="grid grid-cols-12 gap-3 px-6 py-3 border-b border-[#F1F5F9] text-[12px] font-semibold text-[#64748B] items-center">
-              <div className="col-span-4 flex items-center space-x-1">
+            <div className="grid grid-cols-12 gap-3 px-6 py-3 border-b border-surface-3 text-[12px] font-semibold text-faint items-center">
+              <div className="col-span-5 flex items-center space-x-1">
                 <span>Name</span>
                 <span>{sortAsc ? "↑" : "↓"}</span>
               </div>
               <div className="col-span-2">Algorithm &amp; Type</div>
-              <div className="col-span-2">Imported / Valid Until</div>
-              <div className="col-span-2">Labels</div>
-              <div className="col-span-2 text-right">Actions</div>
+              <div className="col-span-2">Valid Until</div>
+              <div className="col-span-3 text-right">Actions</div>
             </div>
 
             {/* Table Body */}
-            <div className="flex-1 overflow-y-auto divide-y divide-[#F8FAFC]">
+            <div className="flex-1 overflow-y-auto divide-y divide-surface-2">
               {filteredEntries.map((entry) => (
                 <div
                   key={entry.id}
@@ -787,16 +657,16 @@ export const KeystoresView: React.FC<KeystoresViewProps> = ({
                     setInspectTab(entry.entry_type === "SecretKey" ? "private" : "cert");
                     setActiveModal("inspect_entry");
                   }}
-                  className="grid grid-cols-12 gap-3 px-6 py-3.5 items-center hover:bg-[#F8FAFC] transition cursor-pointer group"
+                  className="grid grid-cols-12 gap-3 px-6 py-3.5 items-center hover:bg-surface-2 transition cursor-pointer group"
                 >
                   {/* Name & Icon */}
-                  <div className="col-span-4 flex items-center space-x-3 pr-2">
+                  <div className="col-span-5 flex items-center space-x-3 pr-2">
                     <div
                       className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${
                         entry.entry_type === "KeyPair"
-                          ? "bg-[#EFF6FF] text-[#2563EB]"
+                          ? "bg-brand-tint text-brand"
                           : entry.entry_type === "TrustedCertificate"
-                          ? "bg-[#DCFCE7] text-[#15803D]"
+                          ? "bg-success-tint text-[#15803D]"
                           : "bg-[#F3E8FF] text-[#7E22CE]"
                       }`}
                     >
@@ -810,16 +680,16 @@ export const KeystoresView: React.FC<KeystoresViewProps> = ({
                     </div>
                     <div className="min-w-0">
                       <div className="flex items-center space-x-1.5">
-                        <span className="text-[14px] font-medium text-[#1E293B] truncate">
+                        <span className="text-[14px] font-medium text-ink-2 truncate">
                           {entry.alias}
                         </span>
                         {entry.is_weak && (
                           <span title="Weak Key Size (< 2048 bits)" className="shrink-0 flex items-center">
-                            <AlertTriangle className="w-3.5 h-3.5 text-[#DC2626]" />
+                            <AlertTriangle className="w-3.5 h-3.5 text-danger" />
                           </span>
                         )}
                       </div>
-                      <span className="text-[11.5px] text-[#64748B] truncate block">
+                      <span className="text-[11.5px] text-faint truncate block">
                         {entry.subject}
                       </span>
                     </div>
@@ -827,47 +697,23 @@ export const KeystoresView: React.FC<KeystoresViewProps> = ({
 
                   {/* Algorithm & Type */}
                   <div className="col-span-2">
-                    <span className="text-[13px] font-medium text-[#334155] block">
+                    <span className="text-[13px] font-medium text-ink-2 block">
                       {entry.algorithm} ({entry.key_size}-bit)
                     </span>
-                    <span className="text-[11px] text-[#94A3B8]">
+                    <span className="text-[11px] text-subtle">
                       {entry.entry_type}
                       {entry.chain_length > 0 ? ` • Chain (${entry.chain_length})` : ""}
                     </span>
                   </div>
 
-                  {/* Imported / Expiry */}
+                  {/* Valid Until */}
                   <div className="col-span-2">
-                    <span className="text-[13px] text-[#64748B] block">{entry.last_modified}</span>
-                    <span className="text-[11px] text-[#94A3B8]">Exp: {entry.expiry_date}</span>
-                  </div>
-
-                  {/* Labels & Workspaces */}
-                  <div className="col-span-2 flex flex-wrap gap-1">
-                    {workspaces
-                      .filter((ws) => ws.entryIds.includes(entry.id))
-                      .map((ws) => (
-                        <span
-                          key={ws.id}
-                          className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-[#EFF6FF] text-[#1D4ED8] border border-[#BFDBFE]"
-                          title={`Assigned to Workspace: ${ws.name}`}
-                        >
-                          WS: {ws.name.split(" ")[0]}
-                        </span>
-                      ))}
-                    {entry.labels.map((lbl, idx) => (
-                      <span
-                        key={idx}
-                        className="px-2 py-0.5 rounded-full text-[10.5px] font-medium bg-[#F1F5F9] text-[#475569]"
-                      >
-                        {lbl}
-                      </span>
-                    ))}
+                    <span className="text-[13px] text-faint block">{entry.expiry_date}</span>
                   </div>
 
                   {/* Actions */}
                   <div
-                    className="col-span-2 flex items-center justify-end space-x-1"
+                    className="col-span-3 flex items-center justify-end space-x-1"
                     onClick={(e) => e.stopPropagation()}
                   >
                     {onToggleEntryInWorkspace && (
@@ -876,7 +722,7 @@ export const KeystoresView: React.FC<KeystoresViewProps> = ({
                           setSelectedEntry(entry);
                           setActiveModal("assign_workspace");
                         }}
-                        className="p-1.5 rounded-lg text-[#475569] hover:text-[#2563EB] hover:bg-[#EFF6FF] cursor-pointer"
+                        className="p-1.5 rounded-lg text-muted hover:text-brand hover:bg-brand-tint cursor-pointer"
                         title="Add / Assign to Workspace"
                       >
                         <Layers className="w-4 h-4" />
@@ -889,7 +735,7 @@ export const KeystoresView: React.FC<KeystoresViewProps> = ({
                         setInspectTab(entry.entry_type === "SecretKey" ? "private" : "cert");
                         setActiveModal("inspect_entry");
                       }}
-                      className="p-1.5 rounded-lg text-[#475569] hover:text-[#0F172A] hover:bg-[#E2E8F0]/60 cursor-pointer"
+                      className="p-1.5 rounded-lg text-muted hover:text-ink hover:bg-line/60 cursor-pointer"
                       title="Inspect Certificate, Extensions & Keys"
                     >
                       <Eye className="w-4 h-4" />
@@ -898,7 +744,7 @@ export const KeystoresView: React.FC<KeystoresViewProps> = ({
                     {entry.entry_type === "KeyPair" && (
                       <button
                         onClick={() => handleGenerateCsr(entry)}
-                        className="p-1.5 rounded-lg text-[#475569] hover:text-[#2563EB] hover:bg-[#EFF6FF] cursor-pointer"
+                        className="p-1.5 rounded-lg text-muted hover:text-brand hover:bg-brand-tint cursor-pointer"
                         title="Generate CSR (PKCS#10 / SPKAC)"
                       >
                         <FileSignature className="w-4 h-4" />
@@ -911,7 +757,7 @@ export const KeystoresView: React.FC<KeystoresViewProps> = ({
                         setExportResult(null);
                         setActiveModal("export_entry");
                       }}
-                      className="p-1.5 rounded-lg text-[#475569] hover:text-[#059669] hover:bg-[#DCFCE7]/60 cursor-pointer"
+                      className="p-1.5 rounded-lg text-muted hover:text-success hover:bg-success-tint/60 cursor-pointer"
                       title="Export Key Pair / Certificate / JWK / OpenSSH"
                     >
                       <Download className="w-4 h-4" />
@@ -923,7 +769,7 @@ export const KeystoresView: React.FC<KeystoresViewProps> = ({
                         setNewAliasName(entry.alias);
                         setActiveModal("rename_entry");
                       }}
-                      className="p-1.5 rounded-lg text-[#475569] hover:text-[#0F172A] hover:bg-[#E2E8F0]/60 cursor-pointer"
+                      className="p-1.5 rounded-lg text-muted hover:text-ink hover:bg-line/60 cursor-pointer"
                       title="Rename Alias"
                     >
                       <Edit3 className="w-4 h-4" />
@@ -931,7 +777,7 @@ export const KeystoresView: React.FC<KeystoresViewProps> = ({
 
                     <button
                       onClick={() => handleCutOrCopyEntry(entry, "copy")}
-                      className="p-1.5 rounded-lg text-[#475569] hover:text-[#0F172A] hover:bg-[#E2E8F0]/60 cursor-pointer"
+                      className="p-1.5 rounded-lg text-muted hover:text-ink hover:bg-line/60 cursor-pointer"
                       title="Copy Entry"
                     >
                       <Copy className="w-4 h-4" />
@@ -939,7 +785,7 @@ export const KeystoresView: React.FC<KeystoresViewProps> = ({
 
                     <button
                       onClick={() => handleDeleteEntry(entry.id, entry.alias)}
-                      className="p-1.5 rounded-lg text-[#475569] hover:text-[#DC2626] hover:bg-[#FEE2E2]/60 cursor-pointer"
+                      className="p-1.5 rounded-lg text-muted hover:text-danger hover:bg-danger-tint/60 cursor-pointer"
                       title="Delete Entry"
                     >
                       <Trash2 className="w-4 h-4" />
@@ -949,7 +795,7 @@ export const KeystoresView: React.FC<KeystoresViewProps> = ({
               ))}
 
               {filteredEntries.length === 0 && (
-                <div className="py-16 text-center text-[#94A3B8] text-[14px]">
+                <div className="py-16 text-center text-subtle text-[14px]">
                   No keystore entries match your current filter. Click <strong>+ Add source</strong> to generate or import keys.
                 </div>
               )}
@@ -965,22 +811,22 @@ export const KeystoresView: React.FC<KeystoresViewProps> = ({
                   setSelectedEntry(entry);
                   setActiveModal("inspect_entry");
                 }}
-                className="bg-white rounded-[20px] p-5 border border-[#E2E8F0] hover:border-[#93C5FD] shadow-2xs flex flex-col justify-between cursor-pointer transition"
+                className="bg-white rounded-[20px] p-5 border border-line hover:border-[#93C5FD] shadow-2xs flex flex-col justify-between cursor-pointer transition"
               >
                 <div>
                   <div className="flex items-center justify-between mb-3">
-                    <span className="px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-[#EFF6FF] text-[#2563EB]">
+                    <span className="px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-brand-tint text-brand">
                       {entry.entry_type}
                     </span>
-                    <span className="text-[11.5px] font-mono text-[#64748B]">
+                    <span className="text-[11.5px] font-mono text-faint">
                       {entry.algorithm} • {entry.key_size}b
                     </span>
                   </div>
-                  <h3 className="text-[15px] font-semibold text-[#0F172A]">{entry.alias}</h3>
-                  <p className="text-[12px] text-[#64748B] mt-1 line-clamp-2">{entry.subject}</p>
+                  <h3 className="text-[15px] font-semibold text-ink">{entry.alias}</h3>
+                  <p className="text-[12px] text-faint mt-1 line-clamp-2">{entry.subject}</p>
                 </div>
 
-                <div className="pt-4 mt-4 border-t border-[#F1F5F9] flex items-center justify-between text-[11.5px] text-[#64748B]">
+                <div className="pt-4 mt-4 border-t border-surface-3 flex items-center justify-between text-[11.5px] text-faint">
                   <span>Exp: {entry.expiry_date}</span>
                   <div className="flex space-x-1" onClick={(e) => e.stopPropagation()}>
                     <button
@@ -989,13 +835,13 @@ export const KeystoresView: React.FC<KeystoresViewProps> = ({
                         setExportResult(null);
                         setActiveModal("export_entry");
                       }}
-                      className="px-2 py-1 rounded-md bg-[#F1F5F9] hover:bg-[#E2E8F0] text-[#1E293B]"
+                      className="px-2 py-1 rounded-md bg-surface-3 hover:bg-line text-ink-2"
                     >
                       Export
                     </button>
                     <button
                       onClick={() => handleDeleteEntry(entry.id, entry.alias)}
-                      className="px-2 py-1 rounded-md bg-[#FEE2E2] text-[#991B1B]"
+                      className="px-2 py-1 rounded-md bg-danger-tint text-[#991B1B]"
                     >
                       Delete
                     </button>
@@ -1007,18 +853,18 @@ export const KeystoresView: React.FC<KeystoresViewProps> = ({
         )
       ) : (
         /* Interactive Trust & KeyStore Hierarchy Graph View */
-        <div className="flex-1 bg-white rounded-[20px] border border-[#E2E8F0] p-6 overflow-y-auto flex flex-col justify-between">
+        <div className="flex-1 bg-white rounded-[20px] border border-line p-6 overflow-y-auto flex flex-col justify-between">
           <div>
             <div className="flex items-center justify-between mb-4">
               <div>
-                <h3 className="text-[16px] font-semibold text-[#0F172A]">
+                <h3 className="text-[16px] font-semibold text-ink">
                   KeyStore Trust Hierarchy Graph ({activeKs.name})
                 </h3>
-                <p className="text-[12.5px] text-[#64748B]">
+                <p className="text-[12.5px] text-faint">
                   Visualizes Root CAs, Intermediate CAs, End-Entity TLS Key Pairs, and Symmetric Keys inside {activeKs.name}.
                 </p>
               </div>
-              <span className="px-3 py-1 rounded-full bg-[#DCFCE7] text-[#166534] text-[12px] font-semibold flex items-center space-x-1.5">
+              <span className="px-3 py-1 rounded-full bg-success-tint text-[#166534] text-[12px] font-semibold flex items-center space-x-1.5">
                 <CheckCircle2 className="w-4 h-4" />
                 <span>All Chains Cryptographically Verified</span>
               </span>
@@ -1026,8 +872,8 @@ export const KeystoresView: React.FC<KeystoresViewProps> = ({
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-5 pt-2">
               {/* Column 1: Root & Trusted CAs */}
-              <div className="bg-[#F8FAFC] rounded-2xl p-4 border border-[#E2E8F0] space-y-3">
-                <span className="text-[11px] font-bold uppercase tracking-wider text-[#64748B] block">
+              <div className="bg-surface-2 rounded-2xl p-4 border border-line space-y-3">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-faint block">
                   Root &amp; Trusted CAs
                 </span>
                 {activeKs.entries
@@ -1039,11 +885,11 @@ export const KeystoresView: React.FC<KeystoresViewProps> = ({
                         setSelectedEntry(ca);
                         setActiveModal("inspect_entry");
                       }}
-                      className="p-3.5 bg-white rounded-xl border-l-4 border-l-[#059669] border border-[#E2E8F0] shadow-2xs cursor-pointer hover:border-[#059669]"
+                      className="p-3.5 bg-white rounded-xl border-l-4 border-l-[#059669] border border-line shadow-2xs cursor-pointer hover:border-success"
                     >
-                      <div className="text-[13px] font-semibold text-[#0F172A]">{ca.alias}</div>
-                      <div className="text-[11px] text-[#64748B] truncate mt-0.5">{ca.subject}</div>
-                      <div className="text-[10.5px] font-mono text-[#059669] mt-1">
+                      <div className="text-[13px] font-semibold text-ink">{ca.alias}</div>
+                      <div className="text-[11px] text-faint truncate mt-0.5">{ca.subject}</div>
+                      <div className="text-[10.5px] font-mono text-success mt-1">
                         {ca.algorithm} {ca.key_size}-bit • Trust Anchor
                       </div>
                     </div>
@@ -1051,8 +897,8 @@ export const KeystoresView: React.FC<KeystoresViewProps> = ({
               </div>
 
               {/* Column 2: Issued Key Pairs */}
-              <div className="bg-[#F8FAFC] rounded-2xl p-4 border border-[#E2E8F0] space-y-3">
-                <span className="text-[11px] font-bold uppercase tracking-wider text-[#64748B] block">
+              <div className="bg-surface-2 rounded-2xl p-4 border border-line space-y-3">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-faint block">
                   Asymmetric Key Pairs (TLS / CodeSign / PQC)
                 </span>
                 {activeKs.entries
@@ -1064,20 +910,20 @@ export const KeystoresView: React.FC<KeystoresViewProps> = ({
                         setSelectedEntry(kp);
                         setActiveModal("inspect_entry");
                       }}
-                      className={`p-3.5 bg-white rounded-xl border-l-4 border border-[#E2E8F0] shadow-2xs cursor-pointer ${
+                      className={`p-3.5 bg-white rounded-xl border-l-4 border border-line shadow-2xs cursor-pointer ${
                         kp.is_weak ? "border-l-[#DC2626]" : "border-l-[#2563EB]"
                       }`}
                     >
                       <div className="flex items-center justify-between">
-                        <span className="text-[13px] font-semibold text-[#0F172A]">{kp.alias}</span>
+                        <span className="text-[13px] font-semibold text-ink">{kp.alias}</span>
                         {kp.is_post_quantum && (
-                          <span className="px-1.5 py-0.2 rounded bg-[#EFF6FF] text-[#2563EB] text-[10px] font-bold">
+                          <span className="px-1.5 py-0.2 rounded bg-brand-tint text-brand text-[10px] font-bold">
                             PQC
                           </span>
                         )}
                       </div>
-                      <div className="text-[11px] text-[#64748B] truncate mt-0.5">{kp.subject}</div>
-                      <div className="text-[10.5px] text-[#475569] mt-1">
+                      <div className="text-[11px] text-faint truncate mt-0.5">{kp.subject}</div>
+                      <div className="text-[10.5px] text-muted mt-1">
                         Issued by: {kp.issuer.split(",")[0]}
                       </div>
                     </div>
@@ -1085,8 +931,8 @@ export const KeystoresView: React.FC<KeystoresViewProps> = ({
               </div>
 
               {/* Column 3: Symmetric Secret Keys */}
-              <div className="bg-[#F8FAFC] rounded-2xl p-4 border border-[#E2E8F0] space-y-3">
-                <span className="text-[11px] font-bold uppercase tracking-wider text-[#64748B] block">
+              <div className="bg-surface-2 rounded-2xl p-4 border border-line space-y-3">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-faint block">
                   Symmetric Secret Keys (AES / HMAC)
                 </span>
                 {activeKs.entries
@@ -1098,10 +944,10 @@ export const KeystoresView: React.FC<KeystoresViewProps> = ({
                         setSelectedEntry(sk);
                         setActiveModal("inspect_entry");
                       }}
-                      className="p-3.5 bg-white rounded-xl border-l-4 border-l-[#7E22CE] border border-[#E2E8F0] shadow-2xs cursor-pointer"
+                      className="p-3.5 bg-white rounded-xl border-l-4 border-l-[#7E22CE] border border-line shadow-2xs cursor-pointer"
                     >
-                      <div className="text-[13px] font-semibold text-[#0F172A]">{sk.alias}</div>
-                      <div className="text-[11px] text-[#64748B] mt-0.5">
+                      <div className="text-[13px] font-semibold text-ink">{sk.alias}</div>
+                      <div className="text-[11px] text-faint mt-0.5">
                         {sk.algorithm} ({sk.key_size}-bit)
                       </div>
                       <div className="text-[10.5px] font-mono text-[#7E22CE] mt-1">
@@ -1120,12 +966,12 @@ export const KeystoresView: React.FC<KeystoresViewProps> = ({
           ==================================================================== */}
       {activeModal === "gen_keypair" && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4">
-          <div className="w-full max-w-xl bg-white rounded-3xl border border-[#CBD5E1] shadow-2xl p-6 max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between pb-3 border-b border-[#E2E8F0]">
-              <h3 className="text-[17px] font-semibold text-[#0F172A]">
+          <div className="w-full max-w-xl bg-white rounded-3xl border border-line-strong shadow-2xl p-6 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between pb-3 border-b border-line">
+              <h3 className="text-[17px] font-semibold text-ink">
                 Generate Key Pair &amp; X.509 v3 Certificate
               </h3>
-              <button onClick={() => setActiveModal(null)} className="p-1 text-[#64748B] hover:text-[#0F172A] cursor-pointer">
+              <button onClick={() => setActiveModal(null)} className="p-1 text-faint hover:text-ink cursor-pointer">
                 <X className="w-4 h-4" />
               </button>
             </div>
@@ -1133,17 +979,17 @@ export const KeystoresView: React.FC<KeystoresViewProps> = ({
             <form onSubmit={handleGenerateKeyPair} className="space-y-3.5 pt-4 text-[12.5px]">
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="font-medium text-[#475569] block mb-1">Entry Alias</label>
+                  <label className="font-medium text-muted block mb-1">Entry Alias</label>
                   <input
                     type="text"
                     value={kpAlias}
                     onChange={(e) => setKpAlias(e.target.value)}
                     required
-                    className="w-full h-9 px-3 rounded-lg border border-[#CBD5E1]"
+                    className="w-full h-9 px-3 rounded-lg border border-line-strong"
                   />
                 </div>
                 <div>
-                  <label className="font-medium text-[#475569] block mb-1">Algorithm</label>
+                  <label className="font-medium text-muted block mb-1">Algorithm</label>
                   <select
                     value={kpAlg}
                     onChange={(e) => {
@@ -1154,7 +1000,7 @@ export const KeystoresView: React.FC<KeystoresViewProps> = ({
                       else if (val === "ML-DSA-65") setKpBits(1952);
                       else if (val === "SLH-DSA") setKpBits(512);
                     }}
-                    className="w-full h-9 px-3 rounded-lg border border-[#CBD5E1] bg-white"
+                    className="w-full h-9 px-3 rounded-lg border border-line-strong bg-white"
                   >
                     <option value="RSA">RSA (1024 / 2048 / 4096 / 8192)</option>
                     <option value="ECDSA">ECDSA (secp256r1 / P-256 / P-384)</option>
@@ -1168,29 +1014,29 @@ export const KeystoresView: React.FC<KeystoresViewProps> = ({
 
               <div className="grid grid-cols-3 gap-3">
                 <div>
-                  <label className="font-medium text-[#475569] block mb-1">Key Size (Bits)</label>
+                  <label className="font-medium text-muted block mb-1">Key Size (Bits)</label>
                   <input
                     type="number"
                     value={kpBits}
                     onChange={(e) => setKpBits(Number(e.target.value))}
-                    className="w-full h-9 px-3 rounded-lg border border-[#CBD5E1]"
+                    className="w-full h-9 px-3 rounded-lg border border-line-strong"
                   />
                 </div>
                 <div>
-                  <label className="font-medium text-[#475569] block mb-1">Validity (Days)</label>
+                  <label className="font-medium text-muted block mb-1">Validity (Days)</label>
                   <input
                     type="number"
                     value={kpDays}
                     onChange={(e) => setKpDays(Number(e.target.value))}
-                    className="w-full h-9 px-3 rounded-lg border border-[#CBD5E1]"
+                    className="w-full h-9 px-3 rounded-lg border border-line-strong"
                   />
                 </div>
                 <div>
-                  <label className="font-medium text-[#475569] block mb-1">Sign With CA (Optional)</label>
+                  <label className="font-medium text-muted block mb-1">Sign With CA (Optional)</label>
                   <select
                     value={kpSignerAlias}
                     onChange={(e) => setKpSignerAlias(e.target.value)}
-                    className="w-full h-9 px-2 rounded-lg border border-[#CBD5E1] bg-white"
+                    className="w-full h-9 px-2 rounded-lg border border-line-strong bg-white"
                   >
                     <option value="">Self-Signed</option>
                     {activeKs.entries
@@ -1206,56 +1052,56 @@ export const KeystoresView: React.FC<KeystoresViewProps> = ({
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="font-medium text-[#475569] block mb-1">Common Name (CN)</label>
+                  <label className="font-medium text-muted block mb-1">Common Name (CN)</label>
                   <input
                     type="text"
                     value={kpCn}
                     onChange={(e) => setKpCn(e.target.value)}
                     required
-                    className="w-full h-9 px-3 rounded-lg border border-[#CBD5E1]"
+                    className="w-full h-9 px-3 rounded-lg border border-line-strong"
                   />
                 </div>
                 <div>
-                  <label className="font-medium text-[#475569] block mb-1">Organization (O)</label>
+                  <label className="font-medium text-muted block mb-1">Organization (O)</label>
                   <input
                     type="text"
                     value={kpOrg}
                     onChange={(e) => setKpOrg(e.target.value)}
-                    className="w-full h-9 px-3 rounded-lg border border-[#CBD5E1]"
+                    className="w-full h-9 px-3 rounded-lg border border-line-strong"
                   />
                 </div>
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="font-medium text-[#475569] block mb-1">Organizational Unit (OU)</label>
+                  <label className="font-medium text-muted block mb-1">Organizational Unit (OU)</label>
                   <input
                     type="text"
                     value={kpOu}
                     onChange={(e) => setKpOu(e.target.value)}
-                    className="w-full h-9 px-3 rounded-lg border border-[#CBD5E1]"
+                    className="w-full h-9 px-3 rounded-lg border border-line-strong"
                   />
                 </div>
                 <div>
-                  <label className="font-medium text-[#475569] block mb-1">Country (C)</label>
+                  <label className="font-medium text-muted block mb-1">Country (C)</label>
                   <input
                     type="text"
                     value={kpCountry}
                     onChange={(e) => setKpCountry(e.target.value)}
-                    className="w-full h-9 px-3 rounded-lg border border-[#CBD5E1]"
+                    className="w-full h-9 px-3 rounded-lg border border-line-strong"
                   />
                 </div>
               </div>
 
               <div>
-                <label className="font-medium text-[#475569] block mb-1">
+                <label className="font-medium text-muted block mb-1">
                   Subject Alternative Names (SANs - DNS &amp; IP comma-separated)
                 </label>
                 <input
                   type="text"
                   value={kpSans}
                   onChange={(e) => setKpSans(e.target.value)}
-                  className="w-full h-9 px-3 rounded-lg border border-[#CBD5E1]"
+                  className="w-full h-9 px-3 rounded-lg border border-line-strong"
                 />
               </div>
 
@@ -1267,7 +1113,7 @@ export const KeystoresView: React.FC<KeystoresViewProps> = ({
                   onChange={(e) => setKpIsCa(e.target.checked)}
                   className="w-4 h-4 rounded"
                 />
-                <label htmlFor="kpCaFlag" className="text-[#334155] font-medium cursor-pointer">
+                <label htmlFor="kpCaFlag" className="text-ink-2 font-medium cursor-pointer">
                   Configure X.509 v3 Basic Constraints as Certificate Authority (CA:TRUE)
                 </label>
               </div>
@@ -1276,14 +1122,14 @@ export const KeystoresView: React.FC<KeystoresViewProps> = ({
                 <button
                   type="button"
                   onClick={() => setActiveModal(null)}
-                  className="px-4 py-2 rounded-xl text-[#475569] hover:bg-[#F1F5F9] cursor-pointer"
+                  className="px-4 py-2 rounded-xl text-muted hover:bg-surface-3 cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={busy}
-                  className="px-5 py-2 rounded-xl bg-[#0A3464] hover:bg-[#07274C] text-white font-semibold cursor-pointer"
+                  className="px-5 py-2 rounded-xl bg-brand-deep hover:bg-brand-deeper text-white font-semibold cursor-pointer"
                 >
                   {busy ? "Generating in Rust..." : "Generate & Save to KeyStore"}
                 </button>
@@ -1298,33 +1144,33 @@ export const KeystoresView: React.FC<KeystoresViewProps> = ({
           ==================================================================== */}
       {activeModal === "gen_secret" && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4">
-          <div className="w-full max-w-md bg-white rounded-3xl border border-[#CBD5E1] shadow-2xl p-6">
-            <div className="flex items-center justify-between pb-3 border-b border-[#E2E8F0]">
-              <h3 className="text-[17px] font-semibold text-[#0F172A]">Generate Symmetric Secret Key</h3>
-              <button onClick={() => setActiveModal(null)} className="p-1 text-[#64748B] cursor-pointer">
+          <div className="w-full max-w-md bg-white rounded-3xl border border-line-strong shadow-2xl p-6">
+            <div className="flex items-center justify-between pb-3 border-b border-line">
+              <h3 className="text-[17px] font-semibold text-ink">Generate Symmetric Secret Key</h3>
+              <button onClick={() => setActiveModal(null)} className="p-1 text-faint cursor-pointer">
                 <X className="w-4 h-4" />
               </button>
             </div>
 
             <form onSubmit={handleGenerateSecretKey} className="space-y-4 pt-4 text-[13px]">
               <div>
-                <label className="font-medium text-[#475569] block mb-1">Secret Key Alias</label>
+                <label className="font-medium text-muted block mb-1">Secret Key Alias</label>
                 <input
                   type="text"
                   value={skAlias}
                   onChange={(e) => setSkAlias(e.target.value)}
                   required
-                  className="w-full h-9 px-3 rounded-lg border border-[#CBD5E1]"
+                  className="w-full h-9 px-3 rounded-lg border border-line-strong"
                 />
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="font-medium text-[#475569] block mb-1">Algorithm</label>
+                  <label className="font-medium text-muted block mb-1">Algorithm</label>
                   <select
                     value={skAlg}
                     onChange={(e) => setSkAlg(e.target.value)}
-                    className="w-full h-9 px-3 rounded-lg border border-[#CBD5E1] bg-white"
+                    className="w-full h-9 px-3 rounded-lg border border-line-strong bg-white"
                   >
                     <option value="AES">AES (128 / 192 / 256)</option>
                     <option value="ChaCha20">ChaCha20-Poly1305</option>
@@ -1335,11 +1181,11 @@ export const KeystoresView: React.FC<KeystoresViewProps> = ({
                   </select>
                 </div>
                 <div>
-                  <label className="font-medium text-[#475569] block mb-1">Key Size (Bits)</label>
+                  <label className="font-medium text-muted block mb-1">Key Size (Bits)</label>
                   <select
                     value={skBits}
                     onChange={(e) => setSkBits(Number(e.target.value))}
-                    className="w-full h-9 px-3 rounded-lg border border-[#CBD5E1] bg-white"
+                    className="w-full h-9 px-3 rounded-lg border border-line-strong bg-white"
                   >
                     <option value={128}>128 bits</option>
                     <option value={192}>192 bits</option>
@@ -1350,7 +1196,7 @@ export const KeystoresView: React.FC<KeystoresViewProps> = ({
               </div>
 
               <div>
-                <label className="font-medium text-[#475569] block mb-1">
+                <label className="font-medium text-muted block mb-1">
                   Custom Key Material (Hex - leave blank for CSPRNG random)
                 </label>
                 <input
@@ -1358,7 +1204,7 @@ export const KeystoresView: React.FC<KeystoresViewProps> = ({
                   value={skCustomHex}
                   onChange={(e) => setSkCustomHex(e.target.value)}
                   placeholder="Generated automatically by Rust CSPRNG if empty"
-                  className="w-full h-9 px-3 rounded-lg border border-[#CBD5E1] font-mono text-[11.5px]"
+                  className="w-full h-9 px-3 rounded-lg border border-line-strong font-mono text-[11.5px]"
                 />
               </div>
 
@@ -1366,14 +1212,14 @@ export const KeystoresView: React.FC<KeystoresViewProps> = ({
                 <button
                   type="button"
                   onClick={() => setActiveModal(null)}
-                  className="px-4 py-2 rounded-xl text-[#475569] hover:bg-[#F1F5F9] cursor-pointer"
+                  className="px-4 py-2 rounded-xl text-muted hover:bg-surface-3 cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={busy}
-                  className="px-5 py-2 rounded-xl bg-[#0A3464] text-white font-semibold cursor-pointer"
+                  className="px-5 py-2 rounded-xl bg-brand-deep text-white font-semibold cursor-pointer"
                 >
                   Generate Secret Key
                 </button>
@@ -1388,10 +1234,10 @@ export const KeystoresView: React.FC<KeystoresViewProps> = ({
           ==================================================================== */}
       {activeModal === "import_cert" && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4">
-          <div className="w-full max-w-lg bg-white rounded-3xl border border-[#CBD5E1] shadow-2xl p-6">
-            <div className="flex items-center justify-between pb-3 border-b border-[#E2E8F0]">
-              <h3 className="text-[17px] font-semibold text-[#0F172A]">Import Trusted X.509 Certificate</h3>
-              <button onClick={() => setActiveModal(null)} className="p-1 text-[#64748B] cursor-pointer">
+          <div className="w-full max-w-lg bg-white rounded-3xl border border-line-strong shadow-2xl p-6">
+            <div className="flex items-center justify-between pb-3 border-b border-line">
+              <h3 className="text-[17px] font-semibold text-ink">Import Trusted X.509 Certificate</h3>
+              <button onClick={() => setActiveModal(null)} className="p-1 text-faint cursor-pointer">
                 <X className="w-4 h-4" />
               </button>
             </div>
@@ -1399,35 +1245,35 @@ export const KeystoresView: React.FC<KeystoresViewProps> = ({
             <form onSubmit={handleImportTrustedCert} className="space-y-3.5 pt-4 text-[13px]">
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="font-medium text-[#475569] block mb-1">Trusted Alias</label>
+                  <label className="font-medium text-muted block mb-1">Trusted Alias</label>
                   <input
                     type="text"
                     value={impAlias}
                     onChange={(e) => setImpAlias(e.target.value)}
                     required
-                    className="w-full h-9 px-3 rounded-lg border border-[#CBD5E1]"
+                    className="w-full h-9 px-3 rounded-lg border border-line-strong"
                   />
                 </div>
                 <div>
-                  <label className="font-medium text-[#475569] block mb-1">Subject CN</label>
+                  <label className="font-medium text-muted block mb-1">Subject CN</label>
                   <input
                     type="text"
                     value={impSubjectCn}
                     onChange={(e) => setImpSubjectCn(e.target.value)}
                     required
-                    className="w-full h-9 px-3 rounded-lg border border-[#CBD5E1]"
+                    className="w-full h-9 px-3 rounded-lg border border-line-strong"
                   />
                 </div>
               </div>
 
               <div>
-                <label className="font-medium text-[#475569] block mb-1">Certificate PEM (Optional)</label>
+                <label className="font-medium text-muted block mb-1">Certificate PEM (Optional)</label>
                 <textarea
                   rows={5}
                   value={impPem}
                   onChange={(e) => setImpPem(e.target.value)}
                   placeholder="-----BEGIN CERTIFICATE----- ..."
-                  className="w-full p-3 rounded-xl border border-[#CBD5E1] font-mono text-[11px]"
+                  className="w-full p-3 rounded-xl border border-line-strong font-mono text-[11px]"
                 />
               </div>
 
@@ -1435,13 +1281,13 @@ export const KeystoresView: React.FC<KeystoresViewProps> = ({
                 <button
                   type="button"
                   onClick={() => setActiveModal(null)}
-                  className="px-4 py-2 rounded-xl text-[#475569] hover:bg-[#F1F5F9] cursor-pointer"
+                  className="px-4 py-2 rounded-xl text-muted hover:bg-surface-3 cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 rounded-xl bg-[#0A3464] text-white font-semibold cursor-pointer"
+                  className="px-5 py-2 rounded-xl bg-brand-deep text-white font-semibold cursor-pointer"
                 >
                   Import Certificate
                 </button>
@@ -1456,27 +1302,27 @@ export const KeystoresView: React.FC<KeystoresViewProps> = ({
           ==================================================================== */}
       {activeModal === "inspect_entry" && selectedEntry && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4">
-          <div className="w-full max-w-2xl bg-white rounded-3xl border border-[#CBD5E1] shadow-2xl p-6 max-h-[88vh] flex flex-col">
-            <div className="flex items-center justify-between pb-3 border-b border-[#E2E8F0]">
+          <div className="w-full max-w-2xl bg-white rounded-3xl border border-line-strong shadow-2xl p-6 max-h-[88vh] flex flex-col">
+            <div className="flex items-center justify-between pb-3 border-b border-line">
               <div>
-                <span className="text-[11px] font-bold uppercase tracking-wider text-[#2563EB]">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-brand">
                   {selectedEntry.entry_type} Inspector
                 </span>
-                <h3 className="text-[18px] font-semibold text-[#0F172A]">{selectedEntry.alias}</h3>
+                <h3 className="text-[18px] font-semibold text-ink">{selectedEntry.alias}</h3>
               </div>
-              <button onClick={() => setActiveModal(null)} className="p-1.5 text-[#64748B] hover:text-[#0F172A] cursor-pointer">
+              <button onClick={() => setActiveModal(null)} className="p-1.5 text-faint hover:text-ink cursor-pointer">
                 <X className="w-5 h-5" />
               </button>
             </div>
 
             {/* Sub-tabs inside Inspector */}
-            <div className="flex space-x-1.5 py-3 border-b border-[#F1F5F9]">
+            <div className="flex space-x-1.5 py-3 border-b border-surface-3">
               {selectedEntry.entry_type !== "SecretKey" && (
                 <>
                   <button
                     onClick={() => setInspectTab("cert")}
                     className={`px-3.5 py-1.5 rounded-full text-[12px] font-semibold cursor-pointer ${
-                      inspectTab === "cert" ? "bg-[#C2E7FF] text-[#0A3464]" : "bg-[#F1F5F9] text-[#475569]"
+                      inspectTab === "cert" ? "bg-brand-soft text-brand-deep" : "bg-surface-3 text-muted"
                     }`}
                   >
                     X.509 Certificate
@@ -1484,7 +1330,7 @@ export const KeystoresView: React.FC<KeystoresViewProps> = ({
                   <button
                     onClick={() => setInspectTab("extensions")}
                     className={`px-3.5 py-1.5 rounded-full text-[12px] font-semibold cursor-pointer ${
-                      inspectTab === "extensions" ? "bg-[#C2E7FF] text-[#0A3464]" : "bg-[#F1F5F9] text-[#475569]"
+                      inspectTab === "extensions" ? "bg-brand-soft text-brand-deep" : "bg-surface-3 text-muted"
                     }`}
                   >
                     v3 Extensions ({selectedEntry.certificate_chain[0]?.extensions.length || 0})
@@ -1492,7 +1338,7 @@ export const KeystoresView: React.FC<KeystoresViewProps> = ({
                   <button
                     onClick={() => setInspectTab("public")}
                     className={`px-3.5 py-1.5 rounded-full text-[12px] font-semibold cursor-pointer ${
-                      inspectTab === "public" ? "bg-[#C2E7FF] text-[#0A3464]" : "bg-[#F1F5F9] text-[#475569]"
+                      inspectTab === "public" ? "bg-brand-soft text-brand-deep" : "bg-surface-3 text-muted"
                     }`}
                   >
                     Public Key
@@ -1503,7 +1349,7 @@ export const KeystoresView: React.FC<KeystoresViewProps> = ({
                 <button
                   onClick={() => setInspectTab("private")}
                   className={`px-3.5 py-1.5 rounded-full text-[12px] font-semibold cursor-pointer ${
-                    inspectTab === "private" ? "bg-[#C2E7FF] text-[#0A3464]" : "bg-[#F1F5F9] text-[#475569]"
+                    inspectTab === "private" ? "bg-brand-soft text-brand-deep" : "bg-surface-3 text-muted"
                   }`}
                 >
                   {selectedEntry.entry_type === "SecretKey" ? "Symmetric Key Material" : "Private Key (PKCS#8)"}
@@ -1515,44 +1361,44 @@ export const KeystoresView: React.FC<KeystoresViewProps> = ({
             <div className="flex-1 overflow-y-auto py-4 space-y-3 text-[12.5px] select-text">
               {inspectTab === "cert" && (
                 <>
-                  <div className="grid grid-cols-2 gap-3 bg-[#F8FAFC] p-4 rounded-2xl border border-[#E2E8F0]">
+                  <div className="grid grid-cols-2 gap-3 bg-surface-2 p-4 rounded-2xl border border-line">
                     <div>
-                      <span className="text-[#64748B] block text-[11px]">Subject DN</span>
-                      <span className="font-mono text-[#0F172A] font-medium">{selectedEntry.subject}</span>
+                      <span className="text-faint block text-[11px]">Subject DN</span>
+                      <span className="font-mono text-ink font-medium">{selectedEntry.subject}</span>
                     </div>
                     <div>
-                      <span className="text-[#64748B] block text-[11px]">Issuer DN</span>
-                      <span className="font-mono text-[#0F172A]">{selectedEntry.issuer}</span>
+                      <span className="text-faint block text-[11px]">Issuer DN</span>
+                      <span className="font-mono text-ink">{selectedEntry.issuer}</span>
                     </div>
                     <div>
-                      <span className="text-[#64748B] block text-[11px]">Serial Number</span>
-                      <span className="font-mono text-[#0F172A]">{selectedEntry.serial_number}</span>
+                      <span className="text-faint block text-[11px]">Serial Number</span>
+                      <span className="font-mono text-ink">{selectedEntry.serial_number}</span>
                     </div>
                     <div>
-                      <span className="text-[#64748B] block text-[11px]">Algorithm &amp; Key Size</span>
-                      <span className="font-semibold text-[#0F172A]">
+                      <span className="text-faint block text-[11px]">Algorithm &amp; Key Size</span>
+                      <span className="font-semibold text-ink">
                         {selectedEntry.algorithm} ({selectedEntry.key_size} bits)
                       </span>
                     </div>
                     <div>
-                      <span className="text-[#64748B] block text-[11px]">Created</span>
-                      <span className="text-[#0F172A]">{selectedEntry.creation_date}</span>
+                      <span className="text-faint block text-[11px]">Created</span>
+                      <span className="text-ink">{selectedEntry.creation_date}</span>
                     </div>
                     <div>
-                      <span className="text-[#64748B] block text-[11px]">Expires</span>
-                      <span className="text-[#0F172A]">{selectedEntry.expiry_date}</span>
+                      <span className="text-faint block text-[11px]">Expires</span>
+                      <span className="text-ink">{selectedEntry.expiry_date}</span>
                     </div>
                   </div>
 
                   <div className="space-y-1.5">
-                    <span className="text-[11px] font-bold uppercase text-[#64748B] block">
+                    <span className="text-[11px] font-bold uppercase text-faint block">
                       SHA-256 &amp; SHA-1 Fingerprints
                     </span>
-                    <div className="p-2.5 bg-[#F8FAFC] border border-[#E2E8F0] rounded-xl font-mono text-[11px] break-all">
+                    <div className="p-2.5 bg-surface-2 border border-line rounded-xl font-mono text-[11px] break-all">
                       <div>
                         <strong>SHA-256:</strong> {selectedEntry.sha256_fingerprint}
                       </div>
-                      <div className="mt-1 text-[#475569]">
+                      <div className="mt-1 text-muted">
                         <strong>SHA-1:</strong> {selectedEntry.sha1_fingerprint}
                       </div>
                     </div>
@@ -1560,10 +1406,10 @@ export const KeystoresView: React.FC<KeystoresViewProps> = ({
 
                   {selectedEntry.certificate_chain[0] && (
                     <div>
-                      <span className="text-[11px] font-bold uppercase text-[#64748B] block mb-1">
+                      <span className="text-[11px] font-bold uppercase text-faint block mb-1">
                         PEM Encoded Certificate
                       </span>
-                      <pre className="bg-[#0F172A] text-[#E2E8F0] p-3 rounded-xl font-mono text-[11px] overflow-x-auto max-h-40">
+                      <pre className="bg-ink text-line p-3 rounded-xl font-mono text-[11px] overflow-x-auto max-h-40">
                         {selectedEntry.certificate_chain[0].pem}
                       </pre>
                     </div>
@@ -1574,21 +1420,21 @@ export const KeystoresView: React.FC<KeystoresViewProps> = ({
               {inspectTab === "extensions" && (
                 <div className="space-y-2.5">
                   {(selectedEntry.certificate_chain[0]?.extensions || []).map((ext, i) => (
-                    <div key={i} className="p-3.5 bg-[#F8FAFC] rounded-xl border border-[#E2E8F0]">
+                    <div key={i} className="p-3.5 bg-surface-2 rounded-xl border border-line">
                       <div className="flex items-center justify-between">
-                        <span className="font-semibold text-[#0F172A]">{ext.name}</span>
+                        <span className="font-semibold text-ink">{ext.name}</span>
                         <div className="flex items-center space-x-2">
-                          <span className="font-mono text-[11px] text-[#64748B]">OID: {ext.oid}</span>
+                          <span className="font-mono text-[11px] text-faint">OID: {ext.oid}</span>
                           <span
                             className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                              ext.critical ? "bg-[#FEE2E2] text-[#991B1B]" : "bg-[#E0F2FE] text-[#0369A1]"
+                              ext.critical ? "bg-danger-tint text-[#991B1B]" : "bg-[#E0F2FE] text-[#0369A1]"
                             }`}
                           >
                             {ext.critical ? "Critical" : "Non-Critical"}
                           </span>
                         </div>
                       </div>
-                      <div className="mt-1.5 font-mono text-[11.5px] text-[#334155]">{ext.value}</div>
+                      <div className="mt-1.5 font-mono text-[11.5px] text-ink-2">{ext.value}</div>
                     </div>
                   ))}
                 </div>
@@ -1597,10 +1443,10 @@ export const KeystoresView: React.FC<KeystoresViewProps> = ({
               {inspectTab === "public" && (
                 <div className="space-y-3">
                   <div>
-                    <span className="text-[11px] font-bold uppercase text-[#64748B] block mb-1">
+                    <span className="text-[11px] font-bold uppercase text-faint block mb-1">
                       SubjectPublicKeyInfo (PEM)
                     </span>
-                    <pre className="bg-[#0F172A] text-[#A7F3D0] p-3.5 rounded-xl font-mono text-[11px] overflow-x-auto">
+                    <pre className="bg-ink text-[#A7F3D0] p-3.5 rounded-xl font-mono text-[11px] overflow-x-auto">
                       {selectedEntry.public_key_pem || "Public key embedded in X.509 certificate."}
                     </pre>
                   </div>
@@ -1611,19 +1457,19 @@ export const KeystoresView: React.FC<KeystoresViewProps> = ({
                 <div className="space-y-3">
                   {selectedEntry.entry_type === "SecretKey" ? (
                     <div>
-                      <span className="text-[11px] font-bold uppercase text-[#64748B] block mb-1">
+                      <span className="text-[11px] font-bold uppercase text-faint block mb-1">
                         Raw Symmetric Key Material (Hexadecimal)
                       </span>
-                      <pre className="bg-[#0F172A] text-[#FDE047] p-3.5 rounded-xl font-mono text-[12px] break-all whitespace-pre-wrap">
+                      <pre className="bg-ink text-[#FDE047] p-3.5 rounded-xl font-mono text-[12px] break-all whitespace-pre-wrap">
                         {selectedEntry.secret_key_hex}
                       </pre>
                     </div>
                   ) : (
                     <div>
-                      <span className="text-[11px] font-bold uppercase text-[#64748B] block mb-1">
+                      <span className="text-[11px] font-bold uppercase text-faint block mb-1">
                         PKCS#8 Private Key (PEM)
                       </span>
-                      <pre className="bg-[#0F172A] text-[#FCA5A5] p-3.5 rounded-xl font-mono text-[11px] overflow-x-auto">
+                      <pre className="bg-ink text-[#FCA5A5] p-3.5 rounded-xl font-mono text-[11px] overflow-x-auto">
                         {selectedEntry.private_key_pem}
                       </pre>
                     </div>
@@ -1632,11 +1478,11 @@ export const KeystoresView: React.FC<KeystoresViewProps> = ({
               )}
             </div>
 
-            <div className="pt-3 border-t border-[#E2E8F0] flex justify-between items-center">
+            <div className="pt-3 border-t border-line flex justify-between items-center">
               {onToggleEntryInWorkspace ? (
                 <button
                   onClick={() => setActiveModal("assign_workspace")}
-                  className="px-4 py-2 rounded-xl bg-[#EFF6FF] hover:bg-[#DBEAFE] text-[#1D4ED8] text-[12.5px] font-semibold flex items-center space-x-1.5 cursor-pointer"
+                  className="px-4 py-2 rounded-xl bg-brand-tint hover:bg-[#DBEAFE] text-[#1D4ED8] text-[12.5px] font-semibold flex items-center space-x-1.5 cursor-pointer"
                 >
                   <Layers className="w-4 h-4" />
                   <span>Assign to Workspace...</span>
@@ -1650,13 +1496,13 @@ export const KeystoresView: React.FC<KeystoresViewProps> = ({
                     setExportResult(null);
                     setActiveModal("export_entry");
                   }}
-                  className="px-4 py-2 rounded-xl bg-[#C2E7FF] text-[#0A3464] text-[12.5px] font-semibold cursor-pointer"
+                  className="px-4 py-2 rounded-xl bg-brand-soft text-brand-deep text-[12.5px] font-semibold cursor-pointer"
                 >
                   Export Formats...
                 </button>
                 <button
                   onClick={() => setActiveModal(null)}
-                  className="px-4 py-2 rounded-xl bg-[#0A3464] text-white text-[12.5px] font-semibold cursor-pointer"
+                  className="px-4 py-2 rounded-xl bg-brand-deep text-white text-[12.5px] font-semibold cursor-pointer"
                 >
                   Done
                 </button>
@@ -1671,17 +1517,17 @@ export const KeystoresView: React.FC<KeystoresViewProps> = ({
           ==================================================================== */}
       {activeModal === "export_entry" && selectedEntry && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4">
-          <div className="w-full max-w-xl bg-white rounded-3xl border border-[#CBD5E1] shadow-2xl p-6">
-            <div className="flex items-center justify-between pb-3 border-b border-[#E2E8F0]">
+          <div className="w-full max-w-xl bg-white rounded-3xl border border-line-strong shadow-2xl p-6">
+            <div className="flex items-center justify-between pb-3 border-b border-line">
               <div>
-                <h3 className="text-[17px] font-semibold text-[#0F172A]">
+                <h3 className="text-[17px] font-semibold text-ink">
                   Export '{selectedEntry.alias}'
                 </h3>
-                <p className="text-[12px] text-[#64748B]">
-                  Select any KeyStore Explorer format to export directly to disk.
+                <p className="text-[12px] text-faint">
+                  Select a format to export directly to disk.
                 </p>
               </div>
-              <button onClick={() => setActiveModal(null)} className="p-1 text-[#64748B] cursor-pointer">
+              <button onClick={() => setActiveModal(null)} className="p-1 text-faint cursor-pointer">
                 <X className="w-4 h-4" />
               </button>
             </div>
@@ -1702,23 +1548,23 @@ export const KeystoresView: React.FC<KeystoresViewProps> = ({
                 <button
                   key={fmt.id}
                   onClick={() => handleExportEntryFormat(selectedEntry, fmt.id)}
-                  className="p-3 rounded-xl border border-[#E2E8F0] hover:border-[#2563EB] hover:bg-[#EFF6FF] text-left font-medium text-[#0F172A] transition cursor-pointer flex items-center justify-between"
+                  className="p-3 rounded-xl border border-line hover:border-brand hover:bg-brand-tint text-left font-medium text-ink transition cursor-pointer flex items-center justify-between"
                 >
                   <span>{fmt.label}</span>
-                  <Download className="w-3.5 h-3.5 text-[#2563EB]" />
+                  <Download className="w-3.5 h-3.5 text-brand" />
                 </button>
               ))}
             </div>
 
             {exportResult && (
-              <div className="mt-4 p-3.5 bg-[#F8FAFC] border border-[#CBD5E1] rounded-2xl space-y-2 select-text">
+              <div className="mt-4 p-3.5 bg-surface-2 border border-line-strong rounded-2xl space-y-2 select-text">
                 <div className="flex items-center justify-between text-[12px]">
-                  <span className="font-semibold text-[#059669]">
+                  <span className="font-semibold text-success">
                     Saved: {exportResult.saved_path || exportResult.filename}
                   </span>
-                  <span className="text-[#64748B]">{exportResult.byte_length} bytes</span>
+                  <span className="text-faint">{exportResult.byte_length} bytes</span>
                 </div>
-                <pre className="bg-[#0F172A] text-[#38BDF8] p-2.5 rounded-xl font-mono text-[10.5px] max-h-32 overflow-y-auto">
+                <pre className="bg-ink text-[#38BDF8] p-2.5 rounded-xl font-mono text-[10.5px] max-h-32 overflow-y-auto">
                   {exportResult.content}
                 </pre>
               </div>
@@ -1732,26 +1578,26 @@ export const KeystoresView: React.FC<KeystoresViewProps> = ({
           ==================================================================== */}
       {activeModal === "csr_result" && csrData && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4">
-          <div className="w-full max-w-xl bg-white rounded-3xl border border-[#CBD5E1] shadow-2xl p-6 select-text">
-            <div className="flex items-center justify-between pb-3 border-b border-[#E2E8F0]">
-              <h3 className="text-[17px] font-semibold text-[#0F172A]">
+          <div className="w-full max-w-xl bg-white rounded-3xl border border-line-strong shadow-2xl p-6 select-text">
+            <div className="flex items-center justify-between pb-3 border-b border-line">
+              <h3 className="text-[17px] font-semibold text-ink">
                 CSR Generated for '{csrData.alias}'
               </h3>
-              <button onClick={() => setActiveModal(null)} className="p-1 text-[#64748B] cursor-pointer">
+              <button onClick={() => setActiveModal(null)} className="p-1 text-faint cursor-pointer">
                 <X className="w-4 h-4" />
               </button>
             </div>
 
             <div className="space-y-3 pt-4 text-[12px]">
               <div>
-                <span className="font-bold uppercase text-[#64748B] block mb-1">PKCS#10 PEM Format</span>
-                <pre className="bg-[#0F172A] text-[#A7F3D0] p-3 rounded-xl font-mono text-[11px] max-h-40 overflow-y-auto">
+                <span className="font-bold uppercase text-faint block mb-1">PKCS#10 PEM Format</span>
+                <pre className="bg-ink text-[#A7F3D0] p-3 rounded-xl font-mono text-[11px] max-h-40 overflow-y-auto">
                   {csrData.csr_pem}
                 </pre>
               </div>
               <div>
-                <span className="font-bold uppercase text-[#64748B] block mb-1">SPKAC Format</span>
-                <pre className="bg-[#0F172A] text-[#38BDF8] p-3 rounded-xl font-mono text-[10.5px] max-h-28 overflow-y-auto whitespace-pre-wrap break-all">
+                <span className="font-bold uppercase text-faint block mb-1">SPKAC Format</span>
+                <pre className="bg-ink text-[#38BDF8] p-3 rounded-xl font-mono text-[10.5px] max-h-28 overflow-y-auto whitespace-pre-wrap break-all">
                   {csrData.spkac_data}
                 </pre>
               </div>
@@ -1765,40 +1611,40 @@ export const KeystoresView: React.FC<KeystoresViewProps> = ({
           ==================================================================== */}
       {activeModal === "ks_properties" && activeKs && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4">
-          <div className="w-full max-w-md bg-white rounded-3xl border border-[#CBD5E1] shadow-2xl p-6">
-            <div className="flex items-center justify-between pb-3 border-b border-[#E2E8F0]">
-              <h3 className="text-[17px] font-semibold text-[#0F172A]">KeyStore Properties</h3>
-              <button onClick={() => setActiveModal(null)} className="p-1 text-[#64748B] cursor-pointer">
+          <div className="w-full max-w-md bg-white rounded-3xl border border-line-strong shadow-2xl p-6">
+            <div className="flex items-center justify-between pb-3 border-b border-line">
+              <h3 className="text-[17px] font-semibold text-ink">KeyStore Properties</h3>
+              <button onClick={() => setActiveModal(null)} className="p-1 text-faint cursor-pointer">
                 <X className="w-4 h-4" />
               </button>
             </div>
             <div className="space-y-2.5 pt-4 text-[13px]">
               <div className="flex justify-between">
-                <span className="text-[#64748B]">File Name:</span>
-                <span className="font-semibold text-[#0F172A]">{activeKs.name}</span>
+                <span className="text-faint">File Name:</span>
+                <span className="font-semibold text-ink">{activeKs.name}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-[#64748B]">KeyStore Type:</span>
-                <span className="font-semibold text-[#2563EB]">{activeKs.format}</span>
+                <span className="text-faint">KeyStore Type:</span>
+                <span className="font-semibold text-brand">{activeKs.format}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-[#64748B]">Cryptographic Provider:</span>
-                <span className="font-semibold text-[#0F172A]">xkeystore Native Rust Core</span>
+                <span className="text-faint">Cryptographic Provider:</span>
+                <span className="font-semibold text-ink">xkeystore Native Rust Core</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-[#64748B]">Total Entries:</span>
-                <span className="font-semibold text-[#0F172A]">{activeKs.entries.length}</span>
+                <span className="text-faint">Total Entries:</span>
+                <span className="font-semibold text-ink">{activeKs.entries.length}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-[#64748B]">Key Pairs:</span>
+                <span className="text-faint">Key Pairs:</span>
                 <span>{activeKs.entries.filter((e) => e.entry_type === "KeyPair").length}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-[#64748B]">Trusted Certificates:</span>
+                <span className="text-faint">Trusted Certificates:</span>
                 <span>{activeKs.entries.filter((e) => e.entry_type === "TrustedCertificate").length}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-[#64748B]">Secret Keys:</span>
+                <span className="text-faint">Secret Keys:</span>
                 <span>{activeKs.entries.filter((e) => e.entry_type === "SecretKey").length}</span>
               </div>
             </div>
@@ -1811,21 +1657,21 @@ export const KeystoresView: React.FC<KeystoresViewProps> = ({
           ==================================================================== */}
       {activeModal === "rename_entry" && selectedEntry && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4">
-          <div className="w-full max-w-sm bg-white rounded-3xl border border-[#CBD5E1] shadow-2xl p-6">
-            <h3 className="text-[16px] font-semibold text-[#0F172A] mb-3">Rename Entry Alias</h3>
+          <div className="w-full max-w-sm bg-white rounded-3xl border border-line-strong shadow-2xl p-6">
+            <h3 className="text-[16px] font-semibold text-ink mb-3">Rename Entry Alias</h3>
             <form onSubmit={handleRenameSubmit} className="space-y-3">
               <input
                 type="text"
                 value={newAliasName}
                 onChange={(e) => setNewAliasName(e.target.value)}
                 required
-                className="w-full h-9 px-3 rounded-lg border border-[#CBD5E1] text-[13px]"
+                className="w-full h-9 px-3 rounded-lg border border-line-strong text-[13px]"
               />
               <div className="flex justify-end space-x-2">
-                <button type="button" onClick={() => setActiveModal(null)} className="px-3 py-1.5 text-[12px] text-[#64748B]">
+                <button type="button" onClick={() => setActiveModal(null)} className="px-3 py-1.5 text-[12px] text-faint">
                   Cancel
                 </button>
-                <button type="submit" className="px-4 py-1.5 rounded-xl bg-[#0A3464] text-white text-[12.5px] font-semibold">
+                <button type="submit" className="px-4 py-1.5 rounded-xl bg-brand-deep text-white text-[12.5px] font-semibold">
                   Rename
                 </button>
               </div>
@@ -1836,8 +1682,8 @@ export const KeystoresView: React.FC<KeystoresViewProps> = ({
 
       {activeModal === "add_label" && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4">
-          <div className="w-full max-w-sm bg-white rounded-3xl border border-[#CBD5E1] shadow-2xl p-6">
-            <h3 className="text-[16px] font-semibold text-[#0F172A] mb-3">Add Label Tag</h3>
+          <div className="w-full max-w-sm bg-white rounded-3xl border border-line-strong shadow-2xl p-6">
+            <h3 className="text-[16px] font-semibold text-ink mb-3">Add Label Tag</h3>
             <form onSubmit={handleAddLabelSubmit} className="space-y-3">
               <input
                 type="text"
@@ -1845,13 +1691,13 @@ export const KeystoresView: React.FC<KeystoresViewProps> = ({
                 onChange={(e) => setNewLabelText(e.target.value)}
                 placeholder="e.g. Production, PCI-DSS, mTLS"
                 required
-                className="w-full h-9 px-3 rounded-lg border border-[#CBD5E1] text-[13px]"
+                className="w-full h-9 px-3 rounded-lg border border-line-strong text-[13px]"
               />
               <div className="flex justify-end space-x-2">
-                <button type="button" onClick={() => setActiveModal(null)} className="px-3 py-1.5 text-[12px] text-[#64748B]">
+                <button type="button" onClick={() => setActiveModal(null)} className="px-3 py-1.5 text-[12px] text-faint">
                   Cancel
                 </button>
-                <button type="submit" className="px-4 py-1.5 rounded-xl bg-[#0A3464] text-white text-[12.5px] font-semibold">
+                <button type="submit" className="px-4 py-1.5 rounded-xl bg-brand-deep text-white text-[12.5px] font-semibold">
                   Add Label
                 </button>
               </div>
@@ -1865,20 +1711,20 @@ export const KeystoresView: React.FC<KeystoresViewProps> = ({
           ==================================================================== */}
       {activeModal === "assign_workspace" && selectedEntry && onToggleEntryInWorkspace && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4">
-          <div className="w-full max-w-md bg-white rounded-3xl border border-[#CBD5E1] shadow-2xl p-6">
-            <div className="flex items-center justify-between pb-3 border-b border-[#E2E8F0]">
+          <div className="w-full max-w-md bg-white rounded-3xl border border-line-strong shadow-2xl p-6">
+            <div className="flex items-center justify-between pb-3 border-b border-line">
               <div>
-                <h3 className="text-[16px] font-bold text-[#0F172A] flex items-center space-x-2">
-                  <Layers className="w-4 h-4 text-[#2563EB]" />
+                <h3 className="text-[16px] font-bold text-ink flex items-center space-x-2">
+                  <Layers className="w-4 h-4 text-brand" />
                   <span>Assign to Workspaces</span>
                 </h3>
-                <p className="text-[12px] text-[#64748B] mt-0.5">
+                <p className="text-[12px] text-faint mt-0.5">
                   Toggle which Workspaces include <strong>{selectedEntry.alias}</strong>
                 </p>
               </div>
               <button
                 onClick={() => setActiveModal(null)}
-                className="p-1 text-[#64748B] hover:text-[#0F172A] cursor-pointer"
+                className="p-1 text-faint hover:text-ink cursor-pointer"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -1900,21 +1746,21 @@ export const KeystoresView: React.FC<KeystoresViewProps> = ({
                     }}
                     className={`p-3.5 rounded-2xl border flex items-center justify-between cursor-pointer transition ${
                       isAssigned
-                        ? "bg-[#EFF6FF] border-[#93C5FD]"
-                        : "bg-[#F8FAFC] border-[#E2E8F0] hover:border-[#CBD5E1]"
+                        ? "bg-brand-tint border-[#93C5FD]"
+                        : "bg-surface-2 border-line hover:border-line-strong"
                     }`}
                   >
                     <div>
-                      <div className="text-[13.5px] font-bold text-[#0F172A]">{ws.name}</div>
-                      <div className="text-[11.5px] text-[#64748B]">
+                      <div className="text-[13.5px] font-bold text-ink">{ws.name}</div>
+                      <div className="text-[11.5px] text-faint">
                         {ws.environment} • {ws.entryIds.length} Certs
                       </div>
                     </div>
                     <span
                       className={`px-3 py-1 rounded-full text-[11.5px] font-semibold ${
                         isAssigned
-                          ? "bg-[#DCFCE7] text-[#15803D]"
-                          : "bg-white border border-[#CBD5E1] text-[#475569]"
+                          ? "bg-success-tint text-[#15803D]"
+                          : "bg-white border border-line-strong text-muted"
                       }`}
                     >
                       {isAssigned ? "✓ Assigned" : "+ Add"}
@@ -1924,10 +1770,10 @@ export const KeystoresView: React.FC<KeystoresViewProps> = ({
               })}
             </div>
 
-            <div className="pt-3 border-t border-[#E2E8F0] flex justify-end">
+            <div className="pt-3 border-t border-line flex justify-end">
               <button
                 onClick={() => setActiveModal(null)}
-                className="px-5 py-2 rounded-full bg-[#0A3464] text-white text-[12.5px] font-semibold cursor-pointer"
+                className="px-5 py-2 rounded-full bg-brand-deep text-white text-[12.5px] font-semibold cursor-pointer"
               >
                 Done
               </button>

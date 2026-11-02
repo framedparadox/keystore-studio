@@ -106,27 +106,27 @@ export const NewKeystoreModal: React.FC<NewKeystoreModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4">
-      <div className="w-full max-w-lg bg-white rounded-3xl border border-[#CBD5E1] shadow-2xl p-6 space-y-4">
-        <div className="flex items-center justify-between pb-2 border-b border-[#E2E8F0]">
+      <div className="w-full max-w-lg bg-white rounded-3xl border border-line-strong shadow-2xl p-6 space-y-4">
+        <div className="flex items-center justify-between pb-2 border-b border-line">
           <div className="flex items-center space-x-2.5">
-            <div className="w-9 h-9 rounded-full bg-[#C2E7FF] text-[#0A3464] flex items-center justify-center">
+            <div className="w-9 h-9 rounded-full bg-brand-soft text-brand-deep flex items-center justify-center">
               <FolderPlus className="w-4 h-4" />
             </div>
             <div>
-              <h3 className="text-[17px] font-semibold text-[#0F172A]">Create New KeyStore</h3>
-              <p className="text-[11.5px] text-[#64748B]">
-                Supports all 6 KeyStore Explorer store formats natively in Rust
+              <h3 className="text-[17px] font-semibold text-ink">Create New KeyStore</h3>
+              <p className="text-[11.5px] text-faint">
+                Supports PKCS#12, JKS, JCEKS, BKS, BCFKS and UBER
               </p>
             </div>
           </div>
-          <button onClick={onClose} className="p-1 text-[#64748B] hover:text-[#0F172A] cursor-pointer">
+          <button onClick={onClose} className="p-1 text-faint hover:text-ink cursor-pointer">
             <X className="w-4 h-4" />
           </button>
         </div>
 
         <form onSubmit={handleCreate} className="space-y-4 text-[12.5px]">
           <div>
-            <label className="font-medium text-[#475569] block mb-1.5">Select KeyStore Type</label>
+            <label className="font-medium text-muted block mb-1.5">Select KeyStore Type</label>
             <div className="grid grid-cols-3 gap-2">
               {formats.map((f) => (
                 <button
@@ -139,12 +139,12 @@ export const NewKeystoreModal: React.FC<NewKeystoreModalProps> = ({
                   }}
                   className={`p-2.5 rounded-xl border text-left transition cursor-pointer ${
                     format === f.id
-                      ? "bg-[#EFF6FF] border-[#2563EB] text-[#0A3464]"
-                      : "bg-white border-[#CBD5E1] text-[#475569] hover:bg-[#F8FAFC]"
+                      ? "bg-brand-tint border-brand text-brand-deep"
+                      : "bg-white border-line-strong text-muted hover:bg-surface-2"
                   }`}
                 >
                   <div className="font-bold text-[12.5px]">{f.id}</div>
-                  <div className="text-[10.5px] text-[#64748B] truncate">{f.desc}</div>
+                  <div className="text-[10.5px] text-faint truncate">{f.desc}</div>
                 </button>
               ))}
             </div>
@@ -152,43 +152,43 @@ export const NewKeystoreModal: React.FC<NewKeystoreModalProps> = ({
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="font-medium text-[#475569] block mb-1">KeyStore Filename</label>
+              <label className="font-medium text-muted block mb-1">KeyStore Filename</label>
               <input
                 type="text"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 required
-                className="w-full h-9 px-3 rounded-lg border border-[#CBD5E1]"
+                className="w-full h-9 px-3 rounded-lg border border-line-strong"
               />
             </div>
             <div>
-              <label className="font-medium text-[#475569] block mb-1">Store Passphrase</label>
+              <label className="font-medium text-muted block mb-1">Store Passphrase</label>
               <input
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="w-full h-9 px-3 rounded-lg border border-[#CBD5E1]"
+                className="w-full h-9 px-3 rounded-lg border border-line-strong"
               />
             </div>
           </div>
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="font-medium text-[#475569] block mb-1">Initial Root Key Alias</label>
+              <label className="font-medium text-muted block mb-1">Initial Root Key Alias</label>
               <input
                 type="text"
                 value={initialAlias}
                 onChange={(e) => setInitialAlias(e.target.value)}
                 required
-                className="w-full h-9 px-3 rounded-lg border border-[#CBD5E1]"
+                className="w-full h-9 px-3 rounded-lg border border-line-strong"
               />
             </div>
             <div>
-              <label className="font-medium text-[#475569] block mb-1">Initial Key Algorithm</label>
+              <label className="font-medium text-muted block mb-1">Initial Key Algorithm</label>
               <select
                 value={alg}
                 onChange={(e) => setAlg(e.target.value)}
-                className="w-full h-9 px-3 rounded-lg border border-[#CBD5E1] bg-white"
+                className="w-full h-9 px-3 rounded-lg border border-line-strong bg-white"
               >
                 <option value="RSA">RSA-4096</option>
                 <option value="ECDSA">ECDSA P-256</option>
@@ -202,14 +202,14 @@ export const NewKeystoreModal: React.FC<NewKeystoreModalProps> = ({
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 text-[#475569] hover:bg-[#F1F5F9] rounded-xl cursor-pointer"
+              className="px-4 py-2 text-muted hover:bg-surface-3 rounded-xl cursor-pointer"
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={busy}
-              className="px-5 py-2 bg-[#0A3464] hover:bg-[#07274C] text-white font-semibold rounded-full shadow-xs cursor-pointer flex items-center space-x-1.5"
+              className="px-5 py-2 bg-brand-deep hover:bg-brand-deeper text-white font-semibold rounded-full shadow-xs cursor-pointer flex items-center space-x-1.5"
             >
               <Sparkles className="w-3.5 h-3.5" />
               <span>{busy ? "Initializing in Rust..." : "Create KeyStore"}</span>

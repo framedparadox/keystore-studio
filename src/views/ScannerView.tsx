@@ -82,9 +82,9 @@ export const ScannerView: React.FC<ScannerViewProps> = ({
   };
 
   return (
-    <div className="flex-1 flex flex-col overflow-hidden bg-[#EEF2F7] px-8 py-6 select-none">
+    <div className="flex-1 flex flex-col overflow-hidden bg-canvas px-8 py-6 select-none">
       {toast && (
-        <div className="fixed bottom-6 right-8 z-50 bg-[#0F172A] text-white px-4 py-3 rounded-2xl shadow-xl flex items-center space-x-2 text-[13px]">
+        <div className="fixed bottom-6 right-8 z-50 bg-ink text-white px-4 py-3 rounded-2xl shadow-xl flex items-center space-x-2 text-[13px]">
           <CheckCircle2 className="w-4 h-4 text-[#34D399]" />
           <span>{toast}</span>
         </div>
@@ -92,10 +92,10 @@ export const ScannerView: React.FC<ScannerViewProps> = ({
 
       <div className="flex items-center justify-between mb-5">
         <div>
-          <h1 className="text-[28px] font-normal text-[#1E293B] tracking-tight">
+          <h1 className="text-[28px] font-normal text-ink-2 tracking-tight">
             Security Posture &amp; Automated Key Rotation
           </h1>
-          <p className="text-[13px] text-[#64748B]">
+          <p className="text-[13px] text-faint">
             Audits all loaded KeyStores and rotates weak or expiring keys in-place using native Rust cryptography.
           </p>
         </div>
@@ -103,38 +103,38 @@ export const ScannerView: React.FC<ScannerViewProps> = ({
 
       {/* KPI Summary Row */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-5">
-        <div className="bg-white rounded-[22px] p-5 border border-[#E2E8F0]">
-          <span className="text-[12px] font-medium text-[#64748B] block">Compliance Score</span>
-          <div className="text-[34px] font-bold text-[#059669] mt-1">{healthScore}%</div>
-          <span className="text-[11.5px] text-[#64748B]">Across {totalCount} cryptographic entries</span>
+        <div className="bg-white rounded-[22px] p-5 border border-line">
+          <span className="text-[12px] font-medium text-faint block">Compliance Score</span>
+          <div className="text-[34px] font-bold text-success mt-1">{healthScore}%</div>
+          <span className="text-[11.5px] text-faint">Across {totalCount} cryptographic entries</span>
         </div>
 
-        <div className="bg-white rounded-[22px] p-5 border border-[#E2E8F0]">
-          <span className="text-[12px] font-medium text-[#64748B] block">Weak Keys (&lt; 2048-bit)</span>
-          <div className={`text-[34px] font-bold mt-1 ${weakEntries.length > 0 ? "text-[#DC2626]" : "text-[#059669]"}`}>
+        <div className="bg-white rounded-[22px] p-5 border border-line">
+          <span className="text-[12px] font-medium text-faint block">Weak Keys (&lt; 2048-bit)</span>
+          <div className={`text-[34px] font-bold mt-1 ${weakEntries.length > 0 ? "text-danger" : "text-success"}`}>
             {weakEntries.length}
           </div>
-          <span className="text-[11.5px] text-[#64748B]">
+          <span className="text-[11.5px] text-faint">
             {weakEntries.length === 0 ? "All keys meet NIST 2030+" : "Ready for 1-click rotation"}
           </span>
         </div>
 
-        <div className="bg-white rounded-[22px] p-5 border border-[#E2E8F0]">
-          <span className="text-[12px] font-medium text-[#64748B] block">Post-Quantum Ready</span>
-          <div className="text-[34px] font-bold text-[#2563EB] mt-1">{pqEntries.length}</div>
-          <span className="text-[11.5px] text-[#64748B]">ML-DSA, ML-KEM &amp; AES-256</span>
+        <div className="bg-white rounded-[22px] p-5 border border-line">
+          <span className="text-[12px] font-medium text-faint block">Post-Quantum Ready</span>
+          <div className="text-[34px] font-bold text-brand mt-1">{pqEntries.length}</div>
+          <span className="text-[11.5px] text-faint">ML-DSA, ML-KEM &amp; AES-256</span>
         </div>
 
-        <div className="bg-white rounded-[22px] p-5 border border-[#E2E8F0]">
-          <span className="text-[12px] font-medium text-[#64748B] block">Runtime Dependencies</span>
-          <div className="text-[34px] font-bold text-[#0F172A] mt-1">0</div>
-          <span className="text-[11.5px] text-[#059669] font-medium">No Java JRE or OpenSSL required</span>
+        <div className="bg-white rounded-[22px] p-5 border border-line">
+          <span className="text-[12px] font-medium text-faint block">Runtime Dependencies</span>
+          <div className="text-[34px] font-bold text-ink mt-1">0</div>
+          <span className="text-[11.5px] text-success font-medium">Runs fully offline</span>
         </div>
       </div>
 
       {/* Interactive Audit Table with 1-Click Native Remediation */}
-      <div className="flex-1 bg-white rounded-[24px] border border-[#E2E8F0] p-6 overflow-y-auto space-y-3 shadow-2xs">
-        <h3 className="text-[15px] font-semibold text-[#0F172A] mb-2">
+      <div className="flex-1 bg-white rounded-[24px] border border-line p-6 overflow-y-auto space-y-3 shadow-2xs">
+        <h3 className="text-[15px] font-semibold text-ink mb-2">
           Live KeyStore Entry Audit &amp; One-Click In-Place Rotation
         </h3>
 
@@ -146,7 +146,7 @@ export const ScannerView: React.FC<ScannerViewProps> = ({
               className={`p-4 rounded-2xl border flex flex-wrap items-center justify-between gap-4 ${
                 isWeak
                   ? "bg-[#FEF2F2]/60 border-[#FCA5A5]"
-                  : "bg-[#F8FAFC] border-[#E2E8F0]"
+                  : "bg-surface-2 border-line"
               }`}
             >
               <div className="space-y-1">
@@ -154,18 +154,18 @@ export const ScannerView: React.FC<ScannerViewProps> = ({
                   <span
                     className={`px-2.5 py-0.5 rounded-full text-[10.5px] font-bold ${
                       isWeak
-                        ? "bg-[#FEE2E2] text-[#991B1B]"
+                        ? "bg-danger-tint text-[#991B1B]"
                         : entry.is_post_quantum
                         ? "bg-[#DBEAFE] text-[#1E40AF]"
-                        : "bg-[#DCFCE7] text-[#166534]"
+                        : "bg-success-tint text-[#166534]"
                     }`}
                   >
                     {isWeak ? "WEAK KEY WARNING" : entry.is_post_quantum ? "POST-QUANTUM SAFE" : "NIST COMPLIANT"}
                   </span>
-                  <span className="text-[14.5px] font-semibold text-[#0F172A]">{entry.alias}</span>
-                  <span className="text-[12px] text-[#64748B]">in {ks.name}</span>
+                  <span className="text-[14.5px] font-semibold text-ink">{entry.alias}</span>
+                  <span className="text-[12px] text-faint">in {ks.name}</span>
                 </div>
-                <div className="text-[12px] text-[#475569]">
+                <div className="text-[12px] text-muted">
                   Current: <strong>{entry.algorithm} ({entry.key_size}-bit)</strong> • Expires: {entry.expiry_date}
                 </div>
               </div>
@@ -175,7 +175,7 @@ export const ScannerView: React.FC<ScannerViewProps> = ({
                   <button
                     onClick={() => handleAutoRotateEntry(ks, entry, "RSA", 4096)}
                     disabled={busyId === entry.id}
-                    className="px-4 py-2 rounded-full bg-[#0A3464] hover:bg-[#07274C] text-white text-[12px] font-semibold flex items-center space-x-1.5 cursor-pointer"
+                    className="px-4 py-2 rounded-full bg-brand-deep hover:bg-brand-deeper text-white text-[12px] font-semibold flex items-center space-x-1.5 cursor-pointer"
                   >
                     <RefreshCw className={`w-3.5 h-3.5 ${busyId === entry.id ? "animate-spin" : ""}`} />
                     <span>Rotate to RSA-4096</span>
@@ -184,7 +184,7 @@ export const ScannerView: React.FC<ScannerViewProps> = ({
                   <button
                     onClick={() => handleAutoRotateEntry(ks, entry, "ML-DSA-65", 1952)}
                     disabled={busyId === entry.id}
-                    className="px-4 py-2 rounded-full bg-[#C2E7FF] hover:bg-[#AEDBFF] text-[#0A3464] text-[12px] font-semibold flex items-center space-x-1.5 cursor-pointer"
+                    className="px-4 py-2 rounded-full bg-brand-soft hover:bg-brand-soft-hover text-brand-deep text-[12px] font-semibold flex items-center space-x-1.5 cursor-pointer"
                   >
                     <Zap className="w-3.5 h-3.5" />
                     <span>Upgrade to ML-DSA-65 (PQC)</span>
@@ -193,7 +193,7 @@ export const ScannerView: React.FC<ScannerViewProps> = ({
               )}
 
               {entry.entry_type === "SecretKey" && (
-                <span className="flex items-center space-x-1 text-[12px] text-[#059669] font-semibold">
+                <span className="flex items-center space-x-1 text-[12px] text-success font-semibold">
                   <Lock className="w-3.5 h-3.5" />
                   <span>256-Bit Symmetric Protected</span>
                 </span>

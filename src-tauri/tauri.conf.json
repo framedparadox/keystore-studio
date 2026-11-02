@@ -12,7 +12,8 @@
   "app": {
     "windows": [
       {
-        "title": "xkeystore — KeyStore Explorer",
+        "title": "xkeystore",
+        "dragDropEnabled": false,
         "width": 1280,
         "height": 840,
         "minWidth": 1024,

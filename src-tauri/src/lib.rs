@@ -218,6 +218,53 @@ fn import_pem_certificate(
     })
 }
 
+#[derive(serde::Serialize)]
+struct TerminalOutput {
+    stdout: String,
+    stderr: String,
+    code: i32,
+    cwd: String,
+}
+
+/// Runs one shell command for the in-app terminal and reports where the shell ended up,
+/// so the frontend can keep a working directory across commands (`cd` is tracked via a trailing pwd marker).
+#[tauri::command]
+fn run_terminal_command(command: String, cwd: Option<String>) -> Result<TerminalOutput, String> {
+    const MARKER: &str = "__XKS_CWD__";
+    let start = cwd
+        .filter(|c| std::path::Path::new(c).is_dir())
+        .or_else(|| dirs::home_dir().map(|h| h.to_string_lossy().to_string()))
+        .unwrap_or_else(|| ".".to_string());
+
+    let script = format!("{command}\n__xks_status=$?\nprintf '\\n{MARKER}%s\\n' \"$PWD\"\nexit $__xks_status");
+    let (shell, flag) = if cfg!(windows) { ("cmd", "/C") } else { ("sh", "-c") };
+    let script = if cfg!(windows) { command.clone() } else { script };
+
+    let out = std::process::Command::new(shell)
+        .arg(flag)
+        .arg(&script)
+        .current_dir(&start)
+        .output()
+        .map_err(|e| format!("Failed to start shell: {e}"))?;
+
+    let mut stdout = String::from_utf8_lossy(&out.stdout).to_string();
+    let mut new_cwd = start;
+    if let Some(idx) = stdout.rfind(MARKER) {
+        new_cwd = stdout[idx + MARKER.len()..].trim().to_string();
+        stdout.truncate(idx);
+        while stdout.ends_with('\n') {
+            stdout.pop();
+        }
+    }
+
+    Ok(TerminalOutput {
+        stdout,
+        stderr: String::from_utf8_lossy(&out.stderr).to_string(),
+        code: out.status.code().unwrap_or(-1),
+        cwd: new_cwd,
+    })
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -238,7 +285,8 @@ pub fn run() {
             export_entry,
             export_keystore_to_csv,
             save_keystore_file,
-            import_pem_certificate
+            import_pem_certificate,
+            run_terminal_command
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

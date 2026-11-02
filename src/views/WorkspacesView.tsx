@@ -50,23 +50,23 @@ const COLOR_MAP: Record<
   }
 > = {
   blue: {
-    badge: "bg-[#EFF6FF] text-[#1D4ED8] border-[#BFDBFE]",
-    activeCard: "border-[#2563EB] bg-[#F8FAFC] ring-2 ring-[#BFDBFE]/60",
-    dot: "bg-[#2563EB]",
+    badge: "bg-brand-tint text-[#1D4ED8] border-[#BFDBFE]",
+    activeCard: "border-brand bg-surface-2 ring-2 ring-[#BFDBFE]/60",
+    dot: "bg-brand",
   },
   emerald: {
     badge: "bg-[#ECFDF5] text-[#047857] border-[#A7F3D0]",
-    activeCard: "border-[#059669] bg-[#F8FAFC] ring-2 ring-[#A7F3D0]/60",
-    dot: "bg-[#059669]",
+    activeCard: "border-success bg-surface-2 ring-2 ring-[#A7F3D0]/60",
+    dot: "bg-success",
   },
   purple: {
     badge: "bg-[#FAF5FF] text-[#6D28D9] border-[#E9D5FF]",
-    activeCard: "border-[#7C3AED] bg-[#F8FAFC] ring-2 ring-[#E9D5FF]/60",
+    activeCard: "border-[#7C3AED] bg-surface-2 ring-2 ring-[#E9D5FF]/60",
     dot: "bg-[#7C3AED]",
   },
   amber: {
     badge: "bg-[#FFFBEB] text-[#B45309] border-[#FDE68A]",
-    activeCard: "border-[#D97706] bg-[#F8FAFC] ring-2 ring-[#FDE68A]/60",
+    activeCard: "border-[#D97706] bg-surface-2 ring-2 ring-[#FDE68A]/60",
     dot: "bg-[#D97706]",
   },
 };
@@ -216,10 +216,10 @@ export const WorkspacesView: React.FC<WorkspacesViewProps> = ({
     : COLOR_MAP.blue;
 
   return (
-    <div className="flex-1 overflow-y-auto px-8 py-6 bg-[#EEF2F7] select-none space-y-5 relative">
+    <div className="flex-1 overflow-y-auto px-8 py-6 bg-canvas select-none space-y-5 relative">
       {/* Floating Native Action Toast */}
       {toastMsg && (
-        <div className="fixed bottom-6 right-8 z-50 flex items-center space-x-2.5 bg-[#0F172A] text-white px-4 py-3 rounded-2xl shadow-xl border border-[#334155] text-[13px]">
+        <div className="fixed bottom-6 right-8 z-50 flex items-center space-x-2.5 bg-ink text-white px-4 py-3 rounded-2xl shadow-xl border border-ink-2 text-[13px]">
           <CheckCircle2 className="w-4 h-4 text-[#34D399] shrink-0" />
           <span>{toastMsg}</span>
         </div>
@@ -229,19 +229,19 @@ export const WorkspacesView: React.FC<WorkspacesViewProps> = ({
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
           <div className="flex items-center space-x-2.5">
-            <div className="w-9 h-9 rounded-2xl bg-[#C2E7FF] text-[#0A3464] flex items-center justify-center shadow-2xs">
+            <div className="w-9 h-9 rounded-2xl bg-brand-soft text-brand-deep flex items-center justify-center shadow-2xs">
               <Layers className="w-5 h-5" />
             </div>
             <div>
               <div className="flex items-center space-x-2">
-                <h1 className="text-[24px] font-bold text-[#0F172A] tracking-tight">
+                <h1 className="text-[24px] font-bold text-ink tracking-tight">
                   Certificate Workspaces
                 </h1>
-                <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-white text-[#0A3464] border border-[#CBD5E1]">
+                <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-white text-brand-deep border border-line-strong">
                   {workspaces.length} Active Collections
                 </span>
               </div>
-              <p className="text-[13px] text-[#64748B]">
+              <p className="text-[13px] text-faint">
                 Group certificates, TLS key pairs, and CA roots across multiple KeyStores into logical project or environment workspaces.
               </p>
             </div>
@@ -251,14 +251,14 @@ export const WorkspacesView: React.FC<WorkspacesViewProps> = ({
         <div className="flex items-center space-x-2.5">
           <button
             onClick={() => setShowAddCertsModal(true)}
-            className="px-4 py-2.5 rounded-full bg-[#C2E7FF] hover:bg-[#AEDBFF] text-[#0A3464] font-semibold text-[13px] flex items-center space-x-2 transition cursor-pointer shadow-2xs"
+            className="px-4 py-2.5 rounded-full bg-brand-soft hover:bg-brand-soft-hover text-brand-deep font-semibold text-[13px] flex items-center space-x-2 transition cursor-pointer shadow-2xs"
           >
             <FolderPlus className="w-4 h-4" />
             <span>Add Certificates to Workspace</span>
           </button>
           <button
             onClick={() => setShowNewWorkspaceModal(true)}
-            className="px-4 py-2.5 rounded-full bg-[#0A3464] hover:bg-[#07274C] text-white font-semibold text-[13px] flex items-center space-x-1.5 transition cursor-pointer shadow-2xs"
+            className="px-4 py-2.5 rounded-full bg-brand-deep hover:bg-brand-deeper text-white font-semibold text-[13px] flex items-center space-x-1.5 transition cursor-pointer shadow-2xs"
           >
             <Plus className="w-4 h-4" />
             <span>New Workspace</span>
@@ -278,14 +278,14 @@ export const WorkspacesView: React.FC<WorkspacesViewProps> = ({
               className={`rounded-[22px] bg-white border p-5 transition-all cursor-pointer flex flex-col justify-between ${
                 isSelected
                   ? theme.activeCard
-                  : "border-[#E2E8F0] hover:border-[#94A3B8] hover:shadow-xs"
+                  : "border-line hover:border-subtle hover:shadow-xs"
               }`}
             >
               <div>
                 <div className="flex items-start justify-between gap-2 mb-2">
                   <div className="flex items-center space-x-2">
                     <span className={`w-2.5 h-2.5 rounded-full ${theme.dot}`} />
-                    <h3 className="text-[15.5px] font-bold text-[#0F172A]">
+                    <h3 className="text-[15.5px] font-bold text-ink">
                       {ws.name}
                     </h3>
                   </div>
@@ -303,7 +303,7 @@ export const WorkspacesView: React.FC<WorkspacesViewProps> = ({
                           showToast(`Deleted workspace "${ws.name}"`);
                         }}
                         title="Delete Workspace"
-                        className="p-1 rounded-lg text-[#94A3B8] hover:text-[#DC2626] hover:bg-[#FEF2F2] transition cursor-pointer"
+                        className="p-1 rounded-lg text-subtle hover:text-danger hover:bg-[#FEF2F2] transition cursor-pointer"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
                       </button>
@@ -311,16 +311,16 @@ export const WorkspacesView: React.FC<WorkspacesViewProps> = ({
                   </div>
                 </div>
 
-                <p className="text-[12.5px] text-[#64748B] line-clamp-2">
+                <p className="text-[12.5px] text-faint line-clamp-2">
                   {ws.description}
                 </p>
               </div>
 
-              <div className="flex items-center justify-between pt-3 mt-3 border-t border-[#F1F5F9] text-[11.5px]">
-                <span className="font-semibold text-[#0A3464]">
+              <div className="flex items-center justify-between pt-3 mt-3 border-t border-surface-3 text-[11.5px]">
+                <span className="font-semibold text-brand-deep">
                   {ws.entryIds.length} assigned certificates
                 </span>
-                <span className="text-[#94A3B8]">
+                <span className="text-subtle">
                   Updated {ws.updated_at}
                 </span>
               </div>
@@ -332,56 +332,56 @@ export const WorkspacesView: React.FC<WorkspacesViewProps> = ({
       {/* Active Workspace Bento KPI Cards */}
       {activeWorkspace && (
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-          <div className="bg-white rounded-[20px] border border-[#E2E8F0] p-4">
-            <div className="flex items-center justify-between text-[12px] text-[#64748B] font-medium mb-1">
+          <div className="bg-white rounded-[20px] border border-line p-4">
+            <div className="flex items-center justify-between text-[12px] text-faint font-medium mb-1">
               <span>Assigned Identities</span>
-              <Layers className="w-4 h-4 text-[#2563EB]" />
+              <Layers className="w-4 h-4 text-brand" />
             </div>
-            <div className="text-[26px] font-bold text-[#0F172A]">
+            <div className="text-[26px] font-bold text-ink">
               {stats.total}
             </div>
-            <div className="text-[11px] text-[#64748B]">
+            <div className="text-[11px] text-faint">
               Linked across {keystores.length} KeyStores
             </div>
           </div>
 
-          <div className="bg-white rounded-[20px] border border-[#E2E8F0] p-4">
-            <div className="flex items-center justify-between text-[12px] text-[#64748B] font-medium mb-1">
+          <div className="bg-white rounded-[20px] border border-line p-4">
+            <div className="flex items-center justify-between text-[12px] text-faint font-medium mb-1">
               <span>Key Pairs / Trusted CAs</span>
-              <KeyRound className="w-4 h-4 text-[#059669]" />
+              <KeyRound className="w-4 h-4 text-success" />
             </div>
-            <div className="text-[26px] font-bold text-[#0F172A]">
+            <div className="text-[26px] font-bold text-ink">
               {stats.keyPairs}{" "}
-              <span className="text-[16px] text-[#94A3B8] font-normal">/</span>{" "}
-              <span className="text-[#2563EB]">{stats.trustedCerts}</span>
+              <span className="text-[16px] text-subtle font-normal">/</span>{" "}
+              <span className="text-brand">{stats.trustedCerts}</span>
             </div>
-            <div className="text-[11px] text-[#64748B]">
+            <div className="text-[11px] text-faint">
               Private TLS Keys vs Root Anchors
             </div>
           </div>
 
-          <div className="bg-white rounded-[20px] border border-[#E2E8F0] p-4">
-            <div className="flex items-center justify-between text-[12px] text-[#64748B] font-medium mb-1">
+          <div className="bg-white rounded-[20px] border border-line p-4">
+            <div className="flex items-center justify-between text-[12px] text-faint font-medium mb-1">
               <span>Post-Quantum (PQC)</span>
               <Sparkles className="w-4 h-4 text-[#7C3AED]" />
             </div>
             <div className="text-[26px] font-bold text-[#6D28D9]">
               {stats.pqcReady}
             </div>
-            <div className="text-[11px] text-[#64748B]">
+            <div className="text-[11px] text-faint">
               ML-DSA / ML-KEM / SLH-DSA entries
             </div>
           </div>
 
-          <div className="bg-white rounded-[20px] border border-[#E2E8F0] p-4">
-            <div className="flex items-center justify-between text-[12px] text-[#64748B] font-medium mb-1">
+          <div className="bg-white rounded-[20px] border border-line p-4">
+            <div className="flex items-center justify-between text-[12px] text-faint font-medium mb-1">
               <span>Policy / Expiry Alerts</span>
               <AlertTriangle className="w-4 h-4 text-[#D97706]" />
             </div>
             <div className="text-[26px] font-bold text-[#B45309]">
               {stats.warnings}
             </div>
-            <div className="text-[11px] text-[#64748B]">
+            <div className="text-[11px] text-faint">
               Weak or expired certificates
             </div>
           </div>
@@ -390,11 +390,11 @@ export const WorkspacesView: React.FC<WorkspacesViewProps> = ({
 
       {/* Active Workspace Certificate Table */}
       {activeWorkspace && (
-        <div className="bg-white rounded-[22px] border border-[#E2E8F0] overflow-hidden shadow-2xs">
-          <div className="px-6 py-4 border-b border-[#F1F5F9] flex flex-wrap items-center justify-between gap-3">
+        <div className="bg-white rounded-[22px] border border-line overflow-hidden shadow-2xs">
+          <div className="px-6 py-4 border-b border-surface-3 flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center space-x-2.5">
               <span className={`w-2.5 h-2.5 rounded-full ${activeTheme.dot}`} />
-              <h2 className="text-[16px] font-bold text-[#0F172A]">
+              <h2 className="text-[16px] font-bold text-ink">
                 {activeWorkspace.name} — Assigned Certificates &amp; Keys
               </h2>
               <span
@@ -406,19 +406,19 @@ export const WorkspacesView: React.FC<WorkspacesViewProps> = ({
 
             <div className="flex items-center space-x-2.5">
               <div className="relative">
-                <Search className="w-3.5 h-3.5 text-[#94A3B8] absolute left-3.5 top-1/2 -translate-y-1/2" />
+                <Search className="w-3.5 h-3.5 text-subtle absolute left-3.5 top-1/2 -translate-y-1/2" />
                 <input
                   type="text"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   placeholder="Filter workspace certs..."
-                  className="bg-[#F8FAFC] border border-[#E2E8F0] rounded-full pl-9 pr-4 py-1.5 text-[12.5px] text-[#1E293B] placeholder-[#94A3B8] focus:outline-none focus:border-[#2563EB] w-60"
+                  className="bg-surface-2 border border-line rounded-full pl-9 pr-4 py-1.5 text-[12.5px] text-ink-2 placeholder-subtle focus:outline-none focus:border-brand w-60"
                 />
               </div>
 
               <button
                 onClick={() => setShowAddCertsModal(true)}
-                className="px-3.5 py-1.5 rounded-full bg-[#EFF6FF] hover:bg-[#DBEAFE] text-[#1D4ED8] border border-[#BFDBFE] text-[12px] font-semibold flex items-center space-x-1.5 transition cursor-pointer"
+                className="px-3.5 py-1.5 rounded-full bg-brand-tint hover:bg-[#DBEAFE] text-[#1D4ED8] border border-[#BFDBFE] text-[12px] font-semibold flex items-center space-x-1.5 transition cursor-pointer"
               >
                 <Plus className="w-3.5 h-3.5" />
                 <span>Add / Remove Certs</span>
@@ -428,26 +428,26 @@ export const WorkspacesView: React.FC<WorkspacesViewProps> = ({
 
           {workspaceEntries.length === 0 ? (
             <div className="p-12 text-center space-y-3">
-              <div className="w-12 h-12 rounded-2xl bg-[#EFF6FF] border border-[#BFDBFE] flex items-center justify-center text-[#2563EB] mx-auto">
+              <div className="w-12 h-12 rounded-2xl bg-brand-tint border border-[#BFDBFE] flex items-center justify-center text-brand mx-auto">
                 <FolderPlus className="w-6 h-6" />
               </div>
-              <h3 className="text-[15px] font-bold text-[#0F172A]">
+              <h3 className="text-[15px] font-bold text-ink">
                 No certificates assigned to "{activeWorkspace.name}" yet
               </h3>
-              <p className="text-[12.5px] text-[#64748B] max-w-md mx-auto">
+              <p className="text-[12.5px] text-faint max-w-md mx-auto">
                 Click below to select certificates, key pairs, or trusted roots from any of your KeyStores and link them to this workspace.
               </p>
               <div className="pt-2 flex items-center justify-center space-x-3">
                 <button
                   onClick={() => setShowAddCertsModal(true)}
-                  className="px-4 py-2 rounded-full bg-[#C2E7FF] hover:bg-[#AEDBFF] text-[#0A3464] font-semibold text-[12.5px] flex items-center space-x-1.5 transition cursor-pointer"
+                  className="px-4 py-2 rounded-full bg-brand-soft hover:bg-brand-soft-hover text-brand-deep font-semibold text-[12.5px] flex items-center space-x-1.5 transition cursor-pointer"
                 >
                   <Plus className="w-4 h-4" />
                   <span>Add Certificates to Workspace</span>
                 </button>
                 <button
                   onClick={() => onNavigateTab("keystores")}
-                  className="px-4 py-2 rounded-full bg-[#F8FAFC] hover:bg-[#F1F5F9] text-[#334155] border border-[#CBD5E1] font-semibold text-[12.5px] transition cursor-pointer"
+                  className="px-4 py-2 rounded-full bg-surface-2 hover:bg-surface-3 text-ink-2 border border-line-strong font-semibold text-[12.5px] transition cursor-pointer"
                 >
                   Browse KeyStores
                 </button>
@@ -457,7 +457,7 @@ export const WorkspacesView: React.FC<WorkspacesViewProps> = ({
             <div className="overflow-x-auto">
               <table className="w-full text-left border-collapse">
                 <thead>
-                  <tr className="border-b border-[#F1F5F9] text-[11.5px] font-semibold text-[#64748B] bg-[#F8FAFC]">
+                  <tr className="border-b border-surface-3 text-[11.5px] font-semibold text-faint bg-surface-2">
                     <th className="py-3 px-6">Type</th>
                     <th className="py-3 px-4">Alias &amp; Subject DN</th>
                     <th className="py-3 px-4">Source KeyStore</th>
@@ -466,20 +466,20 @@ export const WorkspacesView: React.FC<WorkspacesViewProps> = ({
                     <th className="py-3 px-6 text-right">Workspace Actions</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-[#F1F5F9] text-[13px]">
+                <tbody className="divide-y divide-surface-3 text-[13px]">
                   {workspaceEntries.map(({ entry, keystore }) => (
                     <tr
                       key={entry.id}
-                      className="hover:bg-[#F8FAFC] transition-colors"
+                      className="hover:bg-surface-2 transition-colors"
                     >
                       <td className="py-3.5 px-6 whitespace-nowrap">
                         {entry.entry_type === "KeyPair" ? (
-                          <span className="inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-[#EFF6FF] text-[#2563EB] text-[11.5px] font-semibold">
+                          <span className="inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-brand-tint text-brand text-[11.5px] font-semibold">
                             <KeyRound className="w-3.5 h-3.5" />
                             <span>KeyPair</span>
                           </span>
                         ) : entry.entry_type === "TrustedCertificate" ? (
-                          <span className="inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-[#DCFCE7] text-[#15803D] text-[11.5px] font-semibold">
+                          <span className="inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-success-tint text-[#15803D] text-[11.5px] font-semibold">
                             <ShieldCheck className="w-3.5 h-3.5" />
                             <span>TrustedCert</span>
                           </span>
@@ -492,10 +492,10 @@ export const WorkspacesView: React.FC<WorkspacesViewProps> = ({
                       </td>
 
                       <td className="py-3.5 px-4">
-                        <div className="font-semibold text-[#0F172A]">
+                        <div className="font-semibold text-ink">
                           {entry.alias}
                         </div>
-                        <div className="text-[11.5px] text-[#64748B] truncate max-w-xs">
+                        <div className="text-[11.5px] text-faint truncate max-w-xs">
                           {entry.subject}
                         </div>
                       </td>
@@ -506,19 +506,19 @@ export const WorkspacesView: React.FC<WorkspacesViewProps> = ({
                             onSelectKeystore(keystore.id);
                             onNavigateTab("keystores");
                           }}
-                          className="inline-flex items-center space-x-1.5 px-3 py-1 rounded-full bg-[#F8FAFC] hover:bg-[#EFF6FF] border border-[#E2E8F0] text-[#334155] hover:text-[#1D4ED8] text-[11.5px] font-medium transition cursor-pointer"
+                          className="inline-flex items-center space-x-1.5 px-3 py-1 rounded-full bg-surface-2 hover:bg-brand-tint border border-line text-ink-2 hover:text-[#1D4ED8] text-[11.5px] font-medium transition cursor-pointer"
                         >
-                          <FolderArchive className="w-3.5 h-3.5 text-[#2563EB]" />
+                          <FolderArchive className="w-3.5 h-3.5 text-brand" />
                           <span>{keystore.name}</span>
-                          <span className="text-[10px] font-bold text-[#64748B]">
+                          <span className="text-[10px] font-bold text-faint">
                             ({keystore.format})
                           </span>
-                          <ArrowUpRight className="w-3 h-3 text-[#94A3B8]" />
+                          <ArrowUpRight className="w-3 h-3 text-subtle" />
                         </button>
                       </td>
 
                       <td className="py-3.5 px-4 whitespace-nowrap">
-                        <div className="font-semibold text-[#1E293B]">
+                        <div className="font-semibold text-ink-2">
                           {entry.algorithm} ({entry.key_size}-bit)
                         </div>
                         {entry.is_post_quantum && (
@@ -528,7 +528,7 @@ export const WorkspacesView: React.FC<WorkspacesViewProps> = ({
                         )}
                       </td>
 
-                      <td className="py-3.5 px-4 whitespace-nowrap text-[12px] text-[#475569]">
+                      <td className="py-3.5 px-4 whitespace-nowrap text-[12px] text-muted">
                         {entry.expiry_date}
                       </td>
 
@@ -537,14 +537,14 @@ export const WorkspacesView: React.FC<WorkspacesViewProps> = ({
                           <button
                             onClick={() => setInspectEntry({ entry, keystore })}
                             title="Inspect Certificate"
-                            className="p-1.5 rounded-lg bg-[#F8FAFC] hover:bg-[#EFF6FF] text-[#475569] hover:text-[#2563EB] border border-[#E2E8F0] transition cursor-pointer"
+                            className="p-1.5 rounded-lg bg-surface-2 hover:bg-brand-tint text-muted hover:text-brand border border-line transition cursor-pointer"
                           >
                             <Eye className="w-3.5 h-3.5" />
                           </button>
                           <button
                             onClick={() => handleExportEntryToDisk(entry)}
                             title="Export PEM to Disk"
-                            className="p-1.5 rounded-lg bg-[#F8FAFC] hover:bg-[#ECFDF5] text-[#475569] hover:text-[#059669] border border-[#E2E8F0] transition cursor-pointer"
+                            className="p-1.5 rounded-lg bg-surface-2 hover:bg-[#ECFDF5] text-muted hover:text-success border border-line transition cursor-pointer"
                           >
                             <Download className="w-3.5 h-3.5" />
                           </button>
@@ -559,7 +559,7 @@ export const WorkspacesView: React.FC<WorkspacesViewProps> = ({
                               );
                             }}
                             title="Remove from Workspace"
-                            className="px-2.5 py-1 rounded-lg bg-[#FEF2F2] hover:bg-[#FEE2E2] text-[#DC2626] border border-[#FECACA] text-[11px] font-semibold transition cursor-pointer"
+                            className="px-2.5 py-1 rounded-lg bg-[#FEF2F2] hover:bg-danger-tint text-danger border border-[#FECACA] text-[11px] font-semibold transition cursor-pointer"
                           >
                             Remove
                           </button>
@@ -577,44 +577,44 @@ export const WorkspacesView: React.FC<WorkspacesViewProps> = ({
       {/* Modal: Add / Manage Certificates in Workspace */}
       {showAddCertsModal && activeWorkspace && (
         <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white border border-[#CBD5E1] rounded-3xl max-w-3xl w-full overflow-hidden shadow-2xl flex flex-col max-h-[85vh]">
-            <div className="p-5 border-b border-[#E2E8F0] flex items-center justify-between">
+          <div className="bg-white border border-line-strong rounded-3xl max-w-3xl w-full overflow-hidden shadow-2xl flex flex-col max-h-[85vh]">
+            <div className="p-5 border-b border-line flex items-center justify-between">
               <div>
-                <h3 className="text-[17px] font-bold text-[#0F172A] flex items-center space-x-2">
-                  <FolderPlus className="w-5 h-5 text-[#2563EB]" />
+                <h3 className="text-[17px] font-bold text-ink flex items-center space-x-2">
+                  <FolderPlus className="w-5 h-5 text-brand" />
                   <span>Assign Certificates to "{activeWorkspace.name}"</span>
                 </h3>
-                <p className="text-[12.5px] text-[#64748B] mt-0.5">
+                <p className="text-[12.5px] text-faint mt-0.5">
                   Click any certificate, key pair, or secret key across your KeyStores to add or remove it from this workspace.
                 </p>
               </div>
               <button
                 onClick={() => setShowAddCertsModal(false)}
-                className="p-1.5 rounded-lg text-[#64748B] hover:text-[#0F172A] cursor-pointer"
+                className="p-1.5 rounded-lg text-faint hover:text-ink cursor-pointer"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
             {/* Filter Bar */}
-            <div className="p-4 bg-[#F8FAFC] border-b border-[#E2E8F0] flex flex-wrap items-center gap-3">
+            <div className="p-4 bg-surface-2 border-b border-line flex flex-wrap items-center gap-3">
               <div className="relative flex-1 min-w-[200px]">
-                <Search className="w-4 h-4 text-[#94A3B8] absolute left-3.5 top-1/2 -translate-y-1/2" />
+                <Search className="w-4 h-4 text-subtle absolute left-3.5 top-1/2 -translate-y-1/2" />
                 <input
                   type="text"
                   value={certPickerSearch}
                   onChange={(e) => setCertPickerSearch(e.target.value)}
                   placeholder="Search by alias, subject DN, KeyStore, or algorithm..."
-                  className="w-full bg-white border border-[#CBD5E1] rounded-full pl-9 pr-4 py-2 text-[13px] text-[#0F172A] placeholder-[#94A3B8] focus:outline-none focus:border-[#2563EB]"
+                  className="w-full bg-white border border-line-strong rounded-full pl-9 pr-4 py-2 text-[13px] text-ink placeholder-subtle focus:outline-none focus:border-brand"
                 />
               </div>
 
               <div className="flex items-center space-x-1.5">
-                <Filter className="w-4 h-4 text-[#64748B]" />
+                <Filter className="w-4 h-4 text-faint" />
                 <select
                   value={certPickerStoreFilter}
                   onChange={(e) => setCertPickerStoreFilter(e.target.value)}
-                  className="bg-white border border-[#CBD5E1] rounded-full px-3.5 py-2 text-[12.5px] font-medium text-[#1E293B] focus:outline-none"
+                  className="bg-white border border-line-strong rounded-full px-3.5 py-2 text-[12.5px] font-medium text-ink-2 focus:outline-none"
                 >
                   <option value="ALL">All KeyStores ({keystores.length})</option>
                   {keystores.map((ks) => (
@@ -627,7 +627,7 @@ export const WorkspacesView: React.FC<WorkspacesViewProps> = ({
             </div>
 
             {/* Certificate checklist */}
-            <div className="flex-1 overflow-y-auto divide-y divide-[#F1F5F9] p-3 space-y-1.5">
+            <div className="flex-1 overflow-y-auto divide-y divide-surface-3 p-3 space-y-1.5">
               {pickerEntries.map(({ entry, keystore }) => {
                 const isAssigned = activeWorkspace.entryIds.includes(entry.id);
                 return (
@@ -638,33 +638,33 @@ export const WorkspacesView: React.FC<WorkspacesViewProps> = ({
                     }
                     className={`p-3.5 rounded-2xl flex items-center justify-between gap-4 cursor-pointer transition-all border ${
                       isAssigned
-                        ? "bg-[#EFF6FF]/70 border-[#93C5FD]"
-                        : "hover:bg-[#F8FAFC] border-transparent"
+                        ? "bg-brand-tint/70 border-[#93C5FD]"
+                        : "hover:bg-surface-2 border-transparent"
                     }`}
                   >
                     <div className="flex items-center space-x-3 min-w-0">
                       <div
                         className={`w-5 h-5 rounded-md flex items-center justify-center border transition-all ${
                           isAssigned
-                            ? "bg-[#2563EB] border-[#2563EB] text-white"
-                            : "border-[#CBD5E1] bg-white"
+                            ? "bg-brand border-brand text-white"
+                            : "border-line-strong bg-white"
                         }`}
                       >
                         {isAssigned && <Check className="w-3.5 h-3.5 stroke-[3]" />}
                       </div>
                       <div className="min-w-0">
                         <div className="flex items-center space-x-2">
-                          <span className="text-[13.5px] font-bold text-[#0F172A]">
+                          <span className="text-[13.5px] font-bold text-ink">
                             {entry.alias}
                           </span>
-                          <span className="px-2 py-0.5 rounded-full text-[10.5px] font-semibold bg-[#F1F5F9] text-[#475569]">
+                          <span className="px-2 py-0.5 rounded-full text-[10.5px] font-semibold bg-surface-3 text-muted">
                             {entry.entry_type}
                           </span>
                           <span className="px-2 py-0.5 rounded-full text-[10.5px] font-semibold bg-[#E0F2FE] text-[#0369A1]">
                             {keystore.name}
                           </span>
                         </div>
-                        <div className="text-[12px] text-[#64748B] truncate mt-0.5">
+                        <div className="text-[12px] text-faint truncate mt-0.5">
                           {entry.subject} • {entry.algorithm} ({entry.key_size}-bit)
                         </div>
                       </div>
@@ -674,8 +674,8 @@ export const WorkspacesView: React.FC<WorkspacesViewProps> = ({
                       <span
                         className={`px-3 py-1 rounded-full text-[11.5px] font-semibold ${
                           isAssigned
-                            ? "bg-[#DCFCE7] text-[#15803D]"
-                            : "bg-[#F1F5F9] text-[#64748B]"
+                            ? "bg-success-tint text-[#15803D]"
+                            : "bg-surface-3 text-faint"
                         }`}
                       >
                         {isAssigned ? "✓ Assigned" : "+ Add to Workspace"}
@@ -686,19 +686,19 @@ export const WorkspacesView: React.FC<WorkspacesViewProps> = ({
               })}
             </div>
 
-            <div className="p-4 border-t border-[#E2E8F0] bg-[#F8FAFC] flex items-center justify-between">
-              <span className="text-[12.5px] text-[#475569]">
-                <strong className="text-[#0F172A]">
+            <div className="p-4 border-t border-line bg-surface-2 flex items-center justify-between">
+              <span className="text-[12.5px] text-muted">
+                <strong className="text-ink">
                   {activeWorkspace.entryIds.length}
                 </strong>{" "}
                 certificates currently assigned to{" "}
-                <strong className="text-[#2563EB]">
+                <strong className="text-brand">
                   {activeWorkspace.name}
                 </strong>
               </span>
               <button
                 onClick={() => setShowAddCertsModal(false)}
-                className="px-5 py-2 rounded-full bg-[#0A3464] hover:bg-[#07274C] text-white font-semibold text-[12.5px] cursor-pointer"
+                className="px-5 py-2 rounded-full bg-brand-deep hover:bg-brand-deeper text-white font-semibold text-[12.5px] cursor-pointer"
               >
                 Done
               </button>
@@ -712,17 +712,17 @@ export const WorkspacesView: React.FC<WorkspacesViewProps> = ({
         <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4">
           <form
             onSubmit={handleCreateWorkspaceSubmit}
-            className="bg-white border border-[#CBD5E1] rounded-3xl max-w-md w-full overflow-hidden shadow-2xl"
+            className="bg-white border border-line-strong rounded-3xl max-w-md w-full overflow-hidden shadow-2xl"
           >
-            <div className="p-5 border-b border-[#E2E8F0] flex items-center justify-between">
-              <h3 className="text-[17px] font-bold text-[#0F172A] flex items-center space-x-2">
-                <Layers className="w-5 h-5 text-[#2563EB]" />
+            <div className="p-5 border-b border-line flex items-center justify-between">
+              <h3 className="text-[17px] font-bold text-ink flex items-center space-x-2">
+                <Layers className="w-5 h-5 text-brand" />
                 <span>Create New Workspace</span>
               </h3>
               <button
                 type="button"
                 onClick={() => setShowNewWorkspaceModal(false)}
-                className="p-1 rounded-lg text-[#64748B] hover:text-[#0F172A] cursor-pointer"
+                className="p-1 rounded-lg text-faint hover:text-ink cursor-pointer"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -730,7 +730,7 @@ export const WorkspacesView: React.FC<WorkspacesViewProps> = ({
 
             <div className="p-5 space-y-4 text-[13px]">
               <div>
-                <label className="block text-[12px] font-semibold text-[#475569] mb-1">
+                <label className="block text-[12px] font-semibold text-muted mb-1">
                   Workspace Name
                 </label>
                 <input
@@ -739,12 +739,12 @@ export const WorkspacesView: React.FC<WorkspacesViewProps> = ({
                   value={newWsName}
                   onChange={(e) => setNewWsName(e.target.value)}
                   placeholder="e.g., Payment Gateway mTLS Cluster"
-                  className="w-full bg-[#F8FAFC] border border-[#CBD5E1] rounded-xl px-3.5 py-2 text-[#0F172A] focus:outline-none focus:border-[#2563EB]"
+                  className="w-full bg-surface-2 border border-line-strong rounded-xl px-3.5 py-2 text-ink focus:outline-none focus:border-brand"
                 />
               </div>
 
               <div>
-                <label className="block text-[12px] font-semibold text-[#475569] mb-1">
+                <label className="block text-[12px] font-semibold text-muted mb-1">
                   Description
                 </label>
                 <textarea
@@ -752,13 +752,13 @@ export const WorkspacesView: React.FC<WorkspacesViewProps> = ({
                   value={newWsDesc}
                   onChange={(e) => setNewWsDesc(e.target.value)}
                   placeholder="Describe the services or compliance scope..."
-                  className="w-full bg-[#F8FAFC] border border-[#CBD5E1] rounded-xl px-3.5 py-2 text-[#0F172A] focus:outline-none focus:border-[#2563EB]"
+                  className="w-full bg-surface-2 border border-line-strong rounded-xl px-3.5 py-2 text-ink focus:outline-none focus:border-brand"
                 />
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-[12px] font-semibold text-[#475569] mb-1">
+                  <label className="block text-[12px] font-semibold text-muted mb-1">
                     Environment
                   </label>
                   <select
@@ -766,7 +766,7 @@ export const WorkspacesView: React.FC<WorkspacesViewProps> = ({
                     onChange={(e) =>
                       setNewWsEnv(e.target.value as Workspace["environment"])
                     }
-                    className="w-full bg-[#F8FAFC] border border-[#CBD5E1] rounded-xl px-3 py-2 text-[#0F172A] focus:outline-none"
+                    className="w-full bg-surface-2 border border-line-strong rounded-xl px-3 py-2 text-ink focus:outline-none"
                   >
                     <option value="Production">Production</option>
                     <option value="Staging">Staging</option>
@@ -776,7 +776,7 @@ export const WorkspacesView: React.FC<WorkspacesViewProps> = ({
                 </div>
 
                 <div>
-                  <label className="block text-[12px] font-semibold text-[#475569] mb-1">
+                  <label className="block text-[12px] font-semibold text-muted mb-1">
                     Accent Color
                   </label>
                   <select
@@ -784,7 +784,7 @@ export const WorkspacesView: React.FC<WorkspacesViewProps> = ({
                     onChange={(e) =>
                       setNewWsColor(e.target.value as Workspace["color"])
                     }
-                    className="w-full bg-[#F8FAFC] border border-[#CBD5E1] rounded-xl px-3 py-2 text-[#0F172A] focus:outline-none"
+                    className="w-full bg-surface-2 border border-line-strong rounded-xl px-3 py-2 text-ink focus:outline-none"
                   >
                     <option value="blue">Blue</option>
                     <option value="emerald">Emerald</option>
@@ -795,17 +795,17 @@ export const WorkspacesView: React.FC<WorkspacesViewProps> = ({
               </div>
             </div>
 
-            <div className="p-4 border-t border-[#E2E8F0] bg-[#F8FAFC] flex items-center justify-end space-x-2">
+            <div className="p-4 border-t border-line bg-surface-2 flex items-center justify-end space-x-2">
               <button
                 type="button"
                 onClick={() => setShowNewWorkspaceModal(false)}
-                className="px-4 py-2 rounded-full bg-white border border-[#CBD5E1] text-[#475569] text-[12.5px] font-semibold cursor-pointer"
+                className="px-4 py-2 rounded-full bg-white border border-line-strong text-muted text-[12.5px] font-semibold cursor-pointer"
               >
                 Cancel
               </button>
               <button
                 type="submit"
-                className="px-5 py-2 rounded-full bg-[#0A3464] hover:bg-[#07274C] text-white text-[12.5px] font-semibold cursor-pointer"
+                className="px-5 py-2 rounded-full bg-brand-deep hover:bg-brand-deeper text-white text-[12.5px] font-semibold cursor-pointer"
               >
                 Create Workspace
               </button>
@@ -817,42 +817,42 @@ export const WorkspacesView: React.FC<WorkspacesViewProps> = ({
       {/* Modal: Quick Certificate Inspector */}
       {inspectEntry && (
         <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white border border-[#CBD5E1] rounded-3xl max-w-xl w-full overflow-hidden shadow-2xl">
-            <div className="p-5 border-b border-[#E2E8F0] flex items-center justify-between">
+          <div className="bg-white border border-line-strong rounded-3xl max-w-xl w-full overflow-hidden shadow-2xl">
+            <div className="p-5 border-b border-line flex items-center justify-between">
               <div>
-                <h3 className="text-[16px] font-bold text-[#0F172A]">
+                <h3 className="text-[16px] font-bold text-ink">
                   {inspectEntry.entry.alias}
                 </h3>
-                <p className="text-[12px] text-[#64748B]">
+                <p className="text-[12px] text-faint">
                   Source KeyStore: {inspectEntry.keystore.name} ({inspectEntry.keystore.format})
                 </p>
               </div>
               <button
                 onClick={() => setInspectEntry(null)}
-                className="p-1.5 rounded-lg text-[#64748B] hover:text-[#0F172A] cursor-pointer"
+                className="p-1.5 rounded-lg text-faint hover:text-ink cursor-pointer"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
             <div className="p-5 space-y-3 text-[12.5px] select-text">
-              <div className="grid grid-cols-2 gap-3 bg-[#F8FAFC] p-4 rounded-2xl border border-[#E2E8F0]">
+              <div className="grid grid-cols-2 gap-3 bg-surface-2 p-4 rounded-2xl border border-line">
                 <div>
-                  <span className="text-[#64748B] block text-[11px]">Subject DN</span>
-                  <span className="text-[#0F172A] font-semibold">{inspectEntry.entry.subject}</span>
+                  <span className="text-faint block text-[11px]">Subject DN</span>
+                  <span className="text-ink font-semibold">{inspectEntry.entry.subject}</span>
                 </div>
                 <div>
-                  <span className="text-[#64748B] block text-[11px]">Issuer DN</span>
-                  <span className="text-[#334155] font-medium">{inspectEntry.entry.issuer}</span>
+                  <span className="text-faint block text-[11px]">Issuer DN</span>
+                  <span className="text-ink-2 font-medium">{inspectEntry.entry.issuer}</span>
                 </div>
                 <div>
-                  <span className="text-[#64748B] block text-[11px]">Algorithm</span>
+                  <span className="text-faint block text-[11px]">Algorithm</span>
                   <span className="text-[#047857] font-semibold">
                     {inspectEntry.entry.algorithm} ({inspectEntry.entry.key_size}-bit)
                   </span>
                 </div>
                 <div>
-                  <span className="text-[#64748B] block text-[11px]">SHA-256 Fingerprint</span>
+                  <span className="text-faint block text-[11px]">SHA-256 Fingerprint</span>
                   <span className="text-[#1D4ED8] font-mono text-[11px] break-all">
                     {inspectEntry.entry.sha256_fingerprint}
                   </span>
@@ -862,7 +862,7 @@ export const WorkspacesView: React.FC<WorkspacesViewProps> = ({
               {inspectEntry.entry.certificate_chain?.[0]?.pem && (
                 <div>
                   <div className="flex items-center justify-between mb-1">
-                    <span className="text-[#475569] font-semibold">X.509 Certificate PEM</span>
+                    <span className="text-muted font-semibold">X.509 Certificate PEM</span>
                     <button
                       onClick={() => {
                         navigator.clipboard.writeText(
@@ -870,30 +870,30 @@ export const WorkspacesView: React.FC<WorkspacesViewProps> = ({
                         );
                         showToast("Copied PEM to clipboard");
                       }}
-                      className="text-[11.5px] text-[#2563EB] hover:underline flex items-center space-x-1 cursor-pointer"
+                      className="text-[11.5px] text-brand hover:underline flex items-center space-x-1 cursor-pointer"
                     >
                       <Copy className="w-3 h-3" />
                       <span>Copy PEM</span>
                     </button>
                   </div>
-                  <pre className="bg-[#0F172A] text-[#E2E8F0] rounded-2xl p-3.5 text-[11px] font-mono max-h-44 overflow-y-auto">
+                  <pre className="bg-ink text-line rounded-2xl p-3.5 text-[11px] font-mono max-h-44 overflow-y-auto">
                     {inspectEntry.entry.certificate_chain[0].pem}
                   </pre>
                 </div>
               )}
             </div>
 
-            <div className="p-4 border-t border-[#E2E8F0] bg-[#F8FAFC] flex items-center justify-between">
+            <div className="p-4 border-t border-line bg-surface-2 flex items-center justify-between">
               <button
                 onClick={() => handleExportEntryToDisk(inspectEntry.entry)}
-                className="px-4 py-2 rounded-full bg-[#C2E7FF] hover:bg-[#AEDBFF] text-[#0A3464] text-[12px] font-semibold flex items-center space-x-1.5 cursor-pointer"
+                className="px-4 py-2 rounded-full bg-brand-soft hover:bg-brand-soft-hover text-brand-deep text-[12px] font-semibold flex items-center space-x-1.5 cursor-pointer"
               >
                 <Download className="w-3.5 h-3.5" />
                 <span>Save PEM to Disk</span>
               </button>
               <button
                 onClick={() => setInspectEntry(null)}
-                className="px-5 py-2 rounded-full bg-[#0A3464] text-white text-[12px] font-semibold cursor-pointer"
+                className="px-5 py-2 rounded-full bg-brand-deep text-white text-[12px] font-semibold cursor-pointer"
               >
                 Close
               </button>

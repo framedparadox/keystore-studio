@@ -10,7 +10,7 @@ use std::io::Write;
 use uuid::Uuid;
 
 // ============================================================================
-// Core Data Models (Replicating KeyStore Explorer - KSE)
+// Core Data Models
 // ============================================================================
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

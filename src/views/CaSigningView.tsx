@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { TerminalHint } from "../components/Terminal";
 import {
   FileSignature,
   ShieldCheck,
@@ -261,26 +262,26 @@ export const CaSigningView: React.FC<CaSigningViewProps> = ({
   };
 
   return (
-    <div className="flex-1 flex flex-col overflow-hidden bg-[#EEF2F7] px-8 py-6 select-none">
+    <div className="flex-1 flex flex-col overflow-hidden bg-canvas px-8 py-6 select-none">
       {/* Header & Active Signer Selector */}
       <div className="flex flex-wrap items-center justify-between gap-4 mb-4">
         <div>
-          <h1 className="text-[28px] font-normal text-[#1E293B] tracking-tight">
+          <h1 className="text-[28px] font-normal text-ink-2 tracking-tight">
             CA Authority &amp; Digital Signing Studio
           </h1>
-          <p className="text-[13px] text-[#64748B]">
+          <p className="text-[13px] text-faint">
             Native Rust execution for CSR signing, X.509 v2 CRL issuance, JAR signing, CMS/PKCS#7, JWT, and Diffie-Hellman.
           </p>
         </div>
 
         {/* Select KeyStore Signer KeyPair */}
-        <div className="flex items-center space-x-2 bg-white px-4 py-2 rounded-full border border-[#E2E8F0] shadow-2xs">
-          <KeyRound className="w-4 h-4 text-[#2563EB]" />
-          <span className="text-[12px] text-[#64748B]">Active Signer Key:</span>
+        <div className="flex items-center space-x-2 bg-white px-4 py-2 rounded-full border border-line shadow-2xs">
+          <KeyRound className="w-4 h-4 text-brand" />
+          <span className="text-[12px] text-faint">Active Signer Key:</span>
           <select
             value={selectedSignerId}
             onChange={(e) => setSelectedSignerId(e.target.value)}
-            className="text-[13px] font-semibold text-[#0A3464] bg-transparent focus:outline-none cursor-pointer"
+            className="text-[13px] font-semibold text-brand-deep bg-transparent focus:outline-none cursor-pointer"
           >
             {allKeyPairs.map((kp) => (
               <option key={kp.id} value={kp.id}>
@@ -309,8 +310,8 @@ export const CaSigningView: React.FC<CaSigningViewProps> = ({
               onClick={() => setToolTab(t.id as typeof toolTab)}
               className={`px-4 py-1.5 rounded-full text-[13px] font-semibold flex items-center space-x-2 transition cursor-pointer ${
                 active
-                  ? "bg-[#C2E7FF] text-[#0A3464]"
-                  : "bg-white text-[#334155] hover:bg-[#F8FAFC]"
+                  ? "bg-brand-soft text-brand-deep"
+                  : "bg-white text-ink-2 hover:bg-surface-2"
               }`}
             >
               <Icon className="w-3.5 h-3.5" />
@@ -321,89 +322,89 @@ export const CaSigningView: React.FC<CaSigningViewProps> = ({
       </div>
 
       {/* Main Content Card */}
-      <div className="flex-1 bg-white rounded-[24px] border border-[#E2E8F0] p-6 overflow-y-auto grid grid-cols-1 lg:grid-cols-12 gap-6 shadow-2xs">
+      <div className="flex-1 bg-white rounded-[24px] border border-line p-6 overflow-y-auto grid grid-cols-1 lg:grid-cols-12 gap-6 shadow-2xs">
         {toolTab === "csr" && (
           <>
             <div className="lg:col-span-5 space-y-4">
-              <h3 className="text-[16px] font-semibold text-[#0F172A]">
+              <h3 className="text-[16px] font-semibold text-ink">
                 Sign Certificate Signing Request (CA Operation)
               </h3>
               <div className="space-y-3 text-[12.5px]">
                 <div>
-                  <label className="font-medium text-[#475569] block mb-1">Subject DN for Issued Certificate</label>
+                  <label className="font-medium text-muted block mb-1">Subject DN for Issued Certificate</label>
                   <input
                     type="text"
                     value={csrSubject}
                     onChange={(e) => setCsrSubject(e.target.value)}
-                    className="w-full h-9 px-3 rounded-lg border border-[#CBD5E1]"
+                    className="w-full h-9 px-3 rounded-lg border border-line-strong"
                   />
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="font-medium text-[#475569] block mb-1">SANs (DNS / IP)</label>
+                    <label className="font-medium text-muted block mb-1">SANs (DNS / IP)</label>
                     <input
                       type="text"
                       value={csrSans}
                       onChange={(e) => setCsrSans(e.target.value)}
-                      className="w-full h-9 px-3 rounded-lg border border-[#CBD5E1]"
+                      className="w-full h-9 px-3 rounded-lg border border-line-strong"
                     />
                   </div>
                   <div>
-                    <label className="font-medium text-[#475569] block mb-1">Validity (Days)</label>
+                    <label className="font-medium text-muted block mb-1">Validity (Days)</label>
                     <input
                       type="number"
                       value={csrDays}
                       onChange={(e) => setCsrDays(Number(e.target.value))}
-                      className="w-full h-9 px-3 rounded-lg border border-[#CBD5E1]"
+                      className="w-full h-9 px-3 rounded-lg border border-line-strong"
                     />
                   </div>
                 </div>
                 <div>
-                  <label className="font-medium text-[#475569] block mb-1">PKCS#10 / SPKAC Input</label>
+                  <label className="font-medium text-muted block mb-1">PKCS#10 / SPKAC Input</label>
                   <textarea
                     rows={5}
                     value={csrPemInput}
                     onChange={(e) => setCsrPemInput(e.target.value)}
-                    className="w-full p-2.5 rounded-xl border border-[#CBD5E1] font-mono text-[11px]"
+                    className="w-full p-2.5 rounded-xl border border-line-strong font-mono text-[11px]"
                   />
                 </div>
                 <button
                   onClick={handleSignCsr}
                   disabled={busy}
-                  className="w-full py-2.5 rounded-full bg-[#0A3464] hover:bg-[#07274C] text-white font-semibold cursor-pointer"
+                  className="w-full py-2.5 rounded-full bg-brand-deep hover:bg-brand-deeper text-white font-semibold cursor-pointer"
                 >
                   {busy ? "Signing in Rust..." : `Sign CSR with '${signerEntry?.alias}'`}
                 </button>
               </div>
             </div>
 
-            <div className="lg:col-span-7 bg-[#F8FAFC] rounded-2xl p-5 border border-[#E2E8F0] select-text">
+            <div className="lg:col-span-7 bg-surface-2 rounded-2xl p-5 border border-line select-text">
               {signedCertResult ? (
                 <div className="space-y-3 text-[12px]">
                   <div className="flex items-center justify-between">
-                    <span className="text-[#059669] font-bold flex items-center space-x-1">
+                    <span className="text-success font-bold flex items-center space-x-1">
                       <CheckCircle2 className="w-4 h-4" />
                       <span>X.509 v3 Certificate Signed by {signerEntry.alias}</span>
                     </span>
                     <button
                       onClick={handleImportSignedCertToKeystore}
-                      className="px-3.5 py-1.5 rounded-full bg-[#C2E7FF] text-[#0A3464] font-semibold cursor-pointer"
+                      className="px-3.5 py-1.5 rounded-full bg-brand-soft text-brand-deep font-semibold cursor-pointer"
                     >
                       + Append to Active KeyStore
                     </button>
                   </div>
-                  <div className="p-3 bg-white rounded-xl border border-[#E2E8F0] space-y-1">
+                  <div className="p-3 bg-white rounded-xl border border-line space-y-1">
                     <div><strong>Subject:</strong> {signedCertResult.subject}</div>
                     <div><strong>Issuer:</strong> {signedCertResult.issuer}</div>
                     <div><strong>Serial:</strong> <span className="font-mono">{signedCertResult.serial_number}</span></div>
                     <div><strong>SHA-256:</strong> <span className="font-mono">{signedCertResult.sha256_fingerprint}</span></div>
                   </div>
-                  <pre className="bg-[#0F172A] text-[#A7F3D0] p-3 rounded-xl font-mono text-[11px] max-h-48 overflow-y-auto">
+                  <pre className="bg-ink text-[#A7F3D0] p-3 rounded-xl font-mono text-[11px] max-h-48 overflow-y-auto">
                     {signedCertResult.pem}
                   </pre>
                 </div>
               ) : (
-                <div className="h-full flex items-center justify-center text-[#94A3B8] text-[13px]">
+                <div className="h-full flex items-center justify-center text-subtle text-[13px]">
                   Click "Sign CSR" to issue a signed X.509 certificate directly in Rust.
                 </div>
               )}
@@ -414,7 +415,7 @@ export const CaSigningView: React.FC<CaSigningViewProps> = ({
         {toolTab === "crl" && (
           <>
             <div className="lg:col-span-5 space-y-4 text-[12.5px]">
-              <h3 className="text-[16px] font-semibold text-[#0F172A]">
+              <h3 className="text-[16px] font-semibold text-ink">
                 Sign X.509 v2 Certificate Revocation List (CRL)
               </h3>
               <div className="flex space-x-2">
@@ -423,12 +424,12 @@ export const CaSigningView: React.FC<CaSigningViewProps> = ({
                   value={newRevSerial}
                   onChange={(e) => setNewRevSerial(e.target.value)}
                   placeholder="Serial Number (Hex)..."
-                  className="flex-1 h-9 px-3 rounded-lg border border-[#CBD5E1] font-mono"
+                  className="flex-1 h-9 px-3 rounded-lg border border-line-strong font-mono"
                 />
                 <select
                   value={newRevReason}
                   onChange={(e) => setNewRevReason(e.target.value)}
-                  className="h-9 px-2 rounded-lg border border-[#CBD5E1] bg-white"
+                  className="h-9 px-2 rounded-lg border border-line-strong bg-white"
                 >
                   <option value="keyCompromise">keyCompromise</option>
                   <option value="cACompromise">cACompromise</option>
@@ -448,7 +449,7 @@ export const CaSigningView: React.FC<CaSigningViewProps> = ({
                     ]);
                     setNewRevSerial("");
                   }}
-                  className="px-3 h-9 rounded-lg bg-[#C2E7FF] text-[#0A3464] font-semibold cursor-pointer"
+                  className="px-3 h-9 rounded-lg bg-brand-soft text-brand-deep font-semibold cursor-pointer"
                 >
                   <Plus className="w-4 h-4" />
                 </button>
@@ -456,14 +457,14 @@ export const CaSigningView: React.FC<CaSigningViewProps> = ({
 
               <div className="space-y-1.5 max-h-40 overflow-y-auto">
                 {revokedList.map((r, i) => (
-                  <div key={i} className="flex items-center justify-between p-2.5 bg-[#F8FAFC] rounded-xl border border-[#E2E8F0]">
+                  <div key={i} className="flex items-center justify-between p-2.5 bg-surface-2 rounded-xl border border-line">
                     <div>
-                      <div className="font-mono font-semibold text-[#0F172A]">{r.serial_number}</div>
-                      <div className="text-[11px] text-[#64748B]">{r.reason} • {r.revocation_date}</div>
+                      <div className="font-mono font-semibold text-ink">{r.serial_number}</div>
+                      <div className="text-[11px] text-faint">{r.reason} • {r.revocation_date}</div>
                     </div>
                     <button
                       onClick={() => setRevokedList(revokedList.filter((_, idx) => idx !== i))}
-                      className="text-[#DC2626] p-1 cursor-pointer"
+                      className="text-danger p-1 cursor-pointer"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
                     </button>
@@ -473,29 +474,29 @@ export const CaSigningView: React.FC<CaSigningViewProps> = ({
 
               <button
                 onClick={handleSignCrl}
-                className="w-full py-2.5 rounded-full bg-[#0A3464] text-white font-semibold cursor-pointer"
+                className="w-full py-2.5 rounded-full bg-brand-deep text-white font-semibold cursor-pointer"
               >
                 Sign &amp; Issue CRL with '{signerEntry?.alias}'
               </button>
             </div>
 
-            <div className="lg:col-span-7 bg-[#F8FAFC] rounded-2xl p-5 border border-[#E2E8F0] select-text">
+            <div className="lg:col-span-7 bg-surface-2 rounded-2xl p-5 border border-line select-text">
               {crlResult ? (
                 <div className="space-y-3 text-[12px]">
-                  <div className="text-[#059669] font-bold">
+                  <div className="text-success font-bold">
                     CRL #{crlResult.crl_number} Signed ({crlResult.revoked_entries.length} Revoked Certificates)
                   </div>
-                  <div className="p-3 bg-white rounded-xl border border-[#E2E8F0]">
+                  <div className="p-3 bg-white rounded-xl border border-line">
                     <div><strong>Issuer:</strong> {crlResult.issuer}</div>
                     <div><strong>This Update:</strong> {crlResult.this_update}</div>
                     <div><strong>Next Update:</strong> {crlResult.next_update}</div>
                   </div>
-                  <pre className="bg-[#0F172A] text-[#38BDF8] p-3 rounded-xl font-mono text-[11px] overflow-x-auto">
+                  <pre className="bg-ink text-[#38BDF8] p-3 rounded-xl font-mono text-[11px] overflow-x-auto">
                     {crlResult.crl_pem}
                   </pre>
                 </div>
               ) : (
-                <div className="h-full flex items-center justify-center text-[#94A3B8] text-[13px]">
+                <div className="h-full flex items-center justify-center text-subtle text-[13px]">
                   Configure revoked serials and click "Sign &amp; Issue CRL".
                 </div>
               )}
@@ -506,73 +507,74 @@ export const CaSigningView: React.FC<CaSigningViewProps> = ({
         {toolTab === "jar" && (
           <>
             <div className="lg:col-span-5 space-y-3.5 text-[12.5px]">
-              <h3 className="text-[16px] font-semibold text-[#0F172A]">
-                Sign &amp; Verify Java Archive (.JAR) Without JDK/Jarsigner
+              <h3 className="text-[16px] font-semibold text-ink">
+                Sign &amp; Verify Java Archive (.JAR)
               </h3>
+              <TerminalHint command={`unzip -l ${jarName || "app.jar"}`} label="List contents" />
               <div>
-                <label className="font-medium text-[#475569] block mb-1">Target JAR Archive</label>
+                <label className="font-medium text-muted block mb-1">Target JAR Archive</label>
                 <input
                   type="text"
                   value={jarName}
                   onChange={(e) => setJarName(e.target.value)}
-                  className="w-full h-9 px-3 rounded-lg border border-[#CBD5E1]"
+                  className="w-full h-9 px-3 rounded-lg border border-line-strong"
                 />
               </div>
               <div>
-                <label className="font-medium text-[#475569] block mb-1">Archive Entries to Digest &amp; Sign</label>
+                <label className="font-medium text-muted block mb-1">Archive Entries to Digest &amp; Sign</label>
                 <textarea
                   rows={4}
                   value={jarEntriesText}
                   onChange={(e) => setJarEntriesText(e.target.value)}
-                  className="w-full p-2.5 rounded-xl border border-[#CBD5E1] font-mono text-[11px]"
+                  className="w-full p-2.5 rounded-xl border border-line-strong font-mono text-[11px]"
                 />
               </div>
               <div>
-                <label className="font-medium text-[#475569] block mb-1">RFC 3161 Timestamp Authority (TSA)</label>
+                <label className="font-medium text-muted block mb-1">RFC 3161 Timestamp Authority (TSA)</label>
                 <input
                   type="text"
                   value={jarTsa}
                   onChange={(e) => setJarTsa(e.target.value)}
-                  className="w-full h-9 px-3 rounded-lg border border-[#CBD5E1]"
+                  className="w-full h-9 px-3 rounded-lg border border-line-strong"
                 />
               </div>
               <button
                 onClick={handleSignJar}
-                className="w-full py-2.5 rounded-full bg-[#0A3464] text-white font-semibold cursor-pointer"
+                className="w-full py-2.5 rounded-full bg-brand-deep text-white font-semibold cursor-pointer"
               >
                 Sign JAR Archive in Rust
               </button>
             </div>
 
-            <div className="lg:col-span-7 bg-[#F8FAFC] rounded-2xl p-5 border border-[#E2E8F0] select-text">
+            <div className="lg:col-span-7 bg-surface-2 rounded-2xl p-5 border border-line select-text">
               {jarResult ? (
                 <div className="space-y-3 text-[12px]">
                   <div className="flex items-center justify-between">
-                    <span className="text-[#059669] font-bold flex items-center space-x-1">
+                    <span className="text-success font-bold flex items-center space-x-1">
                       <CheckCircle2 className="w-4 h-4" />
                       <span>Signed {jarResult.jar_name} &amp; Verified Signature Block</span>
                     </span>
-                    <span className="font-mono text-[11px] text-[#64748B]">{jarResult.signature_algorithm}</span>
+                    <span className="font-mono text-[11px] text-faint">{jarResult.signature_algorithm}</span>
                   </div>
                   <div>
-                    <span className="font-bold text-[11px] uppercase text-[#64748B] block mb-1">
+                    <span className="font-bold text-[11px] uppercase text-faint block mb-1">
                       Generated META-INF/MANIFEST.MF
                     </span>
-                    <pre className="bg-[#0F172A] text-[#A7F3D0] p-2.5 rounded-xl font-mono text-[10.5px] max-h-28 overflow-y-auto">
+                    <pre className="bg-ink text-[#A7F3D0] p-2.5 rounded-xl font-mono text-[10.5px] max-h-28 overflow-y-auto">
                       {jarResult.manifest_mf}
                     </pre>
                   </div>
                   <div>
-                    <span className="font-bold text-[11px] uppercase text-[#64748B] block mb-1">
+                    <span className="font-bold text-[11px] uppercase text-faint block mb-1">
                       Generated META-INF/{jarResult.signer_alias.toUpperCase()}.SF
                     </span>
-                    <pre className="bg-[#0F172A] text-[#38BDF8] p-2.5 rounded-xl font-mono text-[10.5px] max-h-28 overflow-y-auto">
+                    <pre className="bg-ink text-[#38BDF8] p-2.5 rounded-xl font-mono text-[10.5px] max-h-28 overflow-y-auto">
                       {jarResult.signature_sf}
                     </pre>
                   </div>
                 </div>
               ) : (
-                <div className="h-full flex items-center justify-center text-[#94A3B8] text-[13px]">
+                <div className="h-full flex items-center justify-center text-subtle text-[13px]">
                   Click "Sign JAR Archive in Rust" to generate MANIFEST.MF, .SF, and cryptographic signature blocks.
                 </div>
               )}
@@ -583,14 +585,14 @@ export const CaSigningView: React.FC<CaSigningViewProps> = ({
         {toolTab === "cms" && (
           <>
             <div className="lg:col-span-5 space-y-3.5 text-[12.5px]">
-              <h3 className="text-[16px] font-semibold text-[#0F172A]">
+              <h3 className="text-[16px] font-semibold text-ink">
                 CMS / PKCS#7 Digital Signature &amp; Verification
               </h3>
               <textarea
                 rows={5}
                 value={cmsPayload}
                 onChange={(e) => setCmsPayload(e.target.value)}
-                className="w-full p-3 rounded-xl border border-[#CBD5E1] font-mono text-[11.5px]"
+                className="w-full p-3 rounded-xl border border-line-strong font-mono text-[11.5px]"
               />
               <div className="flex items-center space-x-2">
                 <input
@@ -604,14 +606,14 @@ export const CaSigningView: React.FC<CaSigningViewProps> = ({
               <div className="flex space-x-2">
                 <button
                   onClick={handleSignCms}
-                  className="flex-1 py-2.5 rounded-full bg-[#0A3464] text-white font-semibold cursor-pointer"
+                  className="flex-1 py-2.5 rounded-full bg-brand-deep text-white font-semibold cursor-pointer"
                 >
                   Sign Payload
                 </button>
                 {cmsResult && (
                   <button
                     onClick={handleVerifyCms}
-                    className="px-4 py-2.5 rounded-full bg-[#C2E7FF] text-[#0A3464] font-semibold cursor-pointer"
+                    className="px-4 py-2.5 rounded-full bg-brand-soft text-brand-deep font-semibold cursor-pointer"
                   >
                     Verify Signature
                   </button>
@@ -619,22 +621,22 @@ export const CaSigningView: React.FC<CaSigningViewProps> = ({
               </div>
             </div>
 
-            <div className="lg:col-span-7 bg-[#F8FAFC] rounded-2xl p-5 border border-[#E2E8F0] select-text">
+            <div className="lg:col-span-7 bg-surface-2 rounded-2xl p-5 border border-line select-text">
               {cmsResult ? (
                 <div className="space-y-3 text-[12px]">
-                  <div className="p-2.5 rounded-xl bg-[#DCFCE7] text-[#166534] font-semibold">
+                  <div className="p-2.5 rounded-xl bg-success-tint text-[#166534] font-semibold">
                     {cmsVerifyStatus}
                   </div>
-                  <div className="font-mono text-[11px] break-all bg-white p-3 rounded-xl border border-[#E2E8F0]">
+                  <div className="font-mono text-[11px] break-all bg-white p-3 rounded-xl border border-line">
                     <div><strong>SHA-256 Digest:</strong> {cmsResult.payload_sha256}</div>
                     <div className="mt-1"><strong>Signature (Hex):</strong> {cmsResult.signature_hex}</div>
                   </div>
-                  <pre className="bg-[#0F172A] text-[#38BDF8] p-3 rounded-xl font-mono text-[11px] overflow-x-auto">
+                  <pre className="bg-ink text-[#38BDF8] p-3 rounded-xl font-mono text-[11px] overflow-x-auto">
                     {cmsResult.cms_pem}
                   </pre>
                 </div>
               ) : (
-                <div className="h-full flex items-center justify-center text-[#94A3B8] text-[13px]">
+                <div className="h-full flex items-center justify-center text-subtle text-[13px]">
                   Sign any file or JSON payload using CMS / PKCS#7 and test live cryptographic verification.
                 </div>
               )}
@@ -645,46 +647,46 @@ export const CaSigningView: React.FC<CaSigningViewProps> = ({
         {toolTab === "jwt" && (
           <>
             <div className="lg:col-span-5 space-y-3 text-[12.5px]">
-              <h3 className="text-[16px] font-semibold text-[#0F172A]">Sign JSON Web Token (JWT / JWS)</h3>
+              <h3 className="text-[16px] font-semibold text-ink">Sign JSON Web Token (JWT / JWS)</h3>
               <div className="grid grid-cols-2 gap-2.5">
                 <div>
-                  <label className="block mb-1 text-[#475569]">Issuer (iss)</label>
-                  <input type="text" value={jwtIss} onChange={(e) => setJwtIss(e.target.value)} className="w-full h-9 px-3 rounded-lg border border-[#CBD5E1]" />
+                  <label className="block mb-1 text-muted">Issuer (iss)</label>
+                  <input type="text" value={jwtIss} onChange={(e) => setJwtIss(e.target.value)} className="w-full h-9 px-3 rounded-lg border border-line-strong" />
                 </div>
                 <div>
-                  <label className="block mb-1 text-[#475569]">Subject (sub)</label>
-                  <input type="text" value={jwtSub} onChange={(e) => setJwtSub(e.target.value)} className="w-full h-9 px-3 rounded-lg border border-[#CBD5E1]" />
+                  <label className="block mb-1 text-muted">Subject (sub)</label>
+                  <input type="text" value={jwtSub} onChange={(e) => setJwtSub(e.target.value)} className="w-full h-9 px-3 rounded-lg border border-line-strong" />
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-2.5">
                 <div>
-                  <label className="block mb-1 text-[#475569]">Audience (aud)</label>
-                  <input type="text" value={jwtAud} onChange={(e) => setJwtAud(e.target.value)} className="w-full h-9 px-3 rounded-lg border border-[#CBD5E1]" />
+                  <label className="block mb-1 text-muted">Audience (aud)</label>
+                  <input type="text" value={jwtAud} onChange={(e) => setJwtAud(e.target.value)} className="w-full h-9 px-3 rounded-lg border border-line-strong" />
                 </div>
                 <div>
-                  <label className="block mb-1 text-[#475569]">Validity (Hours)</label>
-                  <input type="number" value={jwtHours} onChange={(e) => setJwtHours(Number(e.target.value))} className="w-full h-9 px-3 rounded-lg border border-[#CBD5E1]" />
+                  <label className="block mb-1 text-muted">Validity (Hours)</label>
+                  <input type="number" value={jwtHours} onChange={(e) => setJwtHours(Number(e.target.value))} className="w-full h-9 px-3 rounded-lg border border-line-strong" />
                 </div>
               </div>
               <div>
-                <label className="block mb-1 text-[#475569]">Custom Claims (JSON)</label>
-                <textarea rows={3} value={jwtCustom} onChange={(e) => setJwtCustom(e.target.value)} className="w-full p-2.5 rounded-xl border border-[#CBD5E1] font-mono text-[11px]" />
+                <label className="block mb-1 text-muted">Custom Claims (JSON)</label>
+                <textarea rows={3} value={jwtCustom} onChange={(e) => setJwtCustom(e.target.value)} className="w-full p-2.5 rounded-xl border border-line-strong font-mono text-[11px]" />
               </div>
-              <button onClick={handleSignJwt} className="w-full py-2.5 rounded-full bg-[#0A3464] text-white font-semibold cursor-pointer">
+              <button onClick={handleSignJwt} className="w-full py-2.5 rounded-full bg-brand-deep text-white font-semibold cursor-pointer">
                 Sign JWT with '{signerEntry?.alias}'
               </button>
             </div>
 
-            <div className="lg:col-span-7 bg-[#F8FAFC] rounded-2xl p-5 border border-[#E2E8F0] select-text">
+            <div className="lg:col-span-7 bg-surface-2 rounded-2xl p-5 border border-line select-text">
               {signedJwtToken ? (
                 <div className="space-y-3 text-[12px]">
-                  <span className="font-bold text-[#059669] block">Signed RFC 7519 JWT Compact Token</span>
-                  <pre className="bg-[#0F172A] text-[#A7F3D0] p-4 rounded-xl font-mono text-[11.5px] whitespace-pre-wrap break-all">
+                  <span className="font-bold text-success block">Signed RFC 7519 JWT Compact Token</span>
+                  <pre className="bg-ink text-[#A7F3D0] p-4 rounded-xl font-mono text-[11.5px] whitespace-pre-wrap break-all">
                     {signedJwtToken}
                   </pre>
                 </div>
               ) : (
-                <div className="h-full flex items-center justify-center text-[#94A3B8] text-[13px]">
+                <div className="h-full flex items-center justify-center text-subtle text-[13px]">
                   Configure claims and click "Sign JWT" to issue a signed token.
                 </div>
               )}
@@ -695,18 +697,18 @@ export const CaSigningView: React.FC<CaSigningViewProps> = ({
         {toolTab === "dh" && (
           <>
             <div className="lg:col-span-5 space-y-4 text-[12.5px]">
-              <h3 className="text-[16px] font-semibold text-[#0F172A]">
+              <h3 className="text-[16px] font-semibold text-ink">
                 Generate Diffie-Hellman (PKCS#3 DH) Parameters
               </h3>
               <div>
-                <label className="block mb-1.5 text-[#475569] font-medium">Prime Modulus Size (Bits)</label>
+                <label className="block mb-1.5 text-muted font-medium">Prime Modulus Size (Bits)</label>
                 <div className="grid grid-cols-4 gap-2">
                   {[1024, 2048, 3072, 4096].map((b) => (
                     <button
                       key={b}
                       onClick={() => setDhBits(b)}
                       className={`py-2 rounded-xl border font-semibold cursor-pointer ${
-                        dhBits === b ? "bg-[#C2E7FF] border-[#2563EB] text-[#0A3464]" : "bg-white border-[#CBD5E1]"
+                        dhBits === b ? "bg-brand-soft border-brand text-brand-deep" : "bg-white border-line-strong"
                       }`}
                     >
                       {b}
@@ -714,23 +716,23 @@ export const CaSigningView: React.FC<CaSigningViewProps> = ({
                   ))}
                 </div>
               </div>
-              <button onClick={handleGenerateDh} className="w-full py-2.5 rounded-full bg-[#0A3464] text-white font-semibold cursor-pointer">
+              <button onClick={handleGenerateDh} className="w-full py-2.5 rounded-full bg-brand-deep text-white font-semibold cursor-pointer">
                 Generate DH Parameters in Rust
               </button>
             </div>
 
-            <div className="lg:col-span-7 bg-[#F8FAFC] rounded-2xl p-5 border border-[#E2E8F0] select-text">
+            <div className="lg:col-span-7 bg-surface-2 rounded-2xl p-5 border border-line select-text">
               {dhResult ? (
                 <div className="space-y-3 text-[12px]">
-                  <div className="font-semibold text-[#059669]">
+                  <div className="font-semibold text-success">
                     Generated {dhResult.bit_size}-bit Diffie-Hellman Parameters (Generator G = {dhResult.generator_g})
                   </div>
-                  <pre className="bg-[#0F172A] text-[#38BDF8] p-3 rounded-xl font-mono text-[11px] max-h-48 overflow-y-auto">
+                  <pre className="bg-ink text-[#38BDF8] p-3 rounded-xl font-mono text-[11px] max-h-48 overflow-y-auto">
                     {dhResult.pem}
                   </pre>
                 </div>
               ) : (
-                <div className="h-full flex items-center justify-center text-[#94A3B8] text-[13px]">
+                <div className="h-full flex items-center justify-center text-subtle text-[13px]">
                   Select bit size and generate PKCS#3 Diffie-Hellman parameters.
                 </div>
               )}
