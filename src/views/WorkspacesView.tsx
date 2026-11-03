@@ -3,9 +3,7 @@ import {
   Layers,
   Plus,
   Trash2,
-  ShieldCheck,
   KeyRound,
-  Lock,
   AlertTriangle,
   Search,
   Check,
@@ -14,12 +12,29 @@ import {
   Download,
   Copy,
   FolderArchive,
-  Sparkles,
   ArrowUpRight,
   CheckCircle2,
   FolderPlus,
   Filter,
+  CalendarClock,
 } from "lucide-react";
+import clsx from "clsx";
+import {
+  Badge,
+  Button,
+  Card,
+  Column,
+  DataTable,
+  EmptyState,
+  IconButton,
+  KpiCard,
+  Modal,
+  Page,
+  PageHeader,
+  SearchInput,
+} from "../components/ui";
+import { AlgorithmCell, EntryNameCell, ExpiryCell, HealthBadge } from "../components/entry";
+import { daysUntilExpiry, summarize } from "../lib/metrics";
 import { invoke } from "@tauri-apps/api/core";
 import {
   Workspace,
@@ -41,36 +56,6 @@ interface WorkspacesViewProps {
   onSelectKeystore: (ksId: string) => void;
 }
 
-const COLOR_MAP: Record<
-  Workspace["color"],
-  {
-    badge: string;
-    activeCard: string;
-    dot: string;
-  }
-> = {
-  blue: {
-    badge: "bg-brand-tint text-[#1D4ED8] border-[#BFDBFE]",
-    activeCard: "border-brand bg-surface-2 ring-2 ring-[#BFDBFE]/60",
-    dot: "bg-brand",
-  },
-  emerald: {
-    badge: "bg-[#ECFDF5] text-[#047857] border-[#A7F3D0]",
-    activeCard: "border-success bg-surface-2 ring-2 ring-[#A7F3D0]/60",
-    dot: "bg-success",
-  },
-  purple: {
-    badge: "bg-[#FAF5FF] text-[#6D28D9] border-[#E9D5FF]",
-    activeCard: "border-[#7C3AED] bg-surface-2 ring-2 ring-[#E9D5FF]/60",
-    dot: "bg-[#7C3AED]",
-  },
-  amber: {
-    badge: "bg-[#FFFBEB] text-[#B45309] border-[#FDE68A]",
-    activeCard: "border-[#D97706] bg-surface-2 ring-2 ring-[#FDE68A]/60",
-    dot: "bg-[#D97706]",
-  },
-};
-
 export const WorkspacesView: React.FC<WorkspacesViewProps> = ({
   workspaces,
   activeWorkspaceId,
@@ -87,6 +72,7 @@ export const WorkspacesView: React.FC<WorkspacesViewProps> = ({
   const [certPickerSearch, setCertPickerSearch] = useState("");
   const [certPickerStoreFilter, setCertPickerStoreFilter] = useState<string>("ALL");
   const [toastMsg, setToastMsg] = useState<string | null>(null);
+  const [pendingDeleteWs, setPendingDeleteWs] = useState<Workspace | null>(null);
 
   const [showNewWorkspaceModal, setShowNewWorkspaceModal] = useState(false);
   const [newWsName, setNewWsName] = useState("");
@@ -211,376 +197,261 @@ export const WorkspacesView: React.FC<WorkspacesViewProps> = ({
     }
   };
 
-  const activeTheme = activeWorkspace
-    ? COLOR_MAP[activeWorkspace.color] || COLOR_MAP.blue
-    : COLOR_MAP.blue;
+  const wsSummary = summarize(workspaceEntries.map((x) => x.entry));
+
+  const columns: Column<{ entry: KeystoreEntry; keystore: KeystoreFile }>[] = [
+    {
+      id: "entry",
+      header: "Entry",
+      width: "30%",
+      sortValue: (r) => r.entry.alias,
+      cell: (r) => <EntryNameCell entry={r.entry} />,
+    },
+    {
+      id: "ks",
+      header: "Source keystore",
+      sortValue: (r) => r.keystore.name,
+      cell: ({ keystore }) => (
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            onSelectKeystore(keystore.id);
+            onNavigateTab("keystores");
+          }}
+          className="inline-flex items-center gap-1.5 text-muted hover:text-brand cursor-pointer"
+        >
+          <FolderArchive className="w-3.5 h-3.5 text-subtle" />
+          <span className="truncate max-w-[180px]">{keystore.name}</span>
+          <ArrowUpRight className="w-3 h-3 text-subtle" />
+        </button>
+      ),
+    },
+    { id: "alg", header: "Algorithm", sortValue: (r) => r.entry.algorithm, cell: (r) => <AlgorithmCell entry={r.entry} /> },
+    {
+      id: "exp",
+      header: "Expires",
+      width: "210px",
+      sortValue: (r) => daysUntilExpiry(r.entry),
+      cell: (r) => <ExpiryCell entry={r.entry} />,
+    },
+    { id: "status", header: "Status", hideBelow: "xl", cell: (r) => <HealthBadge entry={r.entry} /> },
+    {
+      id: "act",
+      header: <span className="sr-only">Actions</span>,
+      align: "right",
+      width: "130px",
+      cell: ({ entry, keystore }) => (
+        <div className="inline-flex items-center gap-0.5" onClick={(e) => e.stopPropagation()}>
+          <IconButton icon={Eye} label="Inspect" onClick={() => setInspectEntry({ entry, keystore })} />
+          <IconButton icon={Download} label="Export PEM" onClick={() => handleExportEntryToDisk(entry)} />
+          <IconButton
+            icon={X}
+            label="Remove from workspace"
+            tone="danger"
+            onClick={() => {
+              onToggleEntryInWorkspace(activeWorkspace.id, entry.id);
+              showToast(`Removed "${entry.alias}" from ${activeWorkspace.name}`);
+            }}
+          />
+        </div>
+      ),
+    },
+  ];
 
   return (
-    <div className="flex-1 overflow-y-auto px-8 py-6 bg-canvas select-none space-y-5 relative">
-      {/* Floating Native Action Toast */}
+    <Page>
       {toastMsg && (
-        <div className="fixed bottom-6 right-8 z-50 flex items-center space-x-2.5 bg-ink text-white px-4 py-3 rounded-2xl shadow-xl border border-ink-2 text-[13px]">
-          <CheckCircle2 className="w-4 h-4 text-[#34D399] shrink-0" />
+        <div
+          role="status"
+          className="fixed bottom-6 right-6 z-[60] max-w-md flex items-start gap-2.5 bg-surface border border-line shadow-pop rounded-card px-4 py-3 text-[13px] text-ink"
+        >
+          <CheckCircle2 className="w-4 h-4 mt-0.5 text-success shrink-0" />
           <span>{toastMsg}</span>
         </div>
       )}
 
-      {/* Top Header & Action Buttons */}
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <div>
-          <div className="flex items-center space-x-2.5">
-            <div className="w-9 h-9 rounded-2xl bg-brand-soft text-brand-deep flex items-center justify-center shadow-2xs">
-              <Layers className="w-5 h-5" />
-            </div>
-            <div>
-              <div className="flex items-center space-x-2">
-                <h1 className="text-[24px] font-bold text-ink tracking-tight">
-                  Certificate Workspaces
-                </h1>
-                <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-white text-brand-deep border border-line-strong">
-                  {workspaces.length} Active Collections
-                </span>
-              </div>
-              <p className="text-[13px] text-faint">
-                Group certificates, TLS key pairs, and CA roots across multiple KeyStores into logical project or environment workspaces.
-              </p>
-            </div>
-          </div>
-        </div>
+      <PageHeader
+        title="Workspaces"
+        description="Group certificates, key pairs and CA roots from several keystores by project, environment or audit scope."
+        actions={
+          <>
+            <Button icon={FolderPlus} onClick={() => setShowAddCertsModal(true)}>
+              Assign entries
+            </Button>
+            <Button variant="primary" icon={Plus} onClick={() => setShowNewWorkspaceModal(true)}>
+              New workspace
+            </Button>
+          </>
+        }
+      />
 
-        <div className="flex items-center space-x-2.5">
-          <button
-            onClick={() => setShowAddCertsModal(true)}
-            className="px-4 py-2.5 rounded-full bg-brand-soft hover:bg-brand-soft-hover text-brand-deep font-semibold text-[13px] flex items-center space-x-2 transition cursor-pointer shadow-2xs"
-          >
-            <FolderPlus className="w-4 h-4" />
-            <span>Add Certificates to Workspace</span>
-          </button>
-          <button
-            onClick={() => setShowNewWorkspaceModal(true)}
-            className="px-4 py-2.5 rounded-full bg-brand-deep hover:bg-brand-deeper text-white font-semibold text-[13px] flex items-center space-x-1.5 transition cursor-pointer shadow-2xs"
-          >
-            <Plus className="w-4 h-4" />
-            <span>New Workspace</span>
-          </button>
-        </div>
-      </div>
-
-      {/* Bento Workspace Selector Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      {/* Workspace selector tiles */}
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4" role="tablist" aria-label="Workspaces">
         {workspaces.map((ws) => {
           const isSelected = ws.id === activeWorkspace?.id;
-          const theme = COLOR_MAP[ws.color] || COLOR_MAP.blue;
           return (
             <div
               key={ws.id}
+              role="tab"
+              tabIndex={0}
+              aria-selected={isSelected}
               onClick={() => onSelectWorkspace(ws.id)}
-              className={`rounded-[22px] bg-white border p-5 transition-all cursor-pointer flex flex-col justify-between ${
-                isSelected
-                  ? theme.activeCard
-                  : "border-line hover:border-subtle hover:shadow-xs"
-              }`}
+              onKeyDown={(e) => e.key === "Enter" && onSelectWorkspace(ws.id)}
+              className={clsx(
+                "rounded-card bg-surface border p-4 flex flex-col cursor-pointer transition",
+                isSelected ? "border-brand ring-4 ring-brand-soft/60" : "border-line shadow-card hover:border-line-strong"
+              )}
             >
-              <div>
-                <div className="flex items-start justify-between gap-2 mb-2">
-                  <div className="flex items-center space-x-2">
-                    <span className={`w-2.5 h-2.5 rounded-full ${theme.dot}`} />
-                    <h3 className="text-[15.5px] font-bold text-ink">
-                      {ws.name}
-                    </h3>
-                  </div>
-                  <div className="flex items-center space-x-1.5">
-                    <span
-                      className={`px-2.5 py-0.5 rounded-full text-[10.5px] font-bold border ${theme.badge}`}
-                    >
-                      {ws.environment}
-                    </span>
-                    {workspaces.length > 1 && (
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onDeleteWorkspace(ws.id);
-                          showToast(`Deleted workspace "${ws.name}"`);
-                        }}
-                        title="Delete Workspace"
-                        className="p-1 rounded-lg text-subtle hover:text-danger hover:bg-[#FEF2F2] transition cursor-pointer"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
+              <div className="flex items-start justify-between gap-2">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <span
+                    className={clsx(
+                      "w-8 h-8 rounded-control flex items-center justify-center shrink-0",
+                      isSelected ? "bg-brand-tint text-brand" : "bg-surface-3 text-muted"
                     )}
-                  </div>
+                  >
+                    <Layers className="w-4 h-4" />
+                  </span>
+                  <h3 className="text-[13.5px] font-semibold text-ink truncate">{ws.name}</h3>
                 </div>
-
-                <p className="text-[12.5px] text-faint line-clamp-2">
-                  {ws.description}
-                </p>
+                <div className="flex items-center gap-1 shrink-0">
+                  <Badge tone={ws.environment === "Production" ? "brand" : "neutral"}>{ws.environment}</Badge>
+                  {workspaces.length > 1 && (
+                    <IconButton
+                      icon={Trash2}
+                      label={`Delete workspace ${ws.name}`}
+                      tone="danger"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setPendingDeleteWs(ws);
+                      }}
+                    />
+                  )}
+                </div>
               </div>
-
-              <div className="flex items-center justify-between pt-3 mt-3 border-t border-surface-3 text-[11.5px]">
-                <span className="font-semibold text-brand-deep">
-                  {ws.entryIds.length} assigned certificates
+              <p className="text-[12.5px] text-faint mt-2 line-clamp-2 min-h-[36px]">{ws.description}</p>
+              <div className="flex items-center justify-between pt-3 mt-3 border-t border-line text-[12px] text-faint">
+                <span>
+                  <strong className="text-ink font-semibold">{ws.entryIds.length}</strong> entries
                 </span>
-                <span className="text-subtle">
-                  Updated {ws.updated_at}
-                </span>
+                <span>Updated {ws.updated_at}</span>
               </div>
             </div>
           );
         })}
       </div>
 
-      {/* Active Workspace Bento KPI Cards */}
       {activeWorkspace && (
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-          <div className="bg-white rounded-[20px] border border-line p-4">
-            <div className="flex items-center justify-between text-[12px] text-faint font-medium mb-1">
-              <span>Assigned Identities</span>
-              <Layers className="w-4 h-4 text-brand" />
-            </div>
-            <div className="text-[26px] font-bold text-ink">
-              {stats.total}
-            </div>
-            <div className="text-[11px] text-faint">
-              Linked across {keystores.length} KeyStores
-            </div>
+        <>
+          <div className="grid grid-cols-2 xl:grid-cols-4 gap-4 mt-4">
+            <KpiCard label="Assigned entries" value={wsSummary.total} icon={Layers} tone="brand" hint={`From ${new Set(workspaceEntries.map((x) => x.keystore.id)).size} keystores`} />
+            <KpiCard
+              label="Key pairs / trusted certs"
+              value={
+                <>
+                  {stats.keyPairs}
+                  <span className="text-subtle font-normal mx-1">/</span>
+                  {stats.trustedCerts}
+                </>
+              }
+              icon={KeyRound}
+              hint={`${wsSummary.secrets} secret keys`}
+            />
+            <KpiCard
+              label="Expiring in 90 days"
+              value={wsSummary.expiring90}
+              icon={CalendarClock}
+              tone="warning"
+              hint={wsSummary.expiring30 ? `${wsSummary.expiring30} within 30 days` : "None within 30 days"}
+              hintTone={wsSummary.expiring30 ? "warning" : "neutral"}
+            />
+            <KpiCard
+              label="Policy alerts"
+              value={stats.warnings}
+              icon={AlertTriangle}
+              tone="danger"
+              hint={stats.warnings ? "Weak or expired entries" : "No weak or expired entries"}
+              hintTone={stats.warnings ? "danger" : "success"}
+            />
           </div>
 
-          <div className="bg-white rounded-[20px] border border-line p-4">
-            <div className="flex items-center justify-between text-[12px] text-faint font-medium mb-1">
-              <span>Key Pairs / Trusted CAs</span>
-              <KeyRound className="w-4 h-4 text-success" />
+          <Card padded={false} className="mt-4 overflow-hidden">
+            <div className="px-5 py-3 border-b border-line flex flex-wrap items-center justify-between gap-3">
+              <div className="min-w-0">
+                <h3 className="text-[14px] font-semibold text-ink truncate">{activeWorkspace.name}</h3>
+                <p className="text-[12px] text-faint">Assigned certificates and keys</p>
+              </div>
+              <div className="flex items-center gap-2">
+                <SearchInput value={searchQuery} onChange={setSearchQuery} placeholder="Filter entries" className="w-56" />
+                <Button icon={Plus} onClick={() => setShowAddCertsModal(true)}>
+                  Add / remove
+                </Button>
+              </div>
             </div>
-            <div className="text-[26px] font-bold text-ink">
-              {stats.keyPairs}{" "}
-              <span className="text-[16px] text-subtle font-normal">/</span>{" "}
-              <span className="text-brand">{stats.trustedCerts}</span>
-            </div>
-            <div className="text-[11px] text-faint">
-              Private TLS Keys vs Root Anchors
-            </div>
-          </div>
-
-          <div className="bg-white rounded-[20px] border border-line p-4">
-            <div className="flex items-center justify-between text-[12px] text-faint font-medium mb-1">
-              <span>Post-Quantum (PQC)</span>
-              <Sparkles className="w-4 h-4 text-[#7C3AED]" />
-            </div>
-            <div className="text-[26px] font-bold text-[#6D28D9]">
-              {stats.pqcReady}
-            </div>
-            <div className="text-[11px] text-faint">
-              ML-DSA / ML-KEM / SLH-DSA entries
-            </div>
-          </div>
-
-          <div className="bg-white rounded-[20px] border border-line p-4">
-            <div className="flex items-center justify-between text-[12px] text-faint font-medium mb-1">
-              <span>Policy / Expiry Alerts</span>
-              <AlertTriangle className="w-4 h-4 text-[#D97706]" />
-            </div>
-            <div className="text-[26px] font-bold text-[#B45309]">
-              {stats.warnings}
-            </div>
-            <div className="text-[11px] text-faint">
-              Weak or expired certificates
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Active Workspace Certificate Table */}
-      {activeWorkspace && (
-        <div className="bg-white rounded-[22px] border border-line overflow-hidden shadow-2xs">
-          <div className="px-6 py-4 border-b border-surface-3 flex flex-wrap items-center justify-between gap-3">
-            <div className="flex items-center space-x-2.5">
-              <span className={`w-2.5 h-2.5 rounded-full ${activeTheme.dot}`} />
-              <h2 className="text-[16px] font-bold text-ink">
-                {activeWorkspace.name} — Assigned Certificates &amp; Keys
-              </h2>
-              <span
-                className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold border ${activeTheme.badge}`}
-              >
-                {activeWorkspace.environment}
-              </span>
-            </div>
-
-            <div className="flex items-center space-x-2.5">
-              <div className="relative">
-                <Search className="w-3.5 h-3.5 text-subtle absolute left-3.5 top-1/2 -translate-y-1/2" />
-                <input
-                  type="text"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Filter workspace certs..."
-                  className="bg-surface-2 border border-line rounded-full pl-9 pr-4 py-1.5 text-[12.5px] text-ink-2 placeholder-subtle focus:outline-none focus:border-brand w-60"
+            <DataTable
+              label={`Entries in ${activeWorkspace.name}`}
+              columns={columns}
+              rows={workspaceEntries}
+              rowKey={(r) => r.entry.id}
+              onRowClick={(r) => setInspectEntry(r)}
+              initialSort={{ id: "exp", dir: "asc" }}
+              empty={
+                <EmptyState
+                  icon={FolderPlus}
+                  title={searchQuery ? "No matching entries" : `Nothing assigned to “${activeWorkspace.name}” yet`}
+                  description="Pick certificates, key pairs or trusted roots from any keystore and link them here."
+                  action={
+                    <>
+                      <Button variant="primary" icon={Plus} onClick={() => setShowAddCertsModal(true)}>
+                        Assign entries
+                      </Button>
+                      <Button onClick={() => onNavigateTab("keystores")}>Browse keystores</Button>
+                    </>
+                  }
                 />
-              </div>
-
-              <button
-                onClick={() => setShowAddCertsModal(true)}
-                className="px-3.5 py-1.5 rounded-full bg-brand-tint hover:bg-[#DBEAFE] text-[#1D4ED8] border border-[#BFDBFE] text-[12px] font-semibold flex items-center space-x-1.5 transition cursor-pointer"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                <span>Add / Remove Certs</span>
-              </button>
-            </div>
-          </div>
-
-          {workspaceEntries.length === 0 ? (
-            <div className="p-12 text-center space-y-3">
-              <div className="w-12 h-12 rounded-2xl bg-brand-tint border border-[#BFDBFE] flex items-center justify-center text-brand mx-auto">
-                <FolderPlus className="w-6 h-6" />
-              </div>
-              <h3 className="text-[15px] font-bold text-ink">
-                No certificates assigned to "{activeWorkspace.name}" yet
-              </h3>
-              <p className="text-[12.5px] text-faint max-w-md mx-auto">
-                Click below to select certificates, key pairs, or trusted roots from any of your KeyStores and link them to this workspace.
-              </p>
-              <div className="pt-2 flex items-center justify-center space-x-3">
-                <button
-                  onClick={() => setShowAddCertsModal(true)}
-                  className="px-4 py-2 rounded-full bg-brand-soft hover:bg-brand-soft-hover text-brand-deep font-semibold text-[12.5px] flex items-center space-x-1.5 transition cursor-pointer"
-                >
-                  <Plus className="w-4 h-4" />
-                  <span>Add Certificates to Workspace</span>
-                </button>
-                <button
-                  onClick={() => onNavigateTab("keystores")}
-                  className="px-4 py-2 rounded-full bg-surface-2 hover:bg-surface-3 text-ink-2 border border-line-strong font-semibold text-[12.5px] transition cursor-pointer"
-                >
-                  Browse KeyStores
-                </button>
-              </div>
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse">
-                <thead>
-                  <tr className="border-b border-surface-3 text-[11.5px] font-semibold text-faint bg-surface-2">
-                    <th className="py-3 px-6">Type</th>
-                    <th className="py-3 px-4">Alias &amp; Subject DN</th>
-                    <th className="py-3 px-4">Source KeyStore</th>
-                    <th className="py-3 px-4">Algorithm</th>
-                    <th className="py-3 px-4">Valid Until</th>
-                    <th className="py-3 px-6 text-right">Workspace Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-surface-3 text-[13px]">
-                  {workspaceEntries.map(({ entry, keystore }) => (
-                    <tr
-                      key={entry.id}
-                      className="hover:bg-surface-2 transition-colors"
-                    >
-                      <td className="py-3.5 px-6 whitespace-nowrap">
-                        {entry.entry_type === "KeyPair" ? (
-                          <span className="inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-brand-tint text-brand text-[11.5px] font-semibold">
-                            <KeyRound className="w-3.5 h-3.5" />
-                            <span>KeyPair</span>
-                          </span>
-                        ) : entry.entry_type === "TrustedCertificate" ? (
-                          <span className="inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-success-tint text-[#15803D] text-[11.5px] font-semibold">
-                            <ShieldCheck className="w-3.5 h-3.5" />
-                            <span>TrustedCert</span>
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-[#F3E8FF] text-[#7E22CE] text-[11.5px] font-semibold">
-                            <Lock className="w-3.5 h-3.5" />
-                            <span>SecretKey</span>
-                          </span>
-                        )}
-                      </td>
-
-                      <td className="py-3.5 px-4">
-                        <div className="font-semibold text-ink">
-                          {entry.alias}
-                        </div>
-                        <div className="text-[11.5px] text-faint truncate max-w-xs">
-                          {entry.subject}
-                        </div>
-                      </td>
-
-                      <td className="py-3.5 px-4 whitespace-nowrap">
-                        <button
-                          onClick={() => {
-                            onSelectKeystore(keystore.id);
-                            onNavigateTab("keystores");
-                          }}
-                          className="inline-flex items-center space-x-1.5 px-3 py-1 rounded-full bg-surface-2 hover:bg-brand-tint border border-line text-ink-2 hover:text-[#1D4ED8] text-[11.5px] font-medium transition cursor-pointer"
-                        >
-                          <FolderArchive className="w-3.5 h-3.5 text-brand" />
-                          <span>{keystore.name}</span>
-                          <span className="text-[10px] font-bold text-faint">
-                            ({keystore.format})
-                          </span>
-                          <ArrowUpRight className="w-3 h-3 text-subtle" />
-                        </button>
-                      </td>
-
-                      <td className="py-3.5 px-4 whitespace-nowrap">
-                        <div className="font-semibold text-ink-2">
-                          {entry.algorithm} ({entry.key_size}-bit)
-                        </div>
-                        {entry.is_post_quantum && (
-                          <span className="text-[10px] font-bold text-[#6D28D9] bg-[#F3E8FF] px-1.5 py-0.2 rounded">
-                            PQC Hybrid
-                          </span>
-                        )}
-                      </td>
-
-                      <td className="py-3.5 px-4 whitespace-nowrap text-[12px] text-muted">
-                        {entry.expiry_date}
-                      </td>
-
-                      <td className="py-3.5 px-6 whitespace-nowrap text-right">
-                        <div className="inline-flex items-center space-x-1.5">
-                          <button
-                            onClick={() => setInspectEntry({ entry, keystore })}
-                            title="Inspect Certificate"
-                            className="p-1.5 rounded-lg bg-surface-2 hover:bg-brand-tint text-muted hover:text-brand border border-line transition cursor-pointer"
-                          >
-                            <Eye className="w-3.5 h-3.5" />
-                          </button>
-                          <button
-                            onClick={() => handleExportEntryToDisk(entry)}
-                            title="Export PEM to Disk"
-                            className="p-1.5 rounded-lg bg-surface-2 hover:bg-[#ECFDF5] text-muted hover:text-success border border-line transition cursor-pointer"
-                          >
-                            <Download className="w-3.5 h-3.5" />
-                          </button>
-                          <button
-                            onClick={() => {
-                              onToggleEntryInWorkspace(
-                                activeWorkspace.id,
-                                entry.id
-                              );
-                              showToast(
-                                `Removed "${entry.alias}" from ${activeWorkspace.name}`
-                              );
-                            }}
-                            title="Remove from Workspace"
-                            className="px-2.5 py-1 rounded-lg bg-[#FEF2F2] hover:bg-danger-tint text-danger border border-[#FECACA] text-[11px] font-semibold transition cursor-pointer"
-                          >
-                            Remove
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
+              }
+              footer={<span>{workspaceEntries.length} of {activeWorkspace.entryIds.length} entries</span>}
+            />
+          </Card>
+        </>
       )}
+
+      <Modal
+        open={pendingDeleteWs !== null}
+        onClose={() => setPendingDeleteWs(null)}
+        size="sm"
+        icon={Trash2}
+        title="Delete workspace?"
+        description={pendingDeleteWs ? `“${pendingDeleteWs.name}” will be removed. Its entries stay in their keystores.` : undefined}
+        footer={
+          <>
+            <Button onClick={() => setPendingDeleteWs(null)}>Cancel</Button>
+            <Button
+              variant="primary"
+              className="!bg-danger-fill hover:!bg-danger"
+              onClick={() => {
+                if (pendingDeleteWs) {
+                  onDeleteWorkspace(pendingDeleteWs.id);
+                  showToast(`Deleted workspace "${pendingDeleteWs.name}"`);
+                }
+                setPendingDeleteWs(null);
+              }}
+            >
+              Delete
+            </Button>
+          </>
+        }
+      >
+        <p className="text-[13px] text-muted">This only removes the grouping; no keys or certificates are deleted.</p>
+      </Modal>
 
       {/* Modal: Add / Manage Certificates in Workspace */}
       {showAddCertsModal && activeWorkspace && (
-        <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white border border-line-strong rounded-3xl max-w-3xl w-full overflow-hidden shadow-2xl flex flex-col max-h-[85vh]">
+        <div className="fixed inset-0 z-50 bg-ink/40 flex items-center justify-center p-4">
+          <div className="bg-surface border border-line-strong rounded-panel max-w-3xl w-full overflow-hidden shadow-pop flex flex-col max-h-[85vh]">
             <div className="p-5 border-b border-line flex items-center justify-between">
               <div>
-                <h3 className="text-[17px] font-bold text-ink flex items-center space-x-2">
+                <h3 className="text-[17px] font-semibold text-ink flex items-center space-x-2">
                   <FolderPlus className="w-5 h-5 text-brand" />
                   <span>Assign Certificates to "{activeWorkspace.name}"</span>
                 </h3>
@@ -590,7 +461,7 @@ export const WorkspacesView: React.FC<WorkspacesViewProps> = ({
               </div>
               <button
                 onClick={() => setShowAddCertsModal(false)}
-                className="p-1.5 rounded-lg text-faint hover:text-ink cursor-pointer"
+                className="p-1.5 rounded-control text-faint hover:text-ink cursor-pointer"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -605,7 +476,7 @@ export const WorkspacesView: React.FC<WorkspacesViewProps> = ({
                   value={certPickerSearch}
                   onChange={(e) => setCertPickerSearch(e.target.value)}
                   placeholder="Search by alias, subject DN, KeyStore, or algorithm..."
-                  className="w-full bg-white border border-line-strong rounded-full pl-9 pr-4 py-2 text-[13px] text-ink placeholder-subtle focus:outline-none focus:border-brand"
+                  className="field !pl-9"
                 />
               </div>
 
@@ -614,7 +485,7 @@ export const WorkspacesView: React.FC<WorkspacesViewProps> = ({
                 <select
                   value={certPickerStoreFilter}
                   onChange={(e) => setCertPickerStoreFilter(e.target.value)}
-                  className="bg-white border border-line-strong rounded-full px-3.5 py-2 text-[12.5px] font-medium text-ink-2 focus:outline-none"
+                  className="bg-surface border border-line-strong rounded-control px-3.5 py-2 text-[12.5px] font-medium text-ink-2 focus:outline-none"
                 >
                   <option value="ALL">All KeyStores ({keystores.length})</option>
                   {keystores.map((ks) => (
@@ -636,31 +507,31 @@ export const WorkspacesView: React.FC<WorkspacesViewProps> = ({
                     onClick={() =>
                       onToggleEntryInWorkspace(activeWorkspace.id, entry.id)
                     }
-                    className={`p-3.5 rounded-2xl flex items-center justify-between gap-4 cursor-pointer transition-all border ${
+                    className={`p-3.5 rounded-card flex items-center justify-between gap-4 cursor-pointer transition-all border ${
                       isAssigned
-                        ? "bg-brand-tint/70 border-[#93C5FD]"
+                        ? "bg-brand-tint/70 border-brand-soft-hover"
                         : "hover:bg-surface-2 border-transparent"
                     }`}
                   >
                     <div className="flex items-center space-x-3 min-w-0">
                       <div
-                        className={`w-5 h-5 rounded-md flex items-center justify-center border transition-all ${
+                        className={`w-5 h-5 rounded-control flex items-center justify-center border transition-all ${
                           isAssigned
                             ? "bg-brand border-brand text-white"
-                            : "border-line-strong bg-white"
+                            : "border-line-strong bg-surface"
                         }`}
                       >
                         {isAssigned && <Check className="w-3.5 h-3.5 stroke-[3]" />}
                       </div>
                       <div className="min-w-0">
                         <div className="flex items-center space-x-2">
-                          <span className="text-[13.5px] font-bold text-ink">
+                          <span className="text-[13.5px] font-semibold text-ink">
                             {entry.alias}
                           </span>
-                          <span className="px-2 py-0.5 rounded-full text-[10.5px] font-semibold bg-surface-3 text-muted">
+                          <span className="px-2 py-0.5 rounded-control text-[10.5px] font-semibold bg-surface-3 text-muted">
                             {entry.entry_type}
                           </span>
-                          <span className="px-2 py-0.5 rounded-full text-[10.5px] font-semibold bg-[#E0F2FE] text-[#0369A1]">
+                          <span className="px-2 py-0.5 rounded-control text-[10.5px] font-semibold bg-brand-tint text-brand-deep">
                             {keystore.name}
                           </span>
                         </div>
@@ -672,9 +543,9 @@ export const WorkspacesView: React.FC<WorkspacesViewProps> = ({
 
                     <div className="text-right shrink-0">
                       <span
-                        className={`px-3 py-1 rounded-full text-[11.5px] font-semibold ${
+                        className={`px-3 py-1 rounded-control text-[11.5px] font-semibold ${
                           isAssigned
-                            ? "bg-success-tint text-[#15803D]"
+                            ? "bg-success-tint text-success"
                             : "bg-surface-3 text-faint"
                         }`}
                       >
@@ -698,7 +569,7 @@ export const WorkspacesView: React.FC<WorkspacesViewProps> = ({
               </span>
               <button
                 onClick={() => setShowAddCertsModal(false)}
-                className="px-5 py-2 rounded-full bg-brand-deep hover:bg-brand-deeper text-white font-semibold text-[12.5px] cursor-pointer"
+                className="px-5 py-2 rounded-control bg-brand hover:bg-brand-deep text-white font-semibold text-[12.5px] cursor-pointer"
               >
                 Done
               </button>
@@ -709,20 +580,20 @@ export const WorkspacesView: React.FC<WorkspacesViewProps> = ({
 
       {/* Modal: Create New Workspace */}
       {showNewWorkspaceModal && (
-        <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-50 bg-ink/40 flex items-center justify-center p-4">
           <form
             onSubmit={handleCreateWorkspaceSubmit}
-            className="bg-white border border-line-strong rounded-3xl max-w-md w-full overflow-hidden shadow-2xl"
+            className="bg-surface border border-line-strong rounded-panel max-w-md w-full overflow-hidden shadow-pop"
           >
             <div className="p-5 border-b border-line flex items-center justify-between">
-              <h3 className="text-[17px] font-bold text-ink flex items-center space-x-2">
+              <h3 className="text-[17px] font-semibold text-ink flex items-center space-x-2">
                 <Layers className="w-5 h-5 text-brand" />
                 <span>Create New Workspace</span>
               </h3>
               <button
                 type="button"
                 onClick={() => setShowNewWorkspaceModal(false)}
-                className="p-1 rounded-lg text-faint hover:text-ink cursor-pointer"
+                className="p-1 rounded-control text-faint hover:text-ink cursor-pointer"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -739,7 +610,7 @@ export const WorkspacesView: React.FC<WorkspacesViewProps> = ({
                   value={newWsName}
                   onChange={(e) => setNewWsName(e.target.value)}
                   placeholder="e.g., Payment Gateway mTLS Cluster"
-                  className="w-full bg-surface-2 border border-line-strong rounded-xl px-3.5 py-2 text-ink focus:outline-none focus:border-brand"
+                  className="field"
                 />
               </div>
 
@@ -752,7 +623,7 @@ export const WorkspacesView: React.FC<WorkspacesViewProps> = ({
                   value={newWsDesc}
                   onChange={(e) => setNewWsDesc(e.target.value)}
                   placeholder="Describe the services or compliance scope..."
-                  className="w-full bg-surface-2 border border-line-strong rounded-xl px-3.5 py-2 text-ink focus:outline-none focus:border-brand"
+                  className="field"
                 />
               </div>
 
@@ -766,7 +637,7 @@ export const WorkspacesView: React.FC<WorkspacesViewProps> = ({
                     onChange={(e) =>
                       setNewWsEnv(e.target.value as Workspace["environment"])
                     }
-                    className="w-full bg-surface-2 border border-line-strong rounded-xl px-3 py-2 text-ink focus:outline-none"
+                    className="field !h-auto py-2"
                   >
                     <option value="Production">Production</option>
                     <option value="Staging">Staging</option>
@@ -784,7 +655,7 @@ export const WorkspacesView: React.FC<WorkspacesViewProps> = ({
                     onChange={(e) =>
                       setNewWsColor(e.target.value as Workspace["color"])
                     }
-                    className="w-full bg-surface-2 border border-line-strong rounded-xl px-3 py-2 text-ink focus:outline-none"
+                    className="field !h-auto py-2"
                   >
                     <option value="blue">Blue</option>
                     <option value="emerald">Emerald</option>
@@ -799,13 +670,13 @@ export const WorkspacesView: React.FC<WorkspacesViewProps> = ({
               <button
                 type="button"
                 onClick={() => setShowNewWorkspaceModal(false)}
-                className="px-4 py-2 rounded-full bg-white border border-line-strong text-muted text-[12.5px] font-semibold cursor-pointer"
+                className="px-4 py-2 rounded-control bg-surface border border-line-strong text-muted text-[12.5px] font-semibold cursor-pointer"
               >
                 Cancel
               </button>
               <button
                 type="submit"
-                className="px-5 py-2 rounded-full bg-brand-deep hover:bg-brand-deeper text-white text-[12.5px] font-semibold cursor-pointer"
+                className="px-5 py-2 rounded-control bg-brand hover:bg-brand-deep text-white text-[12.5px] font-semibold cursor-pointer"
               >
                 Create Workspace
               </button>
@@ -816,11 +687,11 @@ export const WorkspacesView: React.FC<WorkspacesViewProps> = ({
 
       {/* Modal: Quick Certificate Inspector */}
       {inspectEntry && (
-        <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white border border-line-strong rounded-3xl max-w-xl w-full overflow-hidden shadow-2xl">
+        <div className="fixed inset-0 z-50 bg-ink/40 flex items-center justify-center p-4">
+          <div className="bg-surface border border-line-strong rounded-panel max-w-xl w-full overflow-hidden shadow-pop">
             <div className="p-5 border-b border-line flex items-center justify-between">
               <div>
-                <h3 className="text-[16px] font-bold text-ink">
+                <h3 className="text-[16px] font-semibold text-ink">
                   {inspectEntry.entry.alias}
                 </h3>
                 <p className="text-[12px] text-faint">
@@ -829,14 +700,14 @@ export const WorkspacesView: React.FC<WorkspacesViewProps> = ({
               </div>
               <button
                 onClick={() => setInspectEntry(null)}
-                className="p-1.5 rounded-lg text-faint hover:text-ink cursor-pointer"
+                className="p-1.5 rounded-control text-faint hover:text-ink cursor-pointer"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
             <div className="p-5 space-y-3 text-[12.5px] select-text">
-              <div className="grid grid-cols-2 gap-3 bg-surface-2 p-4 rounded-2xl border border-line">
+              <div className="grid grid-cols-2 gap-3 bg-surface-2 p-4 rounded-card border border-line">
                 <div>
                   <span className="text-faint block text-[11px]">Subject DN</span>
                   <span className="text-ink font-semibold">{inspectEntry.entry.subject}</span>
@@ -847,13 +718,13 @@ export const WorkspacesView: React.FC<WorkspacesViewProps> = ({
                 </div>
                 <div>
                   <span className="text-faint block text-[11px]">Algorithm</span>
-                  <span className="text-[#047857] font-semibold">
+                  <span className="text-success font-semibold">
                     {inspectEntry.entry.algorithm} ({inspectEntry.entry.key_size}-bit)
                   </span>
                 </div>
                 <div>
                   <span className="text-faint block text-[11px]">SHA-256 Fingerprint</span>
-                  <span className="text-[#1D4ED8] font-mono text-[11px] break-all">
+                  <span className="text-brand-deep font-mono text-[11px] break-all">
                     {inspectEntry.entry.sha256_fingerprint}
                   </span>
                 </div>
@@ -876,7 +747,7 @@ export const WorkspacesView: React.FC<WorkspacesViewProps> = ({
                       <span>Copy PEM</span>
                     </button>
                   </div>
-                  <pre className="bg-ink text-line rounded-2xl p-3.5 text-[11px] font-mono max-h-44 overflow-y-auto">
+                  <pre className="bg-term-bg text-term-fg rounded-card p-3.5 text-[11px] font-mono max-h-44 overflow-y-auto">
                     {inspectEntry.entry.certificate_chain[0].pem}
                   </pre>
                 </div>
@@ -886,14 +757,14 @@ export const WorkspacesView: React.FC<WorkspacesViewProps> = ({
             <div className="p-4 border-t border-line bg-surface-2 flex items-center justify-between">
               <button
                 onClick={() => handleExportEntryToDisk(inspectEntry.entry)}
-                className="px-4 py-2 rounded-full bg-brand-soft hover:bg-brand-soft-hover text-brand-deep text-[12px] font-semibold flex items-center space-x-1.5 cursor-pointer"
+                className="px-4 py-2 rounded-control bg-brand-soft hover:bg-brand-soft-hover text-brand-deep text-[12px] font-semibold flex items-center space-x-1.5 cursor-pointer"
               >
                 <Download className="w-3.5 h-3.5" />
                 <span>Save PEM to Disk</span>
               </button>
               <button
                 onClick={() => setInspectEntry(null)}
-                className="px-5 py-2 rounded-full bg-brand-deep text-white text-[12px] font-semibold cursor-pointer"
+                className="px-5 py-2 rounded-control bg-brand text-white text-[12px] font-semibold cursor-pointer"
               >
                 Close
               </button>
@@ -901,6 +772,6 @@ export const WorkspacesView: React.FC<WorkspacesViewProps> = ({
           </div>
         </div>
       )}
-    </div>
+    </Page>
   );
 };

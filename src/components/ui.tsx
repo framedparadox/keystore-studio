@@ -1,17 +1,23 @@
-import React from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import clsx from "clsx";
+import { ArrowDown, ArrowUp, ChevronsUpDown, CheckCircle2, Search, X, AlertCircle } from "lucide-react";
 
 /*
  * Shared UI primitives. Compose pages from these instead of hand-rolling
- * button/card/badge classes. Rules live in DESIGN.md.
+ * button/card/badge/table classes. Rules live in DESIGN.md.
  */
 
-type ButtonVariant = "primary" | "secondary" | "ghost";
+/* -------------------------------------------------------------------------- */
+/* Buttons                                                                     */
+/* -------------------------------------------------------------------------- */
+
+type ButtonVariant = "primary" | "secondary" | "ghost" | "danger";
 
 const buttonVariants: Record<ButtonVariant, string> = {
-  primary: "bg-brand-deep text-white hover:bg-brand-deeper",
-  secondary: "bg-surface text-ink border border-line-strong hover:bg-surface-2",
-  ghost: "text-muted hover:bg-surface-3 hover:text-ink",
+  primary: "bg-brand text-white border border-brand-deep/20 shadow-card hover:bg-brand-deep",
+  secondary: "bg-surface text-ink-2 border border-line-strong shadow-card hover:bg-surface-2 hover:text-ink",
+  ghost: "text-muted border border-transparent hover:bg-surface-3 hover:text-ink",
+  danger: "bg-surface text-danger border border-line-strong shadow-card hover:bg-danger-tint hover:border-danger/30",
 };
 
 interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
@@ -26,64 +32,758 @@ export const Button: React.FC<ButtonProps> = ({
   icon: Icon,
   className,
   children,
+  type = "button",
   ...rest
 }) => (
   <button
+    type={type}
     {...rest}
     className={clsx(
-      "inline-flex items-center justify-center gap-1.5 rounded-full font-semibold transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed",
-      size === "sm" ? "px-3 py-1 text-[12px]" : "px-4 py-2 text-[12.5px]",
+      "inline-flex items-center justify-center gap-1.5 rounded-control font-semibold whitespace-nowrap transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed",
+      size === "sm" ? "h-7 px-2.5 text-[12px]" : "h-9 px-3.5 text-[13px]",
       buttonVariants[variant],
       className
     )}
   >
-    {Icon && <Icon className="w-3.5 h-3.5 shrink-0" />}
+    {Icon && <Icon className={clsx("shrink-0", size === "sm" ? "w-3.5 h-3.5" : "w-4 h-4")} />}
     {children}
   </button>
 );
 
-interface CardProps extends React.HTMLAttributes<HTMLDivElement> {
-  interactive?: boolean;
+interface IconButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
+  icon: React.ElementType;
+  label: string;
+  tone?: "neutral" | "danger";
 }
 
-export const Card: React.FC<CardProps> = ({ interactive, className, ...rest }) => (
+/** Square icon-only button. `label` becomes both the tooltip and the accessible name. */
+export const IconButton: React.FC<IconButtonProps> = ({ icon: Icon, label, tone = "neutral", className, ...rest }) => (
+  <button
+    type="button"
+    title={label}
+    aria-label={label}
+    {...rest}
+    className={clsx(
+      "inline-flex items-center justify-center w-7 h-7 rounded-control transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed",
+      tone === "danger" ? "text-faint hover:text-danger hover:bg-danger-tint" : "text-faint hover:text-ink hover:bg-surface-3",
+      className
+    )}
+  >
+    <Icon className="w-4 h-4" />
+  </button>
+);
+
+/* -------------------------------------------------------------------------- */
+/* Surfaces                                                                    */
+/* -------------------------------------------------------------------------- */
+
+interface CardProps extends React.HTMLAttributes<HTMLDivElement> {
+  interactive?: boolean;
+  padded?: boolean;
+}
+
+export const Card: React.FC<CardProps> = ({ interactive, padded = true, className, ...rest }) => (
   <div
     {...rest}
     className={clsx(
-      "bg-surface border border-line rounded-card p-5",
-      interactive && "cursor-pointer transition hover:border-brand hover:shadow-sm",
+      "bg-surface border border-line rounded-card shadow-card",
+      padded && "p-5",
+      interactive && "cursor-pointer transition hover:border-line-strong hover:shadow-pop",
       className
     )}
   />
 );
 
-export const Badge: React.FC<{ tone?: "neutral" | "brand" | "success" | "danger"; children: React.ReactNode }> = ({
-  tone = "neutral",
-  children,
-}) => (
-  <span
+/** Title row for a card: title + optional subtitle on the left, actions on the right. */
+export const CardHeader: React.FC<{
+  title: React.ReactNode;
+  subtitle?: React.ReactNode;
+  icon?: React.ElementType;
+  actions?: React.ReactNode;
+  className?: string;
+  bordered?: boolean;
+}> = ({ title, subtitle, icon: Icon, actions, className, bordered }) => (
+  <div
     className={clsx(
-      "inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-semibold",
-      tone === "neutral" && "bg-surface-3 text-muted",
-      tone === "brand" && "bg-brand-soft text-brand-deep",
-      tone === "success" && "bg-success-tint text-success",
-      tone === "danger" && "bg-danger-tint text-danger"
+      "flex items-start justify-between gap-3",
+      bordered ? "px-5 py-3.5 border-b border-line" : "mb-4",
+      className
     )}
   >
+    <div className="flex items-start gap-2.5 min-w-0">
+      {Icon && (
+        <span className="mt-0.5 w-7 h-7 rounded-control bg-surface-3 text-muted flex items-center justify-center shrink-0">
+          <Icon className="w-4 h-4" />
+        </span>
+      )}
+      <div className="min-w-0">
+        <h3 className="text-[14px] font-semibold text-ink leading-5 truncate">{title}</h3>
+        {subtitle && <p className="text-[12px] text-faint leading-4 mt-0.5">{subtitle}</p>}
+      </div>
+    </div>
+    {actions && <div className="flex items-center gap-1.5 shrink-0">{actions}</div>}
+  </div>
+);
+
+export type Tone = "neutral" | "brand" | "success" | "warning" | "danger";
+
+const badgeTones: Record<Tone, string> = {
+  neutral: "bg-surface-3 text-ink-2 border-line",
+  brand: "bg-brand-tint text-brand-deep border-brand-soft",
+  success: "bg-success-tint text-success border-success/15",
+  warning: "bg-warning-tint text-warning border-warning/20",
+  danger: "bg-danger-tint text-danger border-danger/15",
+};
+
+const dotTones: Record<Tone, string> = {
+  neutral: "bg-subtle",
+  brand: "bg-brand",
+  success: "bg-success-fill",
+  warning: "bg-warning-fill",
+  danger: "bg-danger-fill",
+};
+
+export const Badge: React.FC<{
+  tone?: Tone;
+  dot?: boolean;
+  icon?: React.ElementType;
+  className?: string;
+  children: React.ReactNode;
+}> = ({ tone = "neutral", dot, icon: Icon, className, children }) => (
+  <span
+    className={clsx(
+      "inline-flex items-center gap-1 h-5 px-1.5 rounded-[5px] border text-[11px] font-medium whitespace-nowrap",
+      badgeTones[tone],
+      className
+    )}
+  >
+    {dot && <span className={clsx("w-1.5 h-1.5 rounded-full", dotTones[tone])} />}
+    {Icon && <Icon className="w-3 h-3" />}
     {children}
   </span>
 );
 
 export const PageHeader: React.FC<{
   title: string;
-  description?: string;
+  description?: React.ReactNode;
+  eyebrow?: React.ReactNode;
   actions?: React.ReactNode;
-}> = ({ title, description, actions }) => (
-  <div className="flex flex-col md:flex-row md:items-end justify-between gap-4 mb-4">
-    <div>
-      <h1 className="text-[24px] font-bold text-ink tracking-tight leading-tight">{title}</h1>
-      {description && <p className="text-[13px] text-muted mt-1 max-w-2xl">{description}</p>}
+}> = ({ title, description, eyebrow, actions }) => (
+  <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-4 mb-6">
+    <div className="min-w-0">
+      {eyebrow && <div className="text-[12px] font-medium text-faint mb-1">{eyebrow}</div>}
+      <h1 className="text-[22px] font-semibold text-ink tracking-[-0.01em] leading-7">{title}</h1>
+      {description && <p className="text-[13px] text-faint mt-1 max-w-3xl">{description}</p>}
     </div>
-    {actions && <div className="flex items-center gap-2 shrink-0">{actions}</div>}
+    {actions && <div className="flex flex-wrap items-center gap-2 shrink-0">{actions}</div>}
   </div>
 );
+
+/** Standard scroll container for a page. */
+export const Page: React.FC<{ children: React.ReactNode; className?: string } & React.HTMLAttributes<HTMLDivElement>> = ({
+  children,
+  className,
+  ...rest
+}) => (
+  <div {...rest} className={clsx("relative flex-1 overflow-y-auto", className)}>
+    <div className="max-w-[1440px] mx-auto px-8 py-7">{children}</div>
+  </div>
+);
+
+export const SectionLabel: React.FC<{ children: React.ReactNode; className?: string }> = ({ children, className }) => (
+  <h2 className={clsx("text-[12px] font-semibold uppercase tracking-[0.06em] text-faint mb-3", className)}>{children}</h2>
+);
+
+/* -------------------------------------------------------------------------- */
+/* KPI / bento figures                                                         */
+/* -------------------------------------------------------------------------- */
+
+const kpiIconTones: Record<Tone, string> = {
+  neutral: "bg-surface-3 text-muted",
+  brand: "bg-brand-tint text-brand",
+  success: "bg-success-tint text-success",
+  warning: "bg-warning-tint text-warning",
+  danger: "bg-danger-tint text-danger",
+};
+
+/**
+ * Stat tile: label · value · optional hint/delta · optional footer (meter, list…).
+ * Value text stays ink; tone only colors the icon chip and the hint so color never carries meaning alone.
+ */
+export const KpiCard: React.FC<{
+  label: string;
+  value: React.ReactNode;
+  unit?: string;
+  icon?: React.ElementType;
+  tone?: Tone;
+  hint?: React.ReactNode;
+  hintTone?: Tone;
+  onClick?: () => void;
+  className?: string;
+  children?: React.ReactNode;
+}> = ({ label, value, unit, icon: Icon, tone = "neutral", hint, hintTone, onClick, className, children }) => {
+  const Comp = onClick ? "button" : "div";
+  return (
+    <Comp
+      onClick={onClick}
+      className={clsx(
+        "group text-left bg-surface border border-line rounded-card shadow-card p-5 flex flex-col",
+        onClick && "cursor-pointer transition hover:border-line-strong hover:shadow-pop",
+        className
+      )}
+    >
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-[12.5px] font-medium text-faint">{label}</span>
+        {Icon && (
+          <span className={clsx("w-7 h-7 rounded-control flex items-center justify-center", kpiIconTones[tone])}>
+            <Icon className="w-4 h-4" />
+          </span>
+        )}
+      </div>
+      <div className="mt-2 flex items-baseline gap-1.5">
+        <span className="text-[28px] font-semibold text-ink leading-8 tracking-[-0.02em]">{value}</span>
+        {unit && <span className="text-[13px] font-medium text-faint">{unit}</span>}
+      </div>
+      {hint && (
+        <div
+          className={clsx(
+            "mt-1 text-[12px]",
+            hintTone === "success" && "text-success",
+            hintTone === "warning" && "text-warning",
+            hintTone === "danger" && "text-danger",
+            hintTone === "brand" && "text-brand-deep",
+            (!hintTone || hintTone === "neutral") && "text-faint"
+          )}
+        >
+          {hint}
+        </div>
+      )}
+      {children && <div className="mt-auto pt-4">{children}</div>}
+    </Comp>
+  );
+};
+
+const meterFill: Record<Tone, string> = {
+  neutral: "bg-subtle",
+  brand: "bg-brand",
+  success: "bg-success-fill",
+  warning: "bg-warning-fill",
+  danger: "bg-danger-fill",
+};
+const meterTrack: Record<Tone, string> = {
+  neutral: "bg-surface-3",
+  brand: "bg-brand-soft",
+  success: "bg-success-tint",
+  warning: "bg-warning-tint",
+  danger: "bg-danger-tint",
+};
+
+/** Thin progress meter. `value` is 0–1. Fill carries severity; the track is a lighter step of the same hue. */
+export const Meter: React.FC<{ value: number; tone?: Tone; className?: string; label?: string; thin?: boolean }> = ({
+  value,
+  tone = "brand",
+  className,
+  label,
+  thin,
+}) => (
+  <div
+    role="meter"
+    aria-label={label}
+    aria-valuemin={0}
+    aria-valuemax={100}
+    aria-valuenow={Math.round(Math.max(0, Math.min(1, value)) * 100)}
+    className={clsx("w-full rounded-full overflow-hidden", thin ? "h-1" : "h-1.5", meterTrack[tone], className)}
+  >
+    <div
+      className={clsx("h-full rounded-full transition-[width]", meterFill[tone])}
+      style={{ width: `${Math.max(0, Math.min(1, value)) * 100}%` }}
+    />
+  </div>
+);
+
+/** One whole split into parts. Each part is a block with a 2px surface gap; legend below names them. */
+export const SegmentedBar: React.FC<{
+  parts: { key: string; label: string; value: number; tone: Tone; fill?: string }[];
+  label: string;
+}> = ({ parts, label }) => {
+  const total = parts.reduce((s, p) => s + p.value, 0) || 1;
+  return (
+    <div>
+      <div role="img" aria-label={`${label}: ${parts.map((p) => `${p.label} ${p.value}`).join(", ")}`} className="flex h-2.5 gap-[2px]">
+        {parts
+          .filter((p) => p.value > 0)
+          .map((p) => (
+            <div
+              key={p.key}
+              title={`${p.label}: ${p.value}`}
+              className={clsx("h-full rounded-full", p.fill ?? meterFill[p.tone])}
+              style={{ width: `${(p.value / total) * 100}%` }}
+            />
+          ))}
+      </div>
+      <ul className="mt-3 grid grid-cols-2 gap-x-4 gap-y-1.5">
+        {parts.map((p) => (
+          <li key={p.key} className="flex items-center justify-between gap-2 text-[12px]">
+            <span className="flex items-center gap-1.5 text-muted min-w-0">
+              <span className={clsx("w-2 h-2 rounded-[2px] shrink-0", p.fill ?? meterFill[p.tone])} />
+              <span className="truncate">{p.label}</span>
+            </span>
+            <span className="font-semibold text-ink tabular-nums">{p.value}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+};
+
+/** Horizontal bar list — label · bar · value. Single hue: magnitude only. */
+export const BarList: React.FC<{ items: { key: string; label: string; count: number }[]; total?: number }> = ({
+  items,
+  total,
+}) => {
+  const max = Math.max(1, ...items.map((i) => i.count));
+  const sum = total ?? items.reduce((s, i) => s + i.count, 0);
+  return (
+    <ul className="space-y-2.5">
+      {items.map((i) => (
+        <li key={i.key} className="grid grid-cols-[88px_1fr_52px] items-center gap-3 text-[12px]" title={`${i.label}: ${i.count}`}>
+          <span className="text-muted truncate">{i.label}</span>
+          <span className="block h-2 rounded-full bg-surface-3 overflow-hidden">
+            <span className="block h-full rounded-full bg-brand" style={{ width: `${(i.count / max) * 100}%` }} />
+          </span>
+          <span className="text-right tabular-nums">
+            <span className="font-semibold text-ink">{i.count}</span>
+            <span className="text-subtle ml-1">{sum ? Math.round((i.count / sum) * 100) : 0}%</span>
+          </span>
+        </li>
+      ))}
+    </ul>
+  );
+};
+
+/** Vertical column histogram for ordered buckets (e.g. key age). */
+export const ColumnChart: React.FC<{ items: { key: string; label: string; count: number }[]; height?: number; label: string }> = ({
+  items,
+  height = 96,
+  label,
+}) => {
+  const max = Math.max(1, ...items.map((i) => i.count));
+  return (
+    <div role="img" aria-label={`${label}: ${items.map((i) => `${i.label} ${i.count}`).join(", ")}`}>
+      <div className="flex items-end gap-2 border-b border-line" style={{ height }}>
+        {items.map((i) => (
+          <div key={i.key} className="flex-1 flex flex-col items-center justify-end h-full group" title={`${i.label}: ${i.count}`}>
+            <span className="text-[11px] font-semibold text-ink tabular-nums mb-1">{i.count}</span>
+            <div
+              className="w-full max-w-[36px] rounded-t-[4px] bg-brand group-hover:bg-brand-deep transition-colors"
+              style={{ height: `${Math.max(i.count ? 6 : 2, (i.count / max) * (height - 22))}px`, opacity: i.count ? 1 : 0.25 }}
+            />
+          </div>
+        ))}
+      </div>
+      <div className="flex gap-2 mt-1.5">
+        {items.map((i) => (
+          <span key={i.key} className="flex-1 text-center text-[11px] text-faint truncate">
+            {i.label}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+};
+
+/** Circular score gauge for the single headline number on a page. */
+export const ScoreRing: React.FC<{ value: number; size?: number; tone?: Tone; label: string }> = ({
+  value,
+  size = 112,
+  tone = "brand",
+  label,
+}) => {
+  const stroke = 10;
+  const r = (size - stroke) / 2;
+  const c = 2 * Math.PI * r;
+  const v = Math.max(0, Math.min(100, value));
+  const color = { neutral: "var(--color-subtle)", brand: "var(--color-brand)", success: "var(--color-success-fill)", warning: "var(--color-warning-fill)", danger: "var(--color-danger-fill)" }[tone];
+  const track = { neutral: "var(--color-surface-3)", brand: "var(--color-brand-soft)", success: "var(--color-success-tint)", warning: "var(--color-warning-tint)", danger: "var(--color-danger-tint)" }[tone];
+  return (
+    <div className="relative shrink-0" style={{ width: size, height: size }} role="meter" aria-label={label} aria-valuenow={v} aria-valuemin={0} aria-valuemax={100}>
+      <svg width={size} height={size} className="-rotate-90">
+        <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke={track} strokeWidth={stroke} />
+        <circle
+          cx={size / 2}
+          cy={size / 2}
+          r={r}
+          fill="none"
+          stroke={color}
+          strokeWidth={stroke}
+          strokeLinecap="round"
+          strokeDasharray={c}
+          strokeDashoffset={c * (1 - v / 100)}
+        />
+      </svg>
+      <div className="absolute inset-0 flex flex-col items-center justify-center">
+        <span className="text-[30px] font-semibold text-ink leading-none tracking-[-0.02em]">{v}</span>
+        <span className="text-[11px] text-faint mt-1">of 100</span>
+      </div>
+    </div>
+  );
+};
+
+/* -------------------------------------------------------------------------- */
+/* Inputs                                                                      */
+/* -------------------------------------------------------------------------- */
+
+export const SearchInput: React.FC<{
+  value: string;
+  onChange: (v: string) => void;
+  placeholder?: string;
+  className?: string;
+}> = ({ value, onChange, placeholder = "Search…", className }) => (
+  <div className={clsx("relative", className)}>
+    <Search className="w-4 h-4 text-subtle absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+    <input
+      type="search"
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      placeholder={placeholder}
+      aria-label={placeholder}
+      className="field !pl-8 !pr-8"
+    />
+    {value && (
+      <button
+        type="button"
+        onClick={() => onChange("")}
+        aria-label="Clear search"
+        className="absolute right-2 top-1/2 -translate-y-1/2 p-0.5 rounded text-subtle hover:text-ink cursor-pointer"
+      >
+        <X className="w-3.5 h-3.5" />
+      </button>
+    )}
+  </div>
+);
+
+/** Segmented control / filter tabs. */
+export function Segmented<T extends string>({
+  value,
+  onChange,
+  options,
+  label,
+}: {
+  value: T;
+  onChange: (v: T) => void;
+  options: { value: T; label: React.ReactNode; count?: number }[];
+  label: string;
+}) {
+  return (
+    <div role="tablist" aria-label={label} className="inline-flex items-center p-0.5 rounded-control bg-surface-3 border border-line">
+      {options.map((o) => {
+        const active = o.value === value;
+        return (
+          <button
+            key={o.value}
+            type="button"
+            role="tab"
+            aria-selected={active}
+            onClick={() => onChange(o.value)}
+            className={clsx(
+              "h-7 px-2.5 rounded-[5px] text-[12.5px] font-medium inline-flex items-center gap-1.5 transition cursor-pointer whitespace-nowrap",
+              active ? "bg-surface text-ink shadow-card" : "text-faint hover:text-ink"
+            )}
+          >
+            {o.label}
+            {o.count !== undefined && (
+              <span className={clsx("text-[11px] tabular-nums", active ? "text-faint" : "text-subtle")}>{o.count}</span>
+            )}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/* Data table                                                                  */
+/* -------------------------------------------------------------------------- */
+
+export interface Column<T> {
+  id: string;
+  header: React.ReactNode;
+  cell: (row: T) => React.ReactNode;
+  /** Provide to make the column sortable. */
+  sortValue?: (row: T) => string | number | null;
+  align?: "left" | "right" | "center";
+  width?: string;
+  /** Hide the column on narrow windows. */
+  hideBelow?: "md" | "lg" | "xl" | "2xl";
+  className?: string;
+}
+
+interface DataTableProps<T> {
+  columns: Column<T>[];
+  rows: T[];
+  rowKey: (row: T) => string;
+  onRowClick?: (row: T) => void;
+  selectedKey?: string | null;
+  initialSort?: { id: string; dir: "asc" | "desc" };
+  empty?: React.ReactNode;
+  rowClassName?: (row: T) => string | undefined;
+  footer?: React.ReactNode;
+  label: string;
+  /** Fill the parent's height and scroll the body under a sticky header. */
+  fill?: boolean;
+}
+
+const hideCls = {
+  md: "hidden md:table-cell",
+  lg: "hidden lg:table-cell",
+  xl: "hidden xl:table-cell",
+  "2xl": "hidden 2xl:table-cell",
+};
+const alignCls = { left: "text-left", right: "text-right", center: "text-center" };
+
+export function DataTable<T>({
+  columns,
+  rows,
+  rowKey,
+  onRowClick,
+  selectedKey,
+  initialSort,
+  empty,
+  rowClassName,
+  footer,
+  label,
+  fill,
+}: DataTableProps<T>) {
+  const [sort, setSort] = useState(initialSort ?? null);
+
+  const sorted = useMemo(() => {
+    if (!sort) return rows;
+    const col = columns.find((c) => c.id === sort.id);
+    if (!col?.sortValue) return rows;
+    const get = col.sortValue;
+    const out = [...rows].sort((a, b) => {
+      const va = get(a);
+      const vb = get(b);
+      if (va === vb) return 0;
+      if (va === null) return 1; // nulls last regardless of direction
+      if (vb === null) return -1;
+      const cmp = typeof va === "number" && typeof vb === "number" ? va - vb : String(va).localeCompare(String(vb));
+      return sort.dir === "asc" ? cmp : -cmp;
+    });
+    return out;
+  }, [rows, columns, sort]);
+
+  const toggleSort = (id: string) =>
+    setSort((s) => (s?.id === id ? { id, dir: s.dir === "asc" ? "desc" : "asc" } : { id, dir: "asc" }));
+
+  return (
+    <div className={clsx("flex flex-col min-h-0", fill && "flex-1")}>
+      <div className={clsx("overflow-auto", fill && "flex-1 min-h-0")}>
+        <table className="w-full border-separate border-spacing-0 text-[13px]" aria-label={label}>
+          <colgroup>
+            {columns.map((c) => (
+              <col key={c.id} style={c.width ? { width: c.width } : undefined} />
+            ))}
+          </colgroup>
+          <thead>
+            <tr>
+              {columns.map((c) => {
+                const active = sort?.id === c.id;
+                const SortIcon = !active ? ChevronsUpDown : sort!.dir === "asc" ? ArrowUp : ArrowDown;
+                return (
+                  <th
+                    key={c.id}
+                    scope="col"
+                    aria-sort={active ? (sort!.dir === "asc" ? "ascending" : "descending") : undefined}
+                    className={clsx(
+                      "sticky top-0 z-10 h-9 px-4 bg-surface-2 border-b border-line text-[11.5px] font-semibold text-faint uppercase tracking-[0.04em] whitespace-nowrap first:pl-5 last:pr-5",
+                      alignCls[c.align ?? "left"],
+                      c.hideBelow && hideCls[c.hideBelow]
+                    )}
+                  >
+                    {c.sortValue ? (
+                      <button
+                        type="button"
+                        onClick={() => toggleSort(c.id)}
+                        className={clsx(
+                          "inline-flex items-center gap-1 uppercase tracking-[0.04em] cursor-pointer hover:text-ink",
+                          active && "text-ink",
+                          c.align === "right" && "flex-row-reverse"
+                        )}
+                      >
+                        {c.header}
+                        <SortIcon className={clsx("w-3 h-3", !active && "opacity-40")} />
+                      </button>
+                    ) : (
+                      c.header
+                    )}
+                  </th>
+                );
+              })}
+            </tr>
+          </thead>
+          <tbody>
+            {sorted.map((row) => {
+              const key = rowKey(row);
+              const selected = selectedKey === key;
+              return (
+                <tr
+                  key={key}
+                  onClick={onRowClick ? () => onRowClick(row) : undefined}
+                  onKeyDown={
+                    onRowClick
+                      ? (e) => {
+                          if (e.key === "Enter" && e.target === e.currentTarget) onRowClick(row);
+                        }
+                      : undefined
+                  }
+                  tabIndex={onRowClick ? 0 : undefined}
+                  aria-selected={onRowClick ? selected : undefined}
+                  className={clsx(
+                    "group transition-colors",
+                    onRowClick && "cursor-pointer",
+                    selected ? "bg-brand-tint" : "hover:bg-surface-2",
+                    rowClassName?.(row)
+                  )}
+                >
+                  {columns.map((c) => (
+                    <td
+                      key={c.id}
+                      className={clsx(
+                        "h-[56px] px-4 py-2 border-b border-line align-middle whitespace-nowrap first:pl-5 last:pr-5",
+                        alignCls[c.align ?? "left"],
+                        c.align === "right" && "tabular-nums",
+                        c.hideBelow && hideCls[c.hideBelow],
+                        c.className
+                      )}
+                    >
+                      {c.cell(row)}
+                    </td>
+                  ))}
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+        {sorted.length === 0 && <div className="px-5 py-14">{empty ?? <EmptyState title="No results" />}</div>}
+      </div>
+      {footer && (
+        <div className="shrink-0 h-10 px-5 flex items-center justify-between text-[12px] text-faint border-t border-line bg-surface">
+          {footer}
+        </div>
+      )}
+    </div>
+  );
+}
+
+export const EmptyState: React.FC<{
+  icon?: React.ElementType;
+  title: string;
+  description?: React.ReactNode;
+  action?: React.ReactNode;
+}> = ({ icon: Icon, title, description, action }) => (
+  <div className="flex flex-col items-center text-center">
+    {Icon && (
+      <span className="w-10 h-10 rounded-card border border-line bg-surface shadow-card flex items-center justify-center text-muted mb-3">
+        <Icon className="w-5 h-5" />
+      </span>
+    )}
+    <h4 className="text-[14px] font-semibold text-ink">{title}</h4>
+    {description && <p className="text-[12.5px] text-faint mt-1 max-w-sm">{description}</p>}
+    {action && <div className="mt-4 flex items-center gap-2">{action}</div>}
+  </div>
+);
+
+/** Two-column definition list for detail panes. */
+export const DescriptionList: React.FC<{ items: { label: string; value: React.ReactNode; mono?: boolean }[]; cols?: 1 | 2 }> = ({
+  items,
+  cols = 2,
+}) => (
+  <dl className={clsx("grid gap-x-6 gap-y-3", cols === 2 ? "grid-cols-2" : "grid-cols-1")}>
+    {items.map((i) => (
+      <div key={i.label} className="min-w-0">
+        <dt className="text-[11.5px] font-medium text-faint">{i.label}</dt>
+        <dd className={clsx("mt-0.5 text-[13px] text-ink break-words select-text", i.mono && "font-mono text-[12px]")}>{i.value}</dd>
+      </div>
+    ))}
+  </dl>
+);
+
+/* -------------------------------------------------------------------------- */
+/* Overlays                                                                    */
+/* -------------------------------------------------------------------------- */
+
+const modalSizes = { sm: "max-w-md", md: "max-w-xl", lg: "max-w-2xl", xl: "max-w-4xl" };
+
+export const Modal: React.FC<{
+  open: boolean;
+  onClose: () => void;
+  title: React.ReactNode;
+  description?: React.ReactNode;
+  icon?: React.ElementType;
+  size?: keyof typeof modalSizes;
+  footer?: React.ReactNode;
+  children: React.ReactNode;
+}> = ({ open, onClose, title, description, icon: Icon, size = "md", footer, children }) => {
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open, onClose]);
+
+  if (!open) return null;
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/40 p-4" onClick={onClose}>
+      <div
+        role="dialog"
+        aria-modal="true"
+        className={clsx("w-full bg-surface rounded-panel border border-line shadow-pop flex flex-col max-h-[88vh]", modalSizes[size])}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-start justify-between gap-3 px-6 pt-5 pb-4 border-b border-line">
+          <div className="flex items-start gap-3 min-w-0">
+            {Icon && (
+              <span className="w-9 h-9 rounded-card border border-line bg-surface shadow-card flex items-center justify-center text-ink-2 shrink-0">
+                <Icon className="w-[18px] h-[18px]" />
+              </span>
+            )}
+            <div className="min-w-0">
+              <h3 className="text-[16px] font-semibold text-ink leading-6">{title}</h3>
+              {description && <p className="text-[12.5px] text-faint mt-0.5">{description}</p>}
+            </div>
+          </div>
+          <IconButton icon={X} label="Close" onClick={onClose} />
+        </div>
+        <div className="flex-1 overflow-y-auto px-6 py-5">{children}</div>
+        {footer && <div className="px-6 py-4 border-t border-line bg-surface-2 rounded-b-panel flex justify-end gap-2">{footer}</div>}
+      </div>
+    </div>
+  );
+};
+
+/** Transient confirmation toast. `const [toast, showToast] = useToast()` then render `{toast}`. */
+export const useToast = (): [React.ReactNode, (msg: string, tone?: "success" | "danger") => void] => {
+  const [state, setState] = useState<{ msg: string; tone: "success" | "danger" } | null>(null);
+  const timer = useRef<number | undefined>(undefined);
+  const show = useCallback((msg: string, tone: "success" | "danger" = "success") => {
+    setState({ msg, tone });
+    window.clearTimeout(timer.current);
+    timer.current = window.setTimeout(() => setState(null), 4000);
+  }, []);
+  useEffect(() => () => window.clearTimeout(timer.current), []);
+  const node = state ? (
+    <div
+      role="status"
+      className="fixed bottom-6 right-6 z-[60] max-w-md flex items-start gap-2.5 bg-surface border border-line shadow-pop rounded-card px-4 py-3 text-[13px] text-ink"
+    >
+      {state.tone === "success" ? (
+        <CheckCircle2 className="w-4 h-4 mt-0.5 text-success shrink-0" />
+      ) : (
+        <AlertCircle className="w-4 h-4 mt-0.5 text-danger shrink-0" />
+      )}
+      <span>{state.msg}</span>
+    </div>
+  ) : null;
+  return [node, show];
+};

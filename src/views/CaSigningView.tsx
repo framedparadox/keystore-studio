@@ -1,3 +1,4 @@
+import { Page, PageHeader, Segmented } from "../components/ui";
 import React, { useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { TerminalHint } from "../components/Terminal";
@@ -262,67 +263,46 @@ export const CaSigningView: React.FC<CaSigningViewProps> = ({
   };
 
   return (
-    <div className="flex-1 flex flex-col overflow-hidden bg-canvas px-8 py-6 select-none">
-      {/* Header & Active Signer Selector */}
-      <div className="flex flex-wrap items-center justify-between gap-4 mb-4">
-        <div>
-          <h1 className="text-[28px] font-normal text-ink-2 tracking-tight">
-            CA Authority &amp; Digital Signing Studio
-          </h1>
-          <p className="text-[13px] text-faint">
-            Native Rust execution for CSR signing, X.509 v2 CRL issuance, JAR signing, CMS/PKCS#7, JWT, and Diffie-Hellman.
-          </p>
-        </div>
-
-        {/* Select KeyStore Signer KeyPair */}
-        <div className="flex items-center space-x-2 bg-white px-4 py-2 rounded-full border border-line shadow-2xs">
-          <KeyRound className="w-4 h-4 text-brand" />
-          <span className="text-[12px] text-faint">Active Signer Key:</span>
-          <select
-            value={selectedSignerId}
-            onChange={(e) => setSelectedSignerId(e.target.value)}
-            className="text-[13px] font-semibold text-brand-deep bg-transparent focus:outline-none cursor-pointer"
-          >
-            {allKeyPairs.map((kp) => (
-              <option key={kp.id} value={kp.id}>
-                {kp.alias} ({kp.algorithm} {kp.key_size}-bit)
-              </option>
-            ))}
-          </select>
-        </div>
-      </div>
-
-      {/* Tool Switcher Pills (matching Screenshot 1 pill bar) */}
-      <div className="flex flex-wrap items-center gap-2 mb-5">
-        {[
-          { id: "csr", label: "Sign CSR (PKCS#10 / SPKAC)", icon: FileSignature },
-          { id: "crl", label: "Issue & Sign CRL", icon: ShieldCheck },
-          { id: "jar", label: "Sign & Verify JAR", icon: FileArchive },
-          { id: "cms", label: "Sign File (CMS / PKCS#7)", icon: FileCheck2 },
-          { id: "jwt", label: "Sign JWT Token", icon: KeyRound },
-          { id: "dh", label: "Generate DH Parameters", icon: Cpu },
-        ].map((t) => {
-          const Icon = t.icon;
-          const active = toolTab === t.id;
-          return (
-            <button
-              key={t.id}
-              onClick={() => setToolTab(t.id as typeof toolTab)}
-              className={`px-4 py-1.5 rounded-full text-[13px] font-semibold flex items-center space-x-2 transition cursor-pointer ${
-                active
-                  ? "bg-brand-soft text-brand-deep"
-                  : "bg-white text-ink-2 hover:bg-surface-2"
-              }`}
+    <Page>
+      <PageHeader
+        title="CA & Signing"
+        description="Sign CSRs, issue CRLs, sign JARs, CMS payloads and JWTs, and generate DH parameters with the native engine."
+        actions={
+          <label className="flex items-center gap-2">
+            <span className="text-[12.5px] text-faint whitespace-nowrap">Signer key</span>
+            <select
+              value={selectedSignerId}
+              onChange={(e) => setSelectedSignerId(e.target.value)}
+              className="field !w-72 cursor-pointer"
             >
-              <Icon className="w-3.5 h-3.5" />
-              <span>{t.label}</span>
-            </button>
-          );
-        })}
+              {allKeyPairs.map((kp) => (
+                <option key={kp.id} value={kp.id}>
+                  {kp.alias} ({kp.algorithm} {kp.key_size}-bit)
+                </option>
+              ))}
+            </select>
+          </label>
+        }
+      />
+
+      <div className="mb-4 overflow-x-auto">
+        <Segmented
+          label="Signing tool"
+          value={toolTab}
+          onChange={(v) => setToolTab(v)}
+          options={[
+            { value: "csr", label: <><FileSignature className="w-3.5 h-3.5" /> Sign CSR</> },
+            { value: "crl", label: <><ShieldCheck className="w-3.5 h-3.5" /> Issue CRL</> },
+            { value: "jar", label: <><FileArchive className="w-3.5 h-3.5" /> Sign JAR</> },
+            { value: "cms", label: <><FileCheck2 className="w-3.5 h-3.5" /> CMS / PKCS#7</> },
+            { value: "jwt", label: <><KeyRound className="w-3.5 h-3.5" /> JWT</> },
+            { value: "dh", label: <><Cpu className="w-3.5 h-3.5" /> DH parameters</> },
+          ]}
+        />
       </div>
 
       {/* Main Content Card */}
-      <div className="flex-1 bg-white rounded-[24px] border border-line p-6 overflow-y-auto grid grid-cols-1 lg:grid-cols-12 gap-6 shadow-2xs">
+      <div className="bg-surface rounded-card border border-line p-6 grid grid-cols-1 lg:grid-cols-12 gap-6 shadow-card">
         {toolTab === "csr" && (
           <>
             <div className="lg:col-span-5 space-y-4">
@@ -336,7 +316,7 @@ export const CaSigningView: React.FC<CaSigningViewProps> = ({
                     type="text"
                     value={csrSubject}
                     onChange={(e) => setCsrSubject(e.target.value)}
-                    className="w-full h-9 px-3 rounded-lg border border-line-strong"
+                    className="field"
                   />
                 </div>
                 <div className="grid grid-cols-2 gap-3">
@@ -346,7 +326,7 @@ export const CaSigningView: React.FC<CaSigningViewProps> = ({
                       type="text"
                       value={csrSans}
                       onChange={(e) => setCsrSans(e.target.value)}
-                      className="w-full h-9 px-3 rounded-lg border border-line-strong"
+                      className="field"
                     />
                   </div>
                   <div>
@@ -355,7 +335,7 @@ export const CaSigningView: React.FC<CaSigningViewProps> = ({
                       type="number"
                       value={csrDays}
                       onChange={(e) => setCsrDays(Number(e.target.value))}
-                      className="w-full h-9 px-3 rounded-lg border border-line-strong"
+                      className="field"
                     />
                   </div>
                 </div>
@@ -365,41 +345,41 @@ export const CaSigningView: React.FC<CaSigningViewProps> = ({
                     rows={5}
                     value={csrPemInput}
                     onChange={(e) => setCsrPemInput(e.target.value)}
-                    className="w-full p-2.5 rounded-xl border border-line-strong font-mono text-[11px]"
+                    className="w-full p-2.5 rounded-control border border-line-strong bg-surface shadow-card focus:outline-none focus:border-brand focus:ring-4 focus:ring-brand-soft font-mono text-[11px]"
                   />
                 </div>
                 <button
                   onClick={handleSignCsr}
                   disabled={busy}
-                  className="w-full py-2.5 rounded-full bg-brand-deep hover:bg-brand-deeper text-white font-semibold cursor-pointer"
+                  className="w-full h-9 rounded-control bg-brand hover:bg-brand-deep text-white text-[13px] font-semibold shadow-card cursor-pointer disabled:opacity-50"
                 >
                   {busy ? "Signing in Rust..." : `Sign CSR with '${signerEntry?.alias}'`}
                 </button>
               </div>
             </div>
 
-            <div className="lg:col-span-7 bg-surface-2 rounded-2xl p-5 border border-line select-text">
+            <div className="lg:col-span-7 bg-surface-2 rounded-card p-5 border border-line select-text">
               {signedCertResult ? (
                 <div className="space-y-3 text-[12px]">
                   <div className="flex items-center justify-between">
-                    <span className="text-success font-bold flex items-center space-x-1">
+                    <span className="text-success font-semibold flex items-center space-x-1">
                       <CheckCircle2 className="w-4 h-4" />
                       <span>X.509 v3 Certificate Signed by {signerEntry.alias}</span>
                     </span>
                     <button
                       onClick={handleImportSignedCertToKeystore}
-                      className="px-3.5 py-1.5 rounded-full bg-brand-soft text-brand-deep font-semibold cursor-pointer"
+                      className="px-3.5 py-1.5 rounded-control bg-brand-soft text-brand-deep font-semibold cursor-pointer"
                     >
                       + Append to Active KeyStore
                     </button>
                   </div>
-                  <div className="p-3 bg-white rounded-xl border border-line space-y-1">
+                  <div className="p-3 bg-surface rounded-control border border-line space-y-1">
                     <div><strong>Subject:</strong> {signedCertResult.subject}</div>
                     <div><strong>Issuer:</strong> {signedCertResult.issuer}</div>
                     <div><strong>Serial:</strong> <span className="font-mono">{signedCertResult.serial_number}</span></div>
                     <div><strong>SHA-256:</strong> <span className="font-mono">{signedCertResult.sha256_fingerprint}</span></div>
                   </div>
-                  <pre className="bg-ink text-[#A7F3D0] p-3 rounded-xl font-mono text-[11px] max-h-48 overflow-y-auto">
+                  <pre className="bg-term-bg text-term-fg p-3 rounded-control font-mono text-[11px] max-h-48 overflow-y-auto">
                     {signedCertResult.pem}
                   </pre>
                 </div>
@@ -424,12 +404,12 @@ export const CaSigningView: React.FC<CaSigningViewProps> = ({
                   value={newRevSerial}
                   onChange={(e) => setNewRevSerial(e.target.value)}
                   placeholder="Serial Number (Hex)..."
-                  className="flex-1 h-9 px-3 rounded-lg border border-line-strong font-mono"
+                  className="field flex-1 font-mono"
                 />
                 <select
                   value={newRevReason}
                   onChange={(e) => setNewRevReason(e.target.value)}
-                  className="h-9 px-2 rounded-lg border border-line-strong bg-white"
+                  className="field !w-auto"
                 >
                   <option value="keyCompromise">keyCompromise</option>
                   <option value="cACompromise">cACompromise</option>
@@ -449,7 +429,7 @@ export const CaSigningView: React.FC<CaSigningViewProps> = ({
                     ]);
                     setNewRevSerial("");
                   }}
-                  className="px-3 h-9 rounded-lg bg-brand-soft text-brand-deep font-semibold cursor-pointer"
+                  className="px-3 h-9 rounded-control bg-brand-soft text-brand-deep font-semibold cursor-pointer"
                 >
                   <Plus className="w-4 h-4" />
                 </button>
@@ -457,7 +437,7 @@ export const CaSigningView: React.FC<CaSigningViewProps> = ({
 
               <div className="space-y-1.5 max-h-40 overflow-y-auto">
                 {revokedList.map((r, i) => (
-                  <div key={i} className="flex items-center justify-between p-2.5 bg-surface-2 rounded-xl border border-line">
+                  <div key={i} className="flex items-center justify-between p-2.5 bg-surface-2 rounded-control border border-line">
                     <div>
                       <div className="font-mono font-semibold text-ink">{r.serial_number}</div>
                       <div className="text-[11px] text-faint">{r.reason} • {r.revocation_date}</div>
@@ -474,24 +454,24 @@ export const CaSigningView: React.FC<CaSigningViewProps> = ({
 
               <button
                 onClick={handleSignCrl}
-                className="w-full py-2.5 rounded-full bg-brand-deep text-white font-semibold cursor-pointer"
+                className="w-full h-9 rounded-control bg-brand hover:bg-brand-deep text-white text-[13px] font-semibold shadow-card cursor-pointer disabled:opacity-50"
               >
                 Sign &amp; Issue CRL with '{signerEntry?.alias}'
               </button>
             </div>
 
-            <div className="lg:col-span-7 bg-surface-2 rounded-2xl p-5 border border-line select-text">
+            <div className="lg:col-span-7 bg-surface-2 rounded-card p-5 border border-line select-text">
               {crlResult ? (
                 <div className="space-y-3 text-[12px]">
-                  <div className="text-success font-bold">
+                  <div className="text-success font-semibold">
                     CRL #{crlResult.crl_number} Signed ({crlResult.revoked_entries.length} Revoked Certificates)
                   </div>
-                  <div className="p-3 bg-white rounded-xl border border-line">
+                  <div className="p-3 bg-surface rounded-control border border-line">
                     <div><strong>Issuer:</strong> {crlResult.issuer}</div>
                     <div><strong>This Update:</strong> {crlResult.this_update}</div>
                     <div><strong>Next Update:</strong> {crlResult.next_update}</div>
                   </div>
-                  <pre className="bg-ink text-[#38BDF8] p-3 rounded-xl font-mono text-[11px] overflow-x-auto">
+                  <pre className="bg-term-bg text-term-fg p-3 rounded-control font-mono text-[11px] overflow-x-auto">
                     {crlResult.crl_pem}
                   </pre>
                 </div>
@@ -517,7 +497,7 @@ export const CaSigningView: React.FC<CaSigningViewProps> = ({
                   type="text"
                   value={jarName}
                   onChange={(e) => setJarName(e.target.value)}
-                  className="w-full h-9 px-3 rounded-lg border border-line-strong"
+                  className="field"
                 />
               </div>
               <div>
@@ -526,7 +506,7 @@ export const CaSigningView: React.FC<CaSigningViewProps> = ({
                   rows={4}
                   value={jarEntriesText}
                   onChange={(e) => setJarEntriesText(e.target.value)}
-                  className="w-full p-2.5 rounded-xl border border-line-strong font-mono text-[11px]"
+                  className="w-full p-2.5 rounded-control border border-line-strong bg-surface shadow-card focus:outline-none focus:border-brand focus:ring-4 focus:ring-brand-soft font-mono text-[11px]"
                 />
               </div>
               <div>
@@ -535,40 +515,40 @@ export const CaSigningView: React.FC<CaSigningViewProps> = ({
                   type="text"
                   value={jarTsa}
                   onChange={(e) => setJarTsa(e.target.value)}
-                  className="w-full h-9 px-3 rounded-lg border border-line-strong"
+                  className="field"
                 />
               </div>
               <button
                 onClick={handleSignJar}
-                className="w-full py-2.5 rounded-full bg-brand-deep text-white font-semibold cursor-pointer"
+                className="w-full h-9 rounded-control bg-brand hover:bg-brand-deep text-white text-[13px] font-semibold shadow-card cursor-pointer disabled:opacity-50"
               >
                 Sign JAR Archive in Rust
               </button>
             </div>
 
-            <div className="lg:col-span-7 bg-surface-2 rounded-2xl p-5 border border-line select-text">
+            <div className="lg:col-span-7 bg-surface-2 rounded-card p-5 border border-line select-text">
               {jarResult ? (
                 <div className="space-y-3 text-[12px]">
                   <div className="flex items-center justify-between">
-                    <span className="text-success font-bold flex items-center space-x-1">
+                    <span className="text-success font-semibold flex items-center space-x-1">
                       <CheckCircle2 className="w-4 h-4" />
                       <span>Signed {jarResult.jar_name} &amp; Verified Signature Block</span>
                     </span>
                     <span className="font-mono text-[11px] text-faint">{jarResult.signature_algorithm}</span>
                   </div>
                   <div>
-                    <span className="font-bold text-[11px] uppercase text-faint block mb-1">
+                    <span className="font-semibold text-[11px] uppercase text-faint block mb-1">
                       Generated META-INF/MANIFEST.MF
                     </span>
-                    <pre className="bg-ink text-[#A7F3D0] p-2.5 rounded-xl font-mono text-[10.5px] max-h-28 overflow-y-auto">
+                    <pre className="bg-term-bg text-term-fg p-2.5 rounded-control font-mono text-[10.5px] max-h-28 overflow-y-auto">
                       {jarResult.manifest_mf}
                     </pre>
                   </div>
                   <div>
-                    <span className="font-bold text-[11px] uppercase text-faint block mb-1">
+                    <span className="font-semibold text-[11px] uppercase text-faint block mb-1">
                       Generated META-INF/{jarResult.signer_alias.toUpperCase()}.SF
                     </span>
-                    <pre className="bg-ink text-[#38BDF8] p-2.5 rounded-xl font-mono text-[10.5px] max-h-28 overflow-y-auto">
+                    <pre className="bg-term-bg text-term-fg p-2.5 rounded-control font-mono text-[10.5px] max-h-28 overflow-y-auto">
                       {jarResult.signature_sf}
                     </pre>
                   </div>
@@ -592,7 +572,7 @@ export const CaSigningView: React.FC<CaSigningViewProps> = ({
                 rows={5}
                 value={cmsPayload}
                 onChange={(e) => setCmsPayload(e.target.value)}
-                className="w-full p-3 rounded-xl border border-line-strong font-mono text-[11.5px]"
+                className="w-full p-3 rounded-control border border-line-strong bg-surface shadow-card focus:outline-none focus:border-brand focus:ring-4 focus:ring-brand-soft font-mono text-[11.5px]"
               />
               <div className="flex items-center space-x-2">
                 <input
@@ -606,14 +586,14 @@ export const CaSigningView: React.FC<CaSigningViewProps> = ({
               <div className="flex space-x-2">
                 <button
                   onClick={handleSignCms}
-                  className="flex-1 py-2.5 rounded-full bg-brand-deep text-white font-semibold cursor-pointer"
+                  className="flex-1 h-9 rounded-control bg-brand hover:bg-brand-deep text-white text-[13px] font-semibold shadow-card cursor-pointer disabled:opacity-50"
                 >
                   Sign Payload
                 </button>
                 {cmsResult && (
                   <button
                     onClick={handleVerifyCms}
-                    className="px-4 py-2.5 rounded-full bg-brand-soft text-brand-deep font-semibold cursor-pointer"
+                    className="px-4 py-2.5 rounded-control bg-brand-soft text-brand-deep font-semibold cursor-pointer"
                   >
                     Verify Signature
                   </button>
@@ -621,17 +601,17 @@ export const CaSigningView: React.FC<CaSigningViewProps> = ({
               </div>
             </div>
 
-            <div className="lg:col-span-7 bg-surface-2 rounded-2xl p-5 border border-line select-text">
+            <div className="lg:col-span-7 bg-surface-2 rounded-card p-5 border border-line select-text">
               {cmsResult ? (
                 <div className="space-y-3 text-[12px]">
-                  <div className="p-2.5 rounded-xl bg-success-tint text-[#166534] font-semibold">
+                  <div className="p-2.5 rounded-control bg-success-tint text-success font-semibold">
                     {cmsVerifyStatus}
                   </div>
-                  <div className="font-mono text-[11px] break-all bg-white p-3 rounded-xl border border-line">
+                  <div className="font-mono text-[11px] break-all bg-surface p-3 rounded-control border border-line">
                     <div><strong>SHA-256 Digest:</strong> {cmsResult.payload_sha256}</div>
                     <div className="mt-1"><strong>Signature (Hex):</strong> {cmsResult.signature_hex}</div>
                   </div>
-                  <pre className="bg-ink text-[#38BDF8] p-3 rounded-xl font-mono text-[11px] overflow-x-auto">
+                  <pre className="bg-term-bg text-term-fg p-3 rounded-control font-mono text-[11px] overflow-x-auto">
                     {cmsResult.cms_pem}
                   </pre>
                 </div>
@@ -651,37 +631,37 @@ export const CaSigningView: React.FC<CaSigningViewProps> = ({
               <div className="grid grid-cols-2 gap-2.5">
                 <div>
                   <label className="block mb-1 text-muted">Issuer (iss)</label>
-                  <input type="text" value={jwtIss} onChange={(e) => setJwtIss(e.target.value)} className="w-full h-9 px-3 rounded-lg border border-line-strong" />
+                  <input type="text" value={jwtIss} onChange={(e) => setJwtIss(e.target.value)} className="field" />
                 </div>
                 <div>
                   <label className="block mb-1 text-muted">Subject (sub)</label>
-                  <input type="text" value={jwtSub} onChange={(e) => setJwtSub(e.target.value)} className="w-full h-9 px-3 rounded-lg border border-line-strong" />
+                  <input type="text" value={jwtSub} onChange={(e) => setJwtSub(e.target.value)} className="field" />
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-2.5">
                 <div>
                   <label className="block mb-1 text-muted">Audience (aud)</label>
-                  <input type="text" value={jwtAud} onChange={(e) => setJwtAud(e.target.value)} className="w-full h-9 px-3 rounded-lg border border-line-strong" />
+                  <input type="text" value={jwtAud} onChange={(e) => setJwtAud(e.target.value)} className="field" />
                 </div>
                 <div>
                   <label className="block mb-1 text-muted">Validity (Hours)</label>
-                  <input type="number" value={jwtHours} onChange={(e) => setJwtHours(Number(e.target.value))} className="w-full h-9 px-3 rounded-lg border border-line-strong" />
+                  <input type="number" value={jwtHours} onChange={(e) => setJwtHours(Number(e.target.value))} className="field" />
                 </div>
               </div>
               <div>
                 <label className="block mb-1 text-muted">Custom Claims (JSON)</label>
-                <textarea rows={3} value={jwtCustom} onChange={(e) => setJwtCustom(e.target.value)} className="w-full p-2.5 rounded-xl border border-line-strong font-mono text-[11px]" />
+                <textarea rows={3} value={jwtCustom} onChange={(e) => setJwtCustom(e.target.value)} className="w-full p-2.5 rounded-control border border-line-strong bg-surface shadow-card focus:outline-none focus:border-brand focus:ring-4 focus:ring-brand-soft font-mono text-[11px]" />
               </div>
-              <button onClick={handleSignJwt} className="w-full py-2.5 rounded-full bg-brand-deep text-white font-semibold cursor-pointer">
+              <button onClick={handleSignJwt} className="w-full h-9 rounded-control bg-brand hover:bg-brand-deep text-white text-[13px] font-semibold shadow-card cursor-pointer disabled:opacity-50">
                 Sign JWT with '{signerEntry?.alias}'
               </button>
             </div>
 
-            <div className="lg:col-span-7 bg-surface-2 rounded-2xl p-5 border border-line select-text">
+            <div className="lg:col-span-7 bg-surface-2 rounded-card p-5 border border-line select-text">
               {signedJwtToken ? (
                 <div className="space-y-3 text-[12px]">
-                  <span className="font-bold text-success block">Signed RFC 7519 JWT Compact Token</span>
-                  <pre className="bg-ink text-[#A7F3D0] p-4 rounded-xl font-mono text-[11.5px] whitespace-pre-wrap break-all">
+                  <span className="font-semibold text-success block">Signed RFC 7519 JWT Compact Token</span>
+                  <pre className="bg-term-bg text-term-fg p-4 rounded-control font-mono text-[11.5px] whitespace-pre-wrap break-all">
                     {signedJwtToken}
                   </pre>
                 </div>
@@ -707,8 +687,8 @@ export const CaSigningView: React.FC<CaSigningViewProps> = ({
                     <button
                       key={b}
                       onClick={() => setDhBits(b)}
-                      className={`py-2 rounded-xl border font-semibold cursor-pointer ${
-                        dhBits === b ? "bg-brand-soft border-brand text-brand-deep" : "bg-white border-line-strong"
+                      className={`py-2 rounded-control border font-semibold cursor-pointer ${
+                        dhBits === b ? "bg-brand-soft border-brand text-brand-deep" : "bg-surface border-line-strong"
                       }`}
                     >
                       {b}
@@ -716,18 +696,18 @@ export const CaSigningView: React.FC<CaSigningViewProps> = ({
                   ))}
                 </div>
               </div>
-              <button onClick={handleGenerateDh} className="w-full py-2.5 rounded-full bg-brand-deep text-white font-semibold cursor-pointer">
+              <button onClick={handleGenerateDh} className="w-full h-9 rounded-control bg-brand hover:bg-brand-deep text-white text-[13px] font-semibold shadow-card cursor-pointer disabled:opacity-50">
                 Generate DH Parameters in Rust
               </button>
             </div>
 
-            <div className="lg:col-span-7 bg-surface-2 rounded-2xl p-5 border border-line select-text">
+            <div className="lg:col-span-7 bg-surface-2 rounded-card p-5 border border-line select-text">
               {dhResult ? (
                 <div className="space-y-3 text-[12px]">
                   <div className="font-semibold text-success">
                     Generated {dhResult.bit_size}-bit Diffie-Hellman Parameters (Generator G = {dhResult.generator_g})
                   </div>
-                  <pre className="bg-ink text-[#38BDF8] p-3 rounded-xl font-mono text-[11px] max-h-48 overflow-y-auto">
+                  <pre className="bg-term-bg text-term-fg p-3 rounded-control font-mono text-[11px] max-h-48 overflow-y-auto">
                     {dhResult.pem}
                   </pre>
                 </div>
@@ -740,6 +720,6 @@ export const CaSigningView: React.FC<CaSigningViewProps> = ({
           </>
         )}
       </div>
-    </div>
+    </Page>
   );
 };

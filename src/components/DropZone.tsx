@@ -39,7 +39,7 @@ interface DropZoneProps {
   onFiles: (files: File[]) => void;
 }
 
-export const DropZone: React.FC<DropZoneProps> = ({ dragging, busy, onFiles }) => {
+export const DropZone: React.FC<DropZoneProps & { className?: string }> = ({ dragging, busy, onFiles, className }) => {
   const input = useRef<HTMLInputElement>(null);
   const pick = useCallback(() => input.current?.click(), []);
 
@@ -50,8 +50,9 @@ export const DropZone: React.FC<DropZoneProps> = ({ dragging, busy, onFiles }) =
       onClick={pick}
       onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && pick()}
       className={clsx(
-        "rounded-panel border-2 border-dashed px-6 py-5 text-center transition cursor-pointer",
-        dragging ? "border-brand bg-brand-tint" : "border-line-strong bg-surface hover:border-brand hover:bg-brand-tint/50"
+        "rounded-card border border-dashed px-5 py-6 flex flex-col items-center justify-center text-center transition cursor-pointer",
+        dragging ? "border-brand bg-brand-tint" : "border-line-strong bg-surface-2 hover:border-brand hover:bg-brand-tint/60",
+        className
       )}
     >
       <input
@@ -66,12 +67,18 @@ export const DropZone: React.FC<DropZoneProps> = ({ dragging, busy, onFiles }) =
           e.target.value = "";
         }}
       />
-      <UploadCloud className={clsx("w-7 h-7 mx-auto mb-1.5", dragging ? "text-brand" : "text-subtle")} />
-      <p className="text-[16px] font-semibold text-ink">
-        {busy ? "Reading files…" : dragging ? "Drop to open" : "Drop keystores and certificates here"}
+      <span className="w-10 h-10 rounded-card border border-line bg-surface shadow-card flex items-center justify-center mb-3">
+        <UploadCloud className={clsx("w-5 h-5", dragging ? "text-brand" : "text-muted")} />
+      </span>
+      <p className="text-[13.5px] font-semibold text-ink">
+        {busy ? "Reading files…" : dragging ? "Drop to open" : (
+          <>
+            <span className="text-brand">Click to upload</span> or drag and drop
+          </>
+        )}
       </p>
-      <p className="text-[12.5px] text-muted mt-1">
-        or click to browse · .jks .p12 .pfx .jceks .bks .pem .crt .cer .der .csr .crl .key
+      <p className="text-[12px] text-faint mt-1 max-w-xs">
+        .jks .p12 .pfx .jceks .bks .pem .crt .cer .der .csr .crl .key
       </p>
     </div>
   );

@@ -63,7 +63,7 @@ export const TerminalHint: React.FC<{ command: string; label?: string }> = ({ co
       </code>
       <button
         onClick={() => open(command)}
-        className="inline-flex items-center gap-1 rounded-full bg-white/10 px-2.5 py-0.5 font-sans text-[11px] font-semibold text-white hover:bg-white/20 cursor-pointer"
+        className="inline-flex items-center gap-1 rounded-[4px] bg-surface/10 px-2 py-0.5 font-sans text-[11px] font-semibold text-white hover:bg-surface/20 cursor-pointer"
       >
         <Play className="w-3 h-3" />
         {label}
@@ -165,8 +165,8 @@ const TerminalPanel: React.FC<{
   return (
     <section
       aria-label="Terminal"
-      className={`fixed left-[88px] right-4 bottom-3 z-40 flex flex-col overflow-hidden rounded-panel border border-white/10 bg-term-bg shadow-2xl select-text ${
-        expanded ? "top-20" : "h-[300px]"
+      className={`fixed left-[256px] right-4 bottom-4 z-40 flex flex-col overflow-hidden rounded-panel border border-white/10 bg-term-bg shadow-pop select-text ${
+        expanded ? "top-[72px]" : "h-[300px]"
       }`}
     >
       <header className="flex items-center justify-between border-b border-white/10 px-4 py-2 text-term-fg select-none">
@@ -179,14 +179,14 @@ const TerminalPanel: React.FC<{
           <button
             onClick={() => setExpanded((v) => !v)}
             aria-label={expanded ? "Shrink terminal" : "Expand terminal"}
-            className="rounded-full p-1.5 text-subtle hover:bg-white/10 hover:text-white cursor-pointer"
+            className="rounded-full p-1.5 text-subtle hover:bg-surface/10 hover:text-white cursor-pointer"
           >
             {expanded ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
           </button>
           <button
             onClick={onClose}
             aria-label="Close terminal"
-            className="rounded-full p-1.5 text-subtle hover:bg-white/10 hover:text-white cursor-pointer"
+            className="rounded-full p-1.5 text-subtle hover:bg-surface/10 hover:text-white cursor-pointer"
           >
             <X className="w-3.5 h-3.5" />
           </button>
@@ -202,7 +202,7 @@ const TerminalPanel: React.FC<{
           <pre
             key={i}
             className={`whitespace-pre-wrap break-words ${
-              l.kind === "cmd" ? "text-brand-soft" : l.kind === "err" ? "text-[#fca5a5]" : l.kind === "info" ? "text-subtle" : "text-term-fg"
+              l.kind === "cmd" ? "text-brand-soft" : l.kind === "err" ? "text-danger-fill" : l.kind === "info" ? "text-subtle" : "text-term-fg"
             }`}
           >
             {l.text}

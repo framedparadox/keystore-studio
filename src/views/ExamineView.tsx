@@ -1,3 +1,4 @@
+import { Page, PageHeader, Segmented } from "../components/ui";
 import React, { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { TerminalHint } from "../components/Terminal";
@@ -156,62 +157,38 @@ export const ExamineView: React.FC<ExamineViewProps> = ({
   };
 
   return (
-    <div className="flex-1 flex flex-col overflow-hidden bg-canvas px-8 py-6 select-none">
+    <Page>
       {toast && (
-        <div className="fixed bottom-6 right-8 z-50 bg-ink text-white px-4 py-3 rounded-2xl shadow-xl flex items-center space-x-2 text-[13px]">
-          <CheckCircle2 className="w-4 h-4 text-[#34D399]" />
+        <div role="status" className="fixed bottom-6 right-6 z-[60] max-w-md bg-surface border border-line text-ink px-4 py-3 rounded-card shadow-pop flex items-center gap-2.5 text-[13px]">
+          <CheckCircle2 className="w-4 h-4 text-success" />
           <span>{toast}</span>
         </div>
       )}
 
+      <PageHeader
+        title="Examine"
+        description="Inspect a live TLS server, detect and decode pasted PEM / CSR / CRL / JWT data, or compare two certificates."
+      />
+
       <div className="mb-4">
-        <h1 className="text-[28px] font-normal text-ink-2 tracking-tight">
-          Examine SSL, Clipboard &amp; Compare Certificates
-        </h1>
-        <p className="text-[13px] text-faint">
-          Connect to live TLS servers, auto-detect cryptographic file formats, and diff certificates side-by-side.
-        </p>
-      </div>
-
-      {/* Mode Switcher Pills */}
-      <div className="flex items-center space-x-2 mb-5">
-        <button
-          onClick={() => setMode("ssl")}
-          className={`px-4 py-1.5 rounded-full text-[13px] font-semibold flex items-center space-x-2 cursor-pointer ${
-            mode === "ssl" ? "bg-brand-soft text-brand-deep" : "bg-white text-ink-2"
-          }`}
-        >
-          <Globe className="w-3.5 h-3.5" />
-          <span>Examine SSL / TLS Host</span>
-        </button>
-
-        <button
-          onClick={() => setMode("clipboard")}
-          className={`px-4 py-1.5 rounded-full text-[13px] font-semibold flex items-center space-x-2 cursor-pointer ${
-            mode === "clipboard" ? "bg-brand-soft text-brand-deep" : "bg-white text-ink-2"
-          }`}
-        >
-          <FileSearch className="w-3.5 h-3.5" />
-          <span>Examine Clipboard &amp; Detect Type</span>
-        </button>
-
-        <button
-          onClick={() => setMode("compare")}
-          className={`px-4 py-1.5 rounded-full text-[13px] font-semibold flex items-center space-x-2 cursor-pointer ${
-            mode === "compare" ? "bg-brand-soft text-brand-deep" : "bg-white text-ink-2"
-          }`}
-        >
-          <GitCompare className="w-3.5 h-3.5" />
-          <span>Compare Certificates</span>
-        </button>
+        <Segmented
+          label="Examine mode"
+          value={mode}
+          onChange={setMode}
+          options={[
+            { value: "ssl", label: <><Globe className="w-3.5 h-3.5" /> TLS host</> },
+            { value: "clipboard", label: <><FileSearch className="w-3.5 h-3.5" /> Detect &amp; decode</> },
+            { value: "compare", label: <><GitCompare className="w-3.5 h-3.5" /> Compare</> },
+          ]}
+        />
       </div>
 
       {/* Main Content Card */}
-      <div className="flex-1 bg-white rounded-[24px] border border-line p-6 overflow-y-auto shadow-2xs">
+      <div className="bg-surface rounded-card border border-line p-6 shadow-card">
         {mode === "ssl" && (
           <div className="space-y-5">
             <form onSubmit={(e) => handleExamineSsl(e)} className="flex flex-wrap items-center gap-3">
-              <div className="flex-1 min-w-[240px] flex items-center bg-surface-2 border border-line-strong rounded-full px-4 h-11">
+              <div className="flex-1 min-w-[240px] flex items-center bg-surface border border-line-strong rounded-control shadow-card px-3 h-9 focus-within:border-brand focus-within:ring-4 focus-within:ring-brand-soft">
                 <Globe className="w-4 h-4 text-faint mr-2.5" />
                 <input
                   type="text"
@@ -225,12 +202,12 @@ export const ExamineView: React.FC<ExamineViewProps> = ({
                 type="number"
                 value={sslPort}
                 onChange={(e) => setSslPort(Number(e.target.value))}
-                className="w-24 h-11 px-3 rounded-full bg-surface-2 border border-line-strong text-[13.5px] text-center"
+                className="field !w-24 text-center"
               />
               <button
                 type="submit"
                 disabled={busy}
-                className="h-11 px-6 rounded-full bg-brand-deep hover:bg-brand-deeper text-white text-[13px] font-semibold cursor-pointer"
+                className="h-9 px-4 rounded-control bg-brand hover:bg-brand-deep text-white text-[13px] font-semibold cursor-pointer"
               >
                 {busy ? "Handshaking..." : "Examine SSL"}
               </button>
@@ -243,7 +220,7 @@ export const ExamineView: React.FC<ExamineViewProps> = ({
                 <button
                   key={h}
                   onClick={() => handleExamineSsl(undefined, h)}
-                  className="px-3 py-1 rounded-full bg-surface-3 hover:bg-line text-ink-2 font-medium cursor-pointer"
+                  className="px-3 py-1 rounded-control bg-surface-3 hover:bg-line text-ink-2 font-medium cursor-pointer"
                 >
                   {h}:443
                 </button>
@@ -252,29 +229,29 @@ export const ExamineView: React.FC<ExamineViewProps> = ({
 
             {sslResult && (
               <div className="space-y-4 pt-2 select-text">
-                <div className="p-4 rounded-2xl bg-[#F0F7FF] border border-[#BFDBFE] flex flex-wrap items-center justify-between gap-2 text-[12.5px]">
+                <div className="p-4 rounded-card bg-brand-tint border border-brand-soft flex flex-wrap items-center justify-between gap-2 text-[12.5px]">
                   <div>
-                    <span className="font-bold text-brand-deep">{sslResult.host}:{sslResult.port}</span>
+                    <span className="font-semibold text-brand-deep">{sslResult.host}:{sslResult.port}</span>
                     <span className="mx-2 text-subtle">•</span>
-                    <span className="text-[#1E40AF] font-medium">{sslResult.protocol}</span>
+                    <span className="text-brand-deeper font-medium">{sslResult.protocol}</span>
                     <span className="mx-2 text-subtle">•</span>
                     <span className="font-mono text-ink-2">{sslResult.cipher_suite}</span>
                   </div>
-                  <span className="px-2.5 py-0.5 rounded-full bg-success-tint text-[#166534] font-semibold text-[11.5px]">
+                  <span className="px-2.5 py-0.5 rounded-control bg-success-tint text-success font-semibold text-[11.5px]">
                     Peer Chain Verified
                   </span>
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   {sslResult.server_certificates.map((cert, i) => (
-                    <div key={i} className="p-4 rounded-2xl border border-line bg-surface-2 space-y-2.5 text-[12px]">
+                    <div key={i} className="p-4 rounded-card border border-line bg-surface-2 space-y-2.5 text-[12px]">
                       <div className="flex items-center justify-between">
-                        <span className="px-2.5 py-0.5 rounded-full bg-[#E0F2FE] text-[#0369A1] font-bold text-[11px]">
+                        <span className="px-2.5 py-0.5 rounded-control bg-brand-tint text-brand-deep font-semibold text-[11px]">
                           {cert.is_ca ? "Intermediate / Root CA" : "Server Leaf Certificate"}
                         </span>
                         <button
                           onClick={() => handleImportSslCert(cert)}
-                          className="px-3 py-1 rounded-full bg-brand-soft hover:bg-brand-soft-hover text-brand-deep font-semibold flex items-center space-x-1 cursor-pointer"
+                          className="px-3 py-1 rounded-control bg-brand-soft hover:bg-brand-soft-hover text-brand-deep font-semibold flex items-center space-x-1 cursor-pointer"
                         >
                           <Plus className="w-3.5 h-3.5" />
                           <span>Import to {activeKs?.name}</span>
@@ -305,7 +282,7 @@ export const ExamineView: React.FC<ExamineViewProps> = ({
                 </span>
                 <button
                   onClick={handleReadSystemClipboard}
-                  className="px-3 py-1 rounded-full bg-surface-3 hover:bg-line text-ink font-medium flex items-center space-x-1 cursor-pointer"
+                  className="px-3 py-1 rounded-control bg-surface-3 hover:bg-line text-ink font-medium flex items-center space-x-1 cursor-pointer"
                 >
                   <Clipboard className="w-3.5 h-3.5" />
                   <span>Paste Clipboard</span>
@@ -316,30 +293,30 @@ export const ExamineView: React.FC<ExamineViewProps> = ({
                 rows={8}
                 value={rawInput}
                 onChange={(e) => setRawInput(e.target.value)}
-                className="w-full p-3 rounded-2xl border border-line-strong font-mono text-[11px]"
+                className="w-full p-3 rounded-control border border-line-strong bg-surface shadow-card focus:outline-none focus:border-brand focus:ring-4 focus:ring-brand-soft font-mono text-[11px]"
               />
               <button
                 onClick={handleDetectAndExamine}
-                className="w-full py-2.5 rounded-full bg-brand-deep text-white font-semibold cursor-pointer flex items-center justify-center space-x-2"
+                className="w-full h-9 rounded-control bg-brand hover:bg-brand-deep text-white text-[13px] font-semibold shadow-card cursor-pointer disabled:opacity-50 flex items-center justify-center space-x-2"
               >
                 <Sparkles className="w-4 h-4" />
                 <span>Detect File Type &amp; Inspect ASN.1</span>
               </button>
             </div>
 
-            <div className="lg:col-span-7 bg-surface-2 rounded-2xl p-5 border border-line select-text">
+            <div className="lg:col-span-7 bg-surface-2 rounded-card p-5 border border-line select-text">
               {detectResult ? (
                 <div className="space-y-3 text-[12.5px]">
                   <div className="flex items-center justify-between">
-                    <span className="text-[16px] font-bold text-brand-deep">
+                    <span className="text-[16px] font-semibold text-brand-deep">
                       {detectResult.detected_type}
                     </span>
-                    <span className="px-3 py-1 rounded-full bg-success-tint text-[#166534] text-[11.5px] font-bold">
+                    <span className="px-3 py-1 rounded-control bg-success-tint text-success text-[11.5px] font-semibold">
                       {detectResult.format}
                     </span>
                   </div>
                   <p className="text-muted">{detectResult.summary}</p>
-                  <pre className="bg-ink text-[#38BDF8] p-4 rounded-xl font-mono text-[11.5px] overflow-x-auto">
+                  <pre className="bg-term-bg text-term-fg p-4 rounded-control font-mono text-[11.5px] overflow-x-auto">
                     {JSON.stringify(detectResult.details, null, 2)}
                   </pre>
                 </div>
@@ -362,7 +339,7 @@ export const ExamineView: React.FC<ExamineViewProps> = ({
                 <select
                   value={leftEntry.id}
                   onChange={(e) => setLeftEntryId(e.target.value)}
-                  className="w-full h-10 px-3 rounded-xl border border-line-strong bg-white text-[13px] font-semibold"
+                  className="field"
                 >
                   {allCertEntries.map((e) => (
                     <option key={e.id} value={e.id}>
@@ -378,7 +355,7 @@ export const ExamineView: React.FC<ExamineViewProps> = ({
                 <select
                   value={rightEntry.id}
                   onChange={(e) => setRightEntryId(e.target.value)}
-                  className="w-full h-10 px-3 rounded-xl border border-line-strong bg-white text-[13px] font-semibold"
+                  className="field"
                 >
                   {allCertEntries.map((e) => (
                     <option key={e.id} value={e.id}>
@@ -389,7 +366,7 @@ export const ExamineView: React.FC<ExamineViewProps> = ({
               </div>
             </div>
 
-            <div className="border border-line rounded-2xl overflow-hidden text-[12.5px] select-text">
+            <div className="border border-line rounded-card overflow-hidden text-[12.5px] select-text">
               {[
                 { label: "Alias", l: leftEntry.alias, r: rightEntry.alias },
                 { label: "Entry Type", l: leftEntry.entry_type, r: rightEntry.entry_type },
@@ -405,7 +382,7 @@ export const ExamineView: React.FC<ExamineViewProps> = ({
                   <div
                     key={idx}
                     className={`grid grid-cols-12 border-b border-surface-3 p-3 items-center ${
-                      diff ? "bg-[#FEFCE8]/70" : "bg-white"
+                      diff ? "bg-warning-tint" : "bg-surface"
                     }`}
                   >
                     <div className="col-span-2 font-semibold text-muted">{row.label}</div>
@@ -420,6 +397,6 @@ export const ExamineView: React.FC<ExamineViewProps> = ({
           </div>
         )}
       </div>
-    </div>
+    </Page>
   );
 };

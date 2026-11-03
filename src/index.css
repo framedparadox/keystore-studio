@@ -6,46 +6,60 @@
  * instead of raw hex values.
  */
 @theme {
+  --font-sans: "Inter", ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial,
+    sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
   /* Text */
-  --color-ink: #0f172a;
-  --color-ink-2: #334155;
-  --color-muted: #475569;
-  --color-faint: #64748b;
-  --color-subtle: #94a3b8;
+  --color-ink: #101828;
+  --color-ink-2: #344054;
+  --color-muted: #475467;
+  --color-faint: #667085;
+  --color-subtle: #98a2b3;
 
   /* Surfaces */
-  --color-chrome: #dde5f0;
-  --color-canvas: #eef2f7;
+  --color-chrome: #ffffff;
+  --color-canvas: #f6f7f9;
   --color-surface: #ffffff;
-  --color-surface-2: #f8fafc;
-  --color-surface-3: #f1f5f9;
+  --color-surface-2: #f9fafb;
+  --color-surface-3: #f2f4f7;
 
   /* Borders */
-  --color-line: #e2e8f0;
-  --color-line-strong: #cbd5e1;
+  --color-line: #eaecf0;
+  --color-line-strong: #d0d5dd;
 
-  /* Brand */
+  /* Brand — the only accent hue */
   --color-brand: #2563eb;
-  --color-brand-deep: #0a3464;
-  --color-brand-deeper: #07274c;
-  --color-brand-soft: #c2e7ff;
-  --color-brand-soft-hover: #aedbff;
+  --color-brand-deep: #1d4ed8;
+  --color-brand-deeper: #1e40af;
+  --color-brand-soft: #dbeafe;
+  --color-brand-soft-hover: #bfdbfe;
   --color-brand-tint: #eff6ff;
 
-  /* Status */
-  --color-success: #059669;
-  --color-success-tint: #dcfce7;
-  --color-danger: #dc2626;
-  --color-danger-tint: #fee2e2;
+  /* Status — text-safe tones, tint backgrounds, and fills for meters/bars */
+  --color-success: #067647;
+  --color-success-tint: #ecfdf3;
+  --color-success-fill: #17b26a;
+  --color-warning: #b54708;
+  --color-warning-tint: #fffaeb;
+  --color-warning-fill: #fdb022;
+  --color-serious-fill: #ef6820;
+  --color-danger: #b42318;
+  --color-danger-tint: #fef3f2;
+  --color-danger-fill: #f04438;
 
   /* Terminal */
   --color-term-bg: #0b1220;
   --color-term-fg: #d6e2f5;
 
   /* Radius scale: control < card < panel */
-  --radius-control: 12px;
-  --radius-card: 20px;
-  --radius-panel: 24px;
+  --radius-control: 6px;
+  --radius-card: 10px;
+  --radius-panel: 12px;
+
+  /* Elevation */
+  --shadow-card: 0 1px 2px rgba(16, 24, 40, 0.05);
+  --shadow-pop: 0 12px 24px -6px rgba(16, 24, 40, 0.14), 0 4px 8px -4px rgba(16, 24, 40, 0.06);
 }
 
 @layer base {
@@ -55,15 +69,45 @@
   body {
     margin: 0;
     padding: 0;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-    background-color: var(--color-chrome);
+    font-family: var(--font-sans);
+    font-size: 13px;
+    background-color: var(--color-canvas);
     color: var(--color-ink-2);
     user-select: none;
     -webkit-user-select: none;
+    -webkit-font-smoothing: antialiased;
     overflow: hidden;
   }
   :focus-visible {
     outline: 2px solid var(--color-brand);
     outline-offset: 2px;
+  }
+  input,
+  select,
+  textarea {
+    font: inherit;
+  }
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--color-line-strong);
+    border: 3px solid transparent;
+    border-radius: 999px;
+    background-clip: padding-box;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+}
+
+@layer components {
+  /* Shared form-field look so legacy forms pick up the new style. */
+  .field {
+    @apply w-full h-9 px-3 rounded-control border border-line-strong bg-surface text-[13px] text-ink placeholder:text-subtle shadow-card transition focus:outline-none focus:border-brand focus:ring-4 focus:ring-brand-soft;
+  }
+  .label {
+    @apply block text-[12px] font-medium text-ink-2 mb-1.5;
   }
 }

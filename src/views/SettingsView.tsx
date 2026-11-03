@@ -1,6 +1,6 @@
 import React from "react";
 import { CheckCircle2, ShieldCheck, TerminalSquare } from "lucide-react";
-import { Button, Card, PageHeader } from "../components/ui";
+import { Button, Card, CardHeader, Page, PageHeader } from "../components/ui";
 import { TerminalHint, useTerminal } from "../components/Terminal";
 
 const PROVIDERS = [
@@ -16,15 +16,12 @@ export const SettingsView: React.FC = () => {
   const { open } = useTerminal();
 
   return (
-    <div className="flex-1 overflow-y-auto px-8 py-6">
+    <Page>
       <PageHeader title="Settings" description="Cryptographic providers, export location and the built-in terminal." />
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <Card className="space-y-3">
-          <div className="flex items-center gap-2 text-brand-deep font-semibold text-[15px]">
-            <ShieldCheck className="w-5 h-5 text-brand" />
-            Native cryptographic providers
-          </div>
+        <Card className="space-y-4">
+          <CardHeader title="Native cryptographic providers" icon={ShieldCheck} className="!mb-0" />
           <p className="text-[13px] text-muted leading-relaxed">
             All cryptography runs inside the bundled Rust engine, with no external runtime to install.
           </p>
@@ -39,8 +36,8 @@ export const SettingsView: React.FC = () => {
         </Card>
 
         <div className="space-y-4">
-          <Card className="space-y-3">
-            <h3 className="text-[15px] font-semibold text-ink">Export location</h3>
+          <Card className="space-y-4">
+            <CardHeader title="Export location" className="!mb-0" />
             <p className="text-[13px] text-muted">
               Exported certificates, keys, bundles, CSV inventories and keystore files are written to:
             </p>
@@ -50,8 +47,8 @@ export const SettingsView: React.FC = () => {
             <TerminalHint command="ls -la ~/Downloads/xkeystore_Exports" label="List exports" />
           </Card>
 
-          <Card className="space-y-3">
-            <h3 className="text-[15px] font-semibold text-ink">Terminal</h3>
+          <Card className="space-y-4">
+            <CardHeader title="Terminal" icon={TerminalSquare} className="!mb-0" />
             <p className="text-[13px] text-muted">
               A shell is built in. Toggle it anywhere with <kbd className="px-1.5 py-0.5 rounded bg-surface-3 font-mono text-[11px]">Ctrl+`</kbd>.
             </p>
@@ -61,6 +58,6 @@ export const SettingsView: React.FC = () => {
           </Card>
         </div>
       </div>
-    </div>
+    </Page>
   );
 };

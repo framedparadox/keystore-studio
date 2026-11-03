@@ -20,6 +20,18 @@ import {
   ExportPayloadResult,
 } from "./types/crypto";
 import { initialKeystores, initialWorkspaces } from "./data/mockData";
+import { entryHealth, flattenEntries } from "./lib/metrics";
+
+const PAGE_TITLES: Record<TabType, string> = {
+  home: "Dashboard",
+  workspaces: "Workspaces",
+  keystores: "Keystores",
+  ca_signing: "CA & Signing",
+  examine: "Examine",
+  scanner: "Security",
+  passwords: "Vaults",
+  settings: "Settings",
+};
 
 export const App: React.FC = () => {
   const [currentTab, setCurrentTab] = useState<TabType>("home");
@@ -147,34 +159,41 @@ export const App: React.FC = () => {
 
   const totalEntries = keystores.reduce((sum, k) => sum + k.entries.length, 0);
 
+  const atRiskCount = flattenEntries(keystores).filter(({ entry }) => entryHealth(entry) === "at-risk").length;
+  const activeWorkspace = workspaces.find((w) => w.id === activeWorkspaceId) ?? workspaces[0];
+  const openNewKeystore = () => {
+    setNewKeystoreFormat("PKCS12");
+    setIsNewKeystoreModalOpen(true);
+  };
+
   return (
     <TerminalProvider>
-    <div className="h-screen w-screen flex flex-col bg-chrome select-none overflow-hidden font-sans">
-      {/* Top Application Header */}
-      <Header
+    <div className="h-screen w-screen flex bg-canvas select-none overflow-hidden font-sans">
+      <Sidebar
+        currentTab={currentTab}
+        onSelectTab={setCurrentTab}
         workspaces={workspaces}
         activeWorkspaceId={activeWorkspaceId}
-        canUndo={history.length > 0}
-        canRedo={redoStack.length > 0}
-        onUndo={handleUndo}
-        onRedo={handleRedo}
-        onSelectTab={setCurrentTab}
         onSelectWorkspace={setActiveWorkspaceId}
-        onOpenNewKeystoreModal={() => {
-          setNewKeystoreFormat("PKCS12");
-          setIsNewKeystoreModalOpen(true);
+        counts={{
+          keystores: { value: keystores.length },
+          workspaces: { value: workspaces.length },
+          scanner: { value: atRiskCount, tone: "danger" },
         }}
       />
 
-      {/* Main Container: Left Navigation Rail + Rounded Workspace Container */}
-      <div className="flex-1 flex overflow-hidden">
-        <Sidebar
-          currentTab={currentTab}
-          onSelectTab={setCurrentTab}
+      <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
+        <Header
+          workspaceName={activeWorkspace?.name ?? "xkeystore"}
+          pageTitle={PAGE_TITLES[currentTab]}
+          canUndo={history.length > 0}
+          canRedo={redoStack.length > 0}
+          onUndo={handleUndo}
+          onRedo={handleRedo}
+          onOpenNewKeystoreModal={openNewKeystore}
         />
 
-        {/* Central Elevated Workspace Container */}
-        <main className="flex-1 mr-4 mb-3 bg-canvas rounded-[24px] border border-[#CFD8E3] shadow-[0_2px_10px_rgba(0,0,0,0.03)] flex flex-col overflow-hidden relative">
+        <main className="flex-1 min-h-0 flex flex-col overflow-hidden relative">
           {currentTab === "home" && (
             <HomeView
               keystores={keystores}
@@ -218,10 +237,7 @@ export const App: React.FC = () => {
               onSelectKeystore={setActiveKeystoreId}
               onUpdateKeystore={handleUpdateKeystore}
               onDeleteKeystore={handleDeleteKeystore}
-              onOpenNewKeystoreModal={() => {
-                setNewKeystoreFormat("PKCS12");
-                setIsNewKeystoreModalOpen(true);
-              }}
+              onOpenNewKeystoreModal={openNewKeystore}
               onRecordOp={handleRecordOp}
               workspaces={workspaces}
               onToggleEntryInWorkspace={handleToggleEntryInWorkspace}

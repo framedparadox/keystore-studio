@@ -9,36 +9,51 @@ All color comes from the `@theme` block in `src/index.css`. Use semantic utiliti
 | Role | Tokens |
 | --- | --- |
 | Text | `ink` (headings) · `ink-2` (body) · `muted` · `faint` (helper text) · `subtle` (icons, disabled) |
-| Surfaces | `chrome` (app frame) · `canvas` (page) · `surface` (cards) · `surface-2` / `surface-3` (wells, hover) |
+| Surfaces | `chrome` (sidebar) · `canvas` (page) · `surface` (cards, tables) · `surface-2` / `surface-3` (table headers, wells, hover) |
 | Borders | `line` (default) · `line-strong` (inputs, dashed drop targets) |
 | Brand | `brand` (links, icons, focus) · `brand-deep` (primary buttons) · `brand-soft` (selected) · `brand-tint` (hover wash) |
-| Status | `success` / `danger` and their `-tint` pairs. Status color is only for status. |
+| Status | `success` / `warning` / `danger` (text), their `-tint` (badge backgrounds) and `-fill` (meters, bars); `serious-fill` sits between warning and danger in charts. Status color is only for status and always ships with an icon or label. |
 | Terminal | `term-bg`, `term-fg` — the only dark surface in the app |
 
 ## 2. One accent
 `brand` is the only accent hue. Cards are not individually color-coded; icons are `text-brand`.
 
-## 3. Shape scale
-`rounded-control` (12px) for inputs/chips/rows · `rounded-card` (20px) for cards · `rounded-panel` (24px) for
-page-level containers and dialogs · `rounded-full` for buttons and badges.
+## 3. Shape and elevation
+`rounded-control` (6px) for buttons, inputs, badges and rows · `rounded-card` (10px) for cards and tiles ·
+`rounded-panel` (12px) for dialogs. `rounded-full` only for dots, meters and the score ring.
+`shadow-card` on resting surfaces, `shadow-pop` on menus, dialogs, toasts and hovered tiles.
 
 ## 4. Type scale
-Page title 28px bold · card title 15px semibold · body 12.5–13px · caption/badge 11px · code `font-mono`.
-Section labels are 13px uppercase `faint`.
+Page title 22px semibold · card title 14px semibold · body 13px · table header 11.5px uppercase `faint` ·
+caption/badge 11–12px · code `font-mono`. KPI values 28px semibold; one hero figure per page at most.
+Number columns use `tabular-nums`; standalone big numbers do not.
 
 ## 5. Components
-Build pages from `src/components/ui.tsx` — `PageHeader`, `Card`, `Button` (primary / secondary / ghost),
-`Badge`. Add a variant there rather than restyling one-off.
+Build pages from `src/components/ui.tsx`:
+
+- Layout: `Page`, `PageHeader`, `Card`, `CardHeader`, `SectionLabel`
+- Actions: `Button` (primary / secondary / ghost / danger), `IconButton` (always labelled)
+- Data: `DataTable` (sortable columns, sticky header, footer, empty state), `DescriptionList`, `Badge`, `EmptyState`
+- Figures: `KpiCard`, `Meter`, `SegmentedBar`, `BarList`, `ColumnChart`, `ScoreRing`
+- Inputs: `SearchInput`, `Segmented`, the `.field` / `.label` classes
+- Overlays: `Modal`, `useToast`
+
+Keystore entries are rendered with the atoms in `src/components/entry.tsx` (`EntryNameCell`, `AlgorithmCell`,
+`ExpiryCell`, `AgeCell`, `HealthBadge`) so every table reads the same. Derived numbers (days to expiry, key age,
+health, buckets, summary) come from `src/lib/metrics.ts`, never computed inline in a view.
+Add a variant to a primitive rather than restyling one-off.
 
 ## 6. Page layout
-Every page: `px-8 py-6` scroll container → `PageHeader` (title, one-line description, actions on the right) →
-content in a 12-col-style grid with `gap-4`. One primary button per page header.
+App shell: 240px `Sidebar` (brand, workspace switcher, grouped nav) + `Header` top bar (breadcrumb, undo/redo,
+terminal, New keystore). Every page: `Page` → `PageHeader` → a KPI strip of `KpiCard`s → bento content on a
+12-column grid with `gap-4` → full-width `DataTable` cards. Lists of records are tables, not card grids.
 
 ## 7. Interaction
 - Interactive cards use `<Card interactive>`; inner buttons stop propagation.
 - Every icon-only button has an `aria-label`.
 - Focus ring is global (`:focus-visible`); never remove it.
-- Destructive or overwriting actions confirm first.
+- Destructive or overwriting actions confirm first (a `Modal` with a danger button).
+- Table rows are clickable and keyboard-focusable; row actions sit in the last column and stop propagation.
 
 ## 8. Terminal
 Anywhere a task has a command-line equivalent, show a `<TerminalHint command="…" />`. It never runs on its

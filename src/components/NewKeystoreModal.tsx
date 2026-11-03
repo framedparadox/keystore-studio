@@ -105,11 +105,11 @@ export const NewKeystoreModal: React.FC<NewKeystoreModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4">
-      <div className="w-full max-w-lg bg-white rounded-3xl border border-line-strong shadow-2xl p-6 space-y-4">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/40 p-4">
+      <div className="w-full max-w-lg bg-surface rounded-panel border border-line-strong shadow-pop p-6 space-y-4">
         <div className="flex items-center justify-between pb-2 border-b border-line">
           <div className="flex items-center space-x-2.5">
-            <div className="w-9 h-9 rounded-full bg-brand-soft text-brand-deep flex items-center justify-center">
+            <div className="w-9 h-9 rounded-card border border-line bg-surface shadow-card text-ink-2 flex items-center justify-center">
               <FolderPlus className="w-4 h-4" />
             </div>
             <div>
@@ -137,13 +137,13 @@ export const NewKeystoreModal: React.FC<NewKeystoreModalProps> = ({
                     const base = name.replace(/\.[^/.]+$/, "");
                     setName(`${base}${f.ext}`);
                   }}
-                  className={`p-2.5 rounded-xl border text-left transition cursor-pointer ${
+                  className={`p-2.5 rounded-control border text-left transition cursor-pointer ${
                     format === f.id
                       ? "bg-brand-tint border-brand text-brand-deep"
-                      : "bg-white border-line-strong text-muted hover:bg-surface-2"
+                      : "bg-surface border-line-strong text-muted hover:bg-surface-2"
                   }`}
                 >
-                  <div className="font-bold text-[12.5px]">{f.id}</div>
+                  <div className="font-semibold text-[12.5px]">{f.id}</div>
                   <div className="text-[10.5px] text-faint truncate">{f.desc}</div>
                 </button>
               ))}
@@ -158,7 +158,7 @@ export const NewKeystoreModal: React.FC<NewKeystoreModalProps> = ({
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 required
-                className="w-full h-9 px-3 rounded-lg border border-line-strong"
+                className="field"
               />
             </div>
             <div>
@@ -167,7 +167,7 @@ export const NewKeystoreModal: React.FC<NewKeystoreModalProps> = ({
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="w-full h-9 px-3 rounded-lg border border-line-strong"
+                className="field"
               />
             </div>
           </div>
@@ -180,7 +180,7 @@ export const NewKeystoreModal: React.FC<NewKeystoreModalProps> = ({
                 value={initialAlias}
                 onChange={(e) => setInitialAlias(e.target.value)}
                 required
-                className="w-full h-9 px-3 rounded-lg border border-line-strong"
+                className="field"
               />
             </div>
             <div>
@@ -188,7 +188,7 @@ export const NewKeystoreModal: React.FC<NewKeystoreModalProps> = ({
               <select
                 value={alg}
                 onChange={(e) => setAlg(e.target.value)}
-                className="w-full h-9 px-3 rounded-lg border border-line-strong bg-white"
+                className="field"
               >
                 <option value="RSA">RSA-4096</option>
                 <option value="ECDSA">ECDSA P-256</option>
@@ -202,14 +202,14 @@ export const NewKeystoreModal: React.FC<NewKeystoreModalProps> = ({
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 text-muted hover:bg-surface-3 rounded-xl cursor-pointer"
+              className="px-4 py-2 text-muted hover:bg-surface-3 rounded-control cursor-pointer"
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={busy}
-              className="px-5 py-2 bg-brand-deep hover:bg-brand-deeper text-white font-semibold rounded-full shadow-xs cursor-pointer flex items-center space-x-1.5"
+              className="px-5 py-2 bg-brand hover:bg-brand-deep text-white font-semibold rounded-control shadow-card cursor-pointer flex items-center space-x-1.5"
             >
               <Sparkles className="w-3.5 h-3.5" />
               <span>{busy ? "Initializing in Rust..." : "Create KeyStore"}</span>

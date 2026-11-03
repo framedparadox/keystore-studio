@@ -7,8 +7,29 @@ import {
   RefreshCw,
   Zap,
   Lock,
+  CalendarClock,
+  Sparkles,
+  KeyRound,
 } from "lucide-react";
 import { KeystoreFile, KeystoreEntry, GenerateKeyPairInput } from "../types/crypto";
+import {
+  Button,
+  Card,
+  CardHeader,
+  Column,
+  DataTable,
+  EmptyState,
+  KpiCard,
+  Meter,
+  Page,
+  PageHeader,
+  ScoreRing,
+  Segmented,
+} from "../components/ui";
+import { AlgorithmCell, EntryNameCell, ExpiryCell, HealthBadge } from "../components/entry";
+import { daysUntilExpiry, entryHealth, formatDuration, isWeak, summarize } from "../lib/metrics";
+
+type FlatEntry = { entry: KeystoreEntry; ks: KeystoreFile };
 
 interface ScannerViewProps {
   keystores: KeystoreFile[];
@@ -28,13 +49,9 @@ export const ScannerView: React.FC<ScannerViewProps> = ({
     ks.entries.map((entry) => ({ ks, entry }))
   );
 
-  const weakEntries = allEntriesWithKs.filter((item) => item.entry.is_weak || item.entry.key_size < 2048 && item.entry.entry_type !== "SecretKey" && item.entry.algorithm === "RSA");
+  const weakEntries = allEntriesWithKs.filter((item) => isWeak(item.entry));
   const pqEntries = allEntriesWithKs.filter((item) => item.entry.is_post_quantum);
   const totalCount = allEntriesWithKs.length;
-  const healthScore = Math.max(
-    60,
-    Math.min(100, 100 - weakEntries.length * 12)
-  );
 
   const handleAutoRotateEntry = async (ks: KeystoreFile, entry: KeystoreEntry, targetAlg: string, targetBits: number) => {
     setBusyId(entry.id);
@@ -81,127 +98,179 @@ export const ScannerView: React.FC<ScannerViewProps> = ({
     }
   };
 
+  const [filter, setFilter] = useState<"issues" | "all" | "pqc">("issues");
+  const entries = allEntriesWithKs.map((f) => f.entry);
+  const sum = summarize(entries);
+  const issues = allEntriesWithKs.filter((f) => entryHealth(f.entry) !== "healthy");
+  const rows =
+    filter === "issues" ? issues : filter === "pqc" ? pqEntries : allEntriesWithKs;
+  const scoreTone = sum.healthScore >= 85 ? "success" : sum.healthScore >= 65 ? "warning" : "danger";
+  const RANK = { "at-risk": 0, attention: 1, healthy: 2 } as const;
+
+  const columns: Column<FlatEntry>[] = [
+    {
+      id: "entry",
+      header: "Entry",
+      width: "28%",
+      sortValue: (r) => r.entry.alias,
+      cell: (r) => <EntryNameCell entry={r.entry} meta={r.ks.name} />,
+    },
+    { id: "alg", header: "Algorithm", sortValue: (r) => r.entry.algorithm, cell: (r) => <AlgorithmCell entry={r.entry} /> },
+    {
+      id: "exp",
+      header: "Expires",
+      width: "210px",
+      sortValue: (r) => daysUntilExpiry(r.entry),
+      cell: (r) => <ExpiryCell entry={r.entry} />,
+    },
+    {
+      id: "finding",
+      header: "Finding",
+      sortValue: (r) => RANK[entryHealth(r.entry)],
+      cell: (r) => <HealthBadge entry={r.entry} />,
+    },
+    {
+      id: "fix",
+      header: "Remediation",
+      align: "right",
+      width: "260px",
+      cell: ({ ks, entry }) =>
+        entry.entry_type === "KeyPair" ? (
+          <div className="inline-flex items-center gap-1.5">
+            <Button
+              size="sm"
+              icon={RefreshCw}
+              disabled={busyId === entry.id}
+              onClick={() => handleAutoRotateEntry(ks, entry, "RSA", 4096)}
+              className={busyId === entry.id ? "[&_svg]:animate-spin" : undefined}
+            >
+              RSA-4096
+            </Button>
+            <Button
+              size="sm"
+              icon={Zap}
+              disabled={busyId === entry.id}
+              onClick={() => handleAutoRotateEntry(ks, entry, "ML-DSA-65", 1952)}
+            >
+              ML-DSA-65
+            </Button>
+          </div>
+        ) : entry.entry_type === "SecretKey" ? (
+          <span className="inline-flex items-center gap-1.5 text-[12px] text-faint">
+            <Lock className="w-3.5 h-3.5" /> Symmetric, no rotation needed
+          </span>
+        ) : (
+          <span className="text-[12px] text-faint">Replace via trust store import</span>
+        ),
+    },
+  ];
+
   return (
-    <div className="flex-1 flex flex-col overflow-hidden bg-canvas px-8 py-6 select-none">
+    <Page>
       {toast && (
-        <div className="fixed bottom-6 right-8 z-50 bg-ink text-white px-4 py-3 rounded-2xl shadow-xl flex items-center space-x-2 text-[13px]">
-          <CheckCircle2 className="w-4 h-4 text-[#34D399]" />
+        <div
+          role="status"
+          className="fixed bottom-6 right-6 z-[60] max-w-md flex items-start gap-2.5 bg-surface border border-line shadow-pop rounded-card px-4 py-3 text-[13px] text-ink"
+        >
+          <CheckCircle2 className="w-4 h-4 mt-0.5 text-success shrink-0" />
           <span>{toast}</span>
         </div>
       )}
 
-      <div className="flex items-center justify-between mb-5">
-        <div>
-          <h1 className="text-[28px] font-normal text-ink-2 tracking-tight">
-            Security Posture &amp; Automated Key Rotation
-          </h1>
-          <p className="text-[13px] text-faint">
-            Audits all loaded KeyStores and rotates weak or expiring keys in-place using native Rust cryptography.
-          </p>
-        </div>
-      </div>
+      <PageHeader
+        title="Security"
+        description="Audit every loaded keystore for weak, expired and expiring keys, and rotate them in place with the native engine."
+      />
 
-      {/* KPI Summary Row */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-5">
-        <div className="bg-white rounded-[22px] p-5 border border-line">
-          <span className="text-[12px] font-medium text-faint block">Compliance Score</span>
-          <div className="text-[34px] font-bold text-success mt-1">{healthScore}%</div>
-          <span className="text-[11.5px] text-faint">Across {totalCount} cryptographic entries</span>
-        </div>
-
-        <div className="bg-white rounded-[22px] p-5 border border-line">
-          <span className="text-[12px] font-medium text-faint block">Weak Keys (&lt; 2048-bit)</span>
-          <div className={`text-[34px] font-bold mt-1 ${weakEntries.length > 0 ? "text-danger" : "text-success"}`}>
-            {weakEntries.length}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
+        <Card className="lg:col-span-4 lg:row-span-2 flex flex-col">
+          <CardHeader title="Compliance score" subtitle={`Across ${totalCount} entries in ${keystores.length} keystores`} icon={ShieldCheck} />
+          <div className="flex-1 flex items-center gap-6">
+            <ScoreRing value={sum.healthScore} tone={scoreTone} size={128} label="Compliance score" />
+            <ul className="flex-1 space-y-3 text-[12.5px]">
+              <li className="flex items-center justify-between">
+                <span className="text-muted">Healthy</span>
+                <span className="font-semibold text-ink tabular-nums">{totalCount - issues.length}</span>
+              </li>
+              <li className="flex items-center justify-between">
+                <span className="text-muted">Needs attention</span>
+                <span className="font-semibold text-ink tabular-nums">{issues.length}</span>
+              </li>
+              <li className="flex items-center justify-between">
+                <span className="text-muted">Runtime dependencies</span>
+                <span className="font-semibold text-ink tabular-nums">0</span>
+              </li>
+            </ul>
           </div>
-          <span className="text-[11.5px] text-faint">
-            {weakEntries.length === 0 ? "All keys meet NIST 2030+" : "Ready for 1-click rotation"}
-          </span>
-        </div>
+          <p className="mt-4 pt-4 border-t border-line text-[12px] text-faint">
+            Score deducts fully for expired or weak keys and half for keys expiring within 90 days.
+          </p>
+        </Card>
 
-        <div className="bg-white rounded-[22px] p-5 border border-line">
-          <span className="text-[12px] font-medium text-faint block">Post-Quantum Ready</span>
-          <div className="text-[34px] font-bold text-brand mt-1">{pqEntries.length}</div>
-          <span className="text-[11.5px] text-faint">ML-DSA, ML-KEM &amp; AES-256</span>
-        </div>
-
-        <div className="bg-white rounded-[22px] p-5 border border-line">
-          <span className="text-[12px] font-medium text-faint block">Runtime Dependencies</span>
-          <div className="text-[34px] font-bold text-ink mt-1">0</div>
-          <span className="text-[11.5px] text-success font-medium">Runs fully offline</span>
-        </div>
+        <KpiCard
+          className="lg:col-span-4"
+          label="Weak keys"
+          value={weakEntries.length}
+          icon={AlertTriangle}
+          tone="danger"
+          hint={weakEntries.length ? "RSA below 2048 bits — rotate now" : "All keys meet NIST 2030+"}
+          hintTone={weakEntries.length ? "danger" : "success"}
+        />
+        <KpiCard
+          className="lg:col-span-4"
+          label="Expired or expiring ≤ 30 days"
+          value={sum.expired + sum.expiring30}
+          icon={CalendarClock}
+          tone="warning"
+          hint={`${sum.expired} expired · ${sum.expiring30} expiring`}
+          hintTone={sum.expired + sum.expiring30 ? "warning" : "success"}
+        />
+        <KpiCard
+          className="lg:col-span-4"
+          label="Post-quantum ready"
+          value={pqEntries.length}
+          icon={Sparkles}
+          tone="brand"
+          hint="ML-DSA, ML-KEM and 256-bit symmetric"
+        >
+          <Meter value={totalCount ? pqEntries.length / totalCount : 0} label="Share of post-quantum entries" />
+        </KpiCard>
+        <KpiCard
+          className="lg:col-span-4"
+          label="Oldest key"
+          value={formatDuration(sum.oldestAgeDays)}
+          icon={KeyRound}
+          hint={`Median ${formatDuration(sum.medianAgeDays)}`}
+        />
       </div>
 
-      {/* Interactive Audit Table with 1-Click Native Remediation */}
-      <div className="flex-1 bg-white rounded-[24px] border border-line p-6 overflow-y-auto space-y-3 shadow-2xs">
-        <h3 className="text-[15px] font-semibold text-ink mb-2">
-          Live KeyStore Entry Audit &amp; One-Click In-Place Rotation
-        </h3>
-
-        {allEntriesWithKs.map(({ ks, entry }) => {
-          const isWeak = entry.is_weak || (entry.algorithm === "RSA" && entry.key_size < 2048);
-          return (
-            <div
-              key={entry.id}
-              className={`p-4 rounded-2xl border flex flex-wrap items-center justify-between gap-4 ${
-                isWeak
-                  ? "bg-[#FEF2F2]/60 border-[#FCA5A5]"
-                  : "bg-surface-2 border-line"
-              }`}
-            >
-              <div className="space-y-1">
-                <div className="flex items-center space-x-2">
-                  <span
-                    className={`px-2.5 py-0.5 rounded-full text-[10.5px] font-bold ${
-                      isWeak
-                        ? "bg-danger-tint text-[#991B1B]"
-                        : entry.is_post_quantum
-                        ? "bg-[#DBEAFE] text-[#1E40AF]"
-                        : "bg-success-tint text-[#166534]"
-                    }`}
-                  >
-                    {isWeak ? "WEAK KEY WARNING" : entry.is_post_quantum ? "POST-QUANTUM SAFE" : "NIST COMPLIANT"}
-                  </span>
-                  <span className="text-[14.5px] font-semibold text-ink">{entry.alias}</span>
-                  <span className="text-[12px] text-faint">in {ks.name}</span>
-                </div>
-                <div className="text-[12px] text-muted">
-                  Current: <strong>{entry.algorithm} ({entry.key_size}-bit)</strong> • Expires: {entry.expiry_date}
-                </div>
-              </div>
-
-              {entry.entry_type === "KeyPair" && (
-                <div className="flex items-center space-x-2">
-                  <button
-                    onClick={() => handleAutoRotateEntry(ks, entry, "RSA", 4096)}
-                    disabled={busyId === entry.id}
-                    className="px-4 py-2 rounded-full bg-brand-deep hover:bg-brand-deeper text-white text-[12px] font-semibold flex items-center space-x-1.5 cursor-pointer"
-                  >
-                    <RefreshCw className={`w-3.5 h-3.5 ${busyId === entry.id ? "animate-spin" : ""}`} />
-                    <span>Rotate to RSA-4096</span>
-                  </button>
-
-                  <button
-                    onClick={() => handleAutoRotateEntry(ks, entry, "ML-DSA-65", 1952)}
-                    disabled={busyId === entry.id}
-                    className="px-4 py-2 rounded-full bg-brand-soft hover:bg-brand-soft-hover text-brand-deep text-[12px] font-semibold flex items-center space-x-1.5 cursor-pointer"
-                  >
-                    <Zap className="w-3.5 h-3.5" />
-                    <span>Upgrade to ML-DSA-65 (PQC)</span>
-                  </button>
-                </div>
-              )}
-
-              {entry.entry_type === "SecretKey" && (
-                <span className="flex items-center space-x-1 text-[12px] text-success font-semibold">
-                  <Lock className="w-3.5 h-3.5" />
-                  <span>256-Bit Symmetric Protected</span>
-                </span>
-              )}
-            </div>
-          );
-        })}
-      </div>
-    </div>
+      <Card padded={false} className="mt-4 overflow-hidden">
+        <div className="px-5 py-3 border-b border-line flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h3 className="text-[14px] font-semibold text-ink">Entry audit</h3>
+            <p className="text-[12px] text-faint">Rotation replaces the key in place and keeps its alias and labels.</p>
+          </div>
+          <Segmented
+            label="Audit filter"
+            value={filter}
+            onChange={setFilter}
+            options={[
+              { value: "issues", label: "Needs action", count: issues.length },
+              { value: "pqc", label: "Post-quantum", count: pqEntries.length },
+              { value: "all", label: "All", count: totalCount },
+            ]}
+          />
+        </div>
+        <DataTable<FlatEntry>
+          label="Entry audit"
+          columns={columns}
+          rows={rows.map((r) => ({ entry: r.entry, ks: r.ks }))}
+          rowKey={(r) => r.entry.id}
+          initialSort={{ id: "finding", dir: "asc" }}
+          empty={<EmptyState icon={CheckCircle2} title="Nothing to fix" description="Every entry in this view passes the audit." />}
+          footer={<span>{rows.length} of {totalCount} entries</span>}
+        />
+      </Card>
+    </Page>
   );
 };

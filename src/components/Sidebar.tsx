@@ -1,6 +1,7 @@
 import React from "react";
+import clsx from "clsx";
 import {
-  Home,
+  LayoutDashboard,
   Layers,
   FolderArchive,
   FileSignature,
@@ -8,127 +9,140 @@ import {
   ShieldCheck,
   KeyRound,
   Settings,
+  ChevronsUpDown,
 } from "lucide-react";
-import { TabType } from "../types/crypto";
+import { TabType, Workspace } from "../types/crypto";
 
 interface SidebarProps {
   currentTab: TabType;
   onSelectTab: (tab: TabType) => void;
+  workspaces: Workspace[];
+  activeWorkspaceId: string;
+  onSelectWorkspace: (id: string) => void;
+  counts: Partial<Record<TabType, { value: number; tone?: "neutral" | "danger" }>>;
 }
 
-export const Sidebar: React.FC<SidebarProps> = ({ currentTab, onSelectTab }) => {
-  const topNavItems: { id: TabType; label: string; icon: React.ElementType }[] = [
-    {
-      id: "home",
-      label: "Home",
-      icon: Home,
-    },
-    {
-      id: "workspaces",
-      label: "Workspaces",
-      icon: Layers,
-    },
-    {
-      id: "keystores",
-      label: "KeyStores",
-      icon: FolderArchive,
-    },
-    {
-      id: "ca_signing",
-      label: "CA & Sign",
-      icon: FileSignature,
-    },
-    {
-      id: "examine",
-      label: "Examine",
-      icon: SearchCode,
-    },
-    {
-      id: "scanner",
-      label: "Security",
-      icon: ShieldCheck,
-    },
-  ];
+type NavItem = { id: TabType; label: string; icon: React.ElementType };
 
-  const bottomNavItems: { id: TabType; label: string; icon: React.ElementType }[] = [
-    {
-      id: "passwords",
-      label: "Vaults",
-      icon: KeyRound,
-    },
-    {
-      id: "settings",
-      label: "Settings",
-      icon: Settings,
-    },
-  ];
+const GROUPS: { label?: string; items: NavItem[] }[] = [
+  { items: [{ id: "home", label: "Dashboard", icon: LayoutDashboard }] },
+  {
+    label: "Inventory",
+    items: [
+      { id: "keystores", label: "Keystores", icon: FolderArchive },
+      { id: "workspaces", label: "Workspaces", icon: Layers },
+      { id: "passwords", label: "Vaults", icon: KeyRound },
+    ],
+  },
+  {
+    label: "Operations",
+    items: [
+      { id: "ca_signing", label: "CA & Signing", icon: FileSignature },
+      { id: "examine", label: "Examine", icon: SearchCode },
+      { id: "scanner", label: "Security", icon: ShieldCheck },
+    ],
+  },
+];
+
+export const Sidebar: React.FC<SidebarProps> = ({
+  currentTab,
+  onSelectTab,
+  workspaces,
+  activeWorkspaceId,
+  onSelectWorkspace,
+  counts,
+}) => {
+  const NavButton: React.FC<{ item: NavItem }> = ({ item }) => {
+    const active = currentTab === item.id;
+    const count = counts[item.id];
+    const Icon = item.icon;
+    return (
+      <button
+        onClick={() => onSelectTab(item.id)}
+        aria-current={active ? "page" : undefined}
+        className={clsx(
+          "w-full h-8 px-2.5 rounded-control flex items-center gap-2.5 text-[13px] transition cursor-pointer",
+          active ? "bg-surface-3 text-ink font-semibold" : "text-muted font-medium hover:bg-surface-2 hover:text-ink"
+        )}
+      >
+        <Icon className={clsx("w-4 h-4 shrink-0", active ? "text-brand" : "text-subtle")} />
+        <span className="flex-1 text-left truncate">{item.label}</span>
+        {count && count.value > 0 && (
+          <span
+            className={clsx(
+              "min-w-5 h-5 px-1.5 rounded-full text-[11px] font-semibold tabular-nums flex items-center justify-center",
+              count.tone === "danger" ? "bg-danger-tint text-danger" : "bg-surface-3 text-faint"
+            )}
+          >
+            {count.value}
+          </span>
+        )}
+      </button>
+    );
+  };
 
   return (
-    <aside className="w-[88px] flex flex-col items-center justify-between py-3 px-1.5 select-none shrink-0">
-      {/* Top Primary Navigation Items */}
-      <div className="flex flex-col items-center space-y-2.5 w-full">
-        {topNavItems.map((item) => {
-          const isActive = currentTab === item.id;
-          const IconComponent = item.icon;
+    <aside className="w-[240px] shrink-0 h-full flex flex-col bg-chrome border-r border-line">
+      {/* Brand */}
+      <button
+        onClick={() => onSelectTab("home")}
+        className="h-14 px-5 flex items-center gap-2.5 cursor-pointer shrink-0"
+        aria-label="xkeystore dashboard"
+      >
+        <span className="w-7 h-7 rounded-control bg-brand flex items-center justify-center shadow-card">
+          <KeyRound className="w-4 h-4 text-white" />
+        </span>
+        <span className="font-semibold text-[15px] tracking-[-0.01em] text-ink">xkeystore</span>
+      </button>
 
-          return (
-            <button
-              key={item.id}
-              onClick={() => onSelectTab(item.id)}
-              className="flex flex-col items-center justify-center group cursor-pointer w-full focus:outline-none py-0.5"
-            >
-              <div
-                className={`w-13 h-8 rounded-full flex items-center justify-center transition-all duration-200 ${
-                  isActive
-                    ? "bg-brand-soft text-brand-deep shadow-2xs"
-                    : "text-muted group-hover:bg-line-strong/60 group-hover:text-ink"
-                }`}
-              >
-                <IconComponent className={`w-[18px] h-[18px] ${isActive ? "text-brand-deep" : "text-muted"}`} />
-              </div>
-              <span
-                className={`text-[11px] tracking-tight mt-1 text-center transition-colors ${
-                  isActive ? "text-brand-deep font-bold" : "text-muted font-medium group-hover:text-ink"
-                }`}
-              >
-                {item.label}
-              </span>
-            </button>
-          );
-        })}
+      {/* Workspace switcher */}
+      <div className="px-3 pb-3">
+        <label className="relative block">
+          <span className="sr-only">Active workspace</span>
+          <span className="absolute left-2.5 top-1/2 -translate-y-1/2 w-5 h-5 rounded-[4px] bg-brand-tint text-brand flex items-center justify-center pointer-events-none">
+            <Layers className="w-3 h-3" />
+          </span>
+          <select
+            value={activeWorkspaceId}
+            onChange={(e) => {
+              onSelectWorkspace(e.target.value);
+              onSelectTab("workspaces");
+            }}
+            className="appearance-none w-full h-9 pl-9 pr-7 rounded-control border border-line-strong bg-surface text-[12.5px] font-medium text-ink shadow-card truncate cursor-pointer focus:outline-none focus:border-brand"
+          >
+            {workspaces.map((ws) => (
+              <option key={ws.id} value={ws.id}>
+                {ws.name}
+              </option>
+            ))}
+          </select>
+          <ChevronsUpDown className="absolute right-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-subtle pointer-events-none" />
+        </label>
       </div>
 
-      {/* Bottom Utility Navigation Items: Vaults -> Settings */}
-      <div className="flex flex-col items-center space-y-2.5 w-full pt-3 border-t border-line-strong/80">
-        {bottomNavItems.map((item) => {
-          const isActive = currentTab === item.id;
-          const IconComponent = item.icon;
+      {/* Navigation */}
+      <nav className="flex-1 overflow-y-auto px-3 space-y-5 pt-1" aria-label="Primary">
+        {GROUPS.map((g, i) => (
+          <div key={i}>
+            {g.label && (
+              <div className="px-2.5 mb-1.5 text-[11px] font-semibold uppercase tracking-[0.06em] text-subtle">{g.label}</div>
+            )}
+            <div className="space-y-0.5">
+              {g.items.map((item) => (
+                <NavButton key={item.id} item={item} />
+              ))}
+            </div>
+          </div>
+        ))}
+      </nav>
 
-          return (
-            <button
-              key={item.id}
-              onClick={() => onSelectTab(item.id)}
-              className="flex flex-col items-center justify-center group cursor-pointer w-full focus:outline-none py-0.5"
-            >
-              <div
-                className={`w-13 h-8 rounded-full flex items-center justify-center transition-all duration-200 ${
-                  isActive
-                    ? "bg-brand-soft text-brand-deep shadow-2xs"
-                    : "text-muted group-hover:bg-line-strong/60 group-hover:text-ink"
-                }`}
-              >
-                <IconComponent className={`w-[18px] h-[18px] ${isActive ? "text-brand-deep" : "text-muted"}`} />
-              </div>
-              <span
-                className={`text-[11px] tracking-tight mt-1 text-center transition-colors ${
-                  isActive ? "text-brand-deep font-bold" : "text-muted font-medium group-hover:text-ink"
-                }`}
-              >
-                {item.label}
-              </span>
-            </button>
-          );
-        })}
+      {/* Footer */}
+      <div className="px-3 py-3 border-t border-line">
+        <NavButton item={{ id: "settings", label: "Settings", icon: Settings }} />
+        <div className="mt-2 px-2.5 flex items-center gap-2 text-[11.5px] text-faint">
+          <span className="w-1.5 h-1.5 rounded-full bg-success-fill" />
+          Native Rust engine · offline
+        </div>
       </div>
     </aside>
   );
