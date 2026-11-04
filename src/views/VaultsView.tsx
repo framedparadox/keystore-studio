@@ -1,8 +1,34 @@
 import React, { useMemo, useState } from "react";
-import { Eye, EyeOff, FolderArchive, Lock, LockOpen, ShieldCheck, Unlock } from "lucide-react";
+import { Check, Copy, Eye, EyeOff, FolderArchive, Lock, LockOpen, ShieldCheck, Unlock } from "lucide-react";
 import { KeystoreEntry, KeystoreFile } from "../types/crypto";
 import { Badge, Button, Card, Column, DataTable, KpiCard, Page, PageHeader, Segmented } from "../components/ui";
 import { EntryNameCell, EntryTypeBadge } from "../components/entry";
+
+const STORE_PASS = "changeit#2026";
+const KEY_PASS = "unlocked-key-pass";
+
+const CopyButton: React.FC<{ value: string; label: string }> = ({ value, label }) => {
+  const [copied, setCopied] = useState(false);
+  const copy = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    navigator.clipboard?.writeText(value).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1200);
+    });
+  };
+  const Icon = copied ? Check : Copy;
+  return (
+    <button
+      type="button"
+      onClick={copy}
+      aria-label={label}
+      title={label}
+      className="w-7 h-7 rounded-control flex items-center justify-center text-subtle hover:text-ink hover:bg-surface-3 cursor-pointer"
+    >
+      <Icon className="w-3.5 h-3.5" />
+    </button>
+  );
+};
 
 interface VaultsViewProps {
   keystores: KeystoreFile[];
@@ -35,32 +61,32 @@ export const VaultsView: React.FC<VaultsViewProps> = ({ keystores, onUpdateKeyst
     {
       id: "pass",
       header: "Key passphrase",
-      cell: () => <span className="font-mono text-[12px] text-muted select-text">{mask("unlocked-key-pass")}</span>,
+      cell: () => (
+        <span className="inline-flex items-center gap-1">
+          <span className="font-mono text-[12px] text-muted select-text">{mask(KEY_PASS)}</span>
+          <CopyButton value={KEY_PASS} label="Copy key passphrase" />
+        </span>
+      ),
     },
     {
       id: "state",
-      header: "State",
+      header: "Lock / Unlock",
       sortValue: (r) => (r.entry.locked ? 0 : 1),
-      cell: (r) =>
-        r.entry.locked ? (
-          <Badge tone="warning" icon={Lock}>
-            Locked
-          </Badge>
-        ) : (
-          <Badge tone="success" icon={Unlock}>
-            Unlocked
-          </Badge>
-        ),
-    },
-    {
-      id: "act",
-      header: <span className="sr-only">Actions</span>,
-      align: "right",
-      width: "120px",
       cell: (r) => (
-        <Button size="sm" icon={r.entry.locked ? LockOpen : Lock} onClick={() => toggle(r)}>
-          {r.entry.locked ? "Unlock" : "Lock"}
-        </Button>
+        <div className="inline-flex items-center gap-3">
+          {r.entry.locked ? (
+            <Badge tone="warning" icon={Lock}>
+              Locked
+            </Badge>
+          ) : (
+            <Badge tone="success" icon={Unlock}>
+              Unlocked
+            </Badge>
+          )}
+          <Button size="sm" icon={r.entry.locked ? LockOpen : Lock} onClick={() => toggle(r)}>
+            {r.entry.locked ? "Unlock" : "Lock"}
+          </Button>
+        </div>
       ),
     },
   ];
@@ -77,37 +103,37 @@ export const VaultsView: React.FC<VaultsViewProps> = ({ keystores, onUpdateKeyst
         }
       />
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <KpiCard label="Password-protected stores" value={`${protectedStores}/${keystores.length}`} icon={ShieldCheck} tone="success" hint="Stores requiring a passphrase to open" />
-        <KpiCard label="Locked entries" value={locked} icon={Lock} tone="warning" hint="Hidden from export and signing" />
-        <KpiCard label="Unlocked entries" value={rows.length - locked} icon={Unlock} hint="Available to every operation" />
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 mt-4">
-        {keystores.map((ks) => (
-          <Card key={ks.id} className="!p-4">
-            <div className="flex items-center gap-3">
-              <span className="w-9 h-9 rounded-control bg-surface-3 text-muted flex items-center justify-center shrink-0">
-                <FolderArchive className="w-[18px] h-[18px]" />
-              </span>
-              <div className="min-w-0 flex-1">
-                <div className="text-[13px] font-semibold text-ink truncate">{ks.name}</div>
-                <div className="text-[12px] text-faint">
-                  {ks.entries.filter((e) => e.locked).length} of {ks.entries.length} entries locked
+      <Card padded={false} className="overflow-hidden">
+        <div className="px-5 py-3 border-b border-line">
+          <h3 className="text-[14px] font-semibold text-ink">Store passphrases</h3>
+          <p className="text-[12px] text-faint">Passphrase required to open each loaded keystore.</p>
+        </div>
+        <div className="p-4 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+          {keystores.map((ks) => (
+            <div key={ks.id} className="rounded-card border border-line bg-surface p-4">
+              <div className="flex items-center gap-3">
+                <span className="w-9 h-9 rounded-control bg-surface-3 text-muted flex items-center justify-center shrink-0">
+                  <FolderArchive className="w-[18px] h-[18px]" />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <div className="text-[13px] font-semibold text-ink truncate">{ks.name}</div>
+                  <div className="text-[12px] text-faint">
+                    {ks.entries.filter((e) => e.locked).length} of {ks.entries.length} entries locked
+                  </div>
                 </div>
+                <Badge tone="brand">{ks.format}</Badge>
               </div>
-              <Badge tone="brand">{ks.format}</Badge>
+              <div className="mt-3 flex items-center justify-between gap-2 rounded-control bg-surface-2 border border-line pl-3 pr-1 h-9">
+                <span className="text-[12px] text-faint">Store passphrase</span>
+                <span className="flex items-center gap-1">
+                  <span className="font-mono text-[12px] text-ink select-text">{mask(STORE_PASS)}</span>
+                  <CopyButton value={STORE_PASS} label="Copy store passphrase" />
+                </span>
+              </div>
             </div>
-            <div className="mt-3 flex items-center justify-between rounded-control bg-surface-2 border border-line px-3 h-9">
-              <span className="text-[12px] text-faint">Store passphrase</span>
-              <span className="font-mono text-[12px] text-ink select-text">{mask("changeit#2026")}</span>
-            </div>
-          </Card>
-        ))}
-      </div>
-
-      <Card padded={false} className="mt-4 overflow-hidden">
-        <div className="px-5 py-3 border-b border-line flex items-center justify-between gap-3">
+          ))}
+        </div>
+        <div className="px-5 py-3 border-y border-line flex items-center justify-between gap-3">
           <div>
             <h3 className="text-[14px] font-semibold text-ink">Entries</h3>
             <p className="text-[12px] text-faint">Lock an entry to keep it out of exports and signing.</p>
@@ -132,6 +158,12 @@ export const VaultsView: React.FC<VaultsViewProps> = ({ keystores, onUpdateKeyst
           footer={<span>{visible.length} of {rows.length} entries</span>}
         />
       </Card>
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
+        <KpiCard label="Password-protected stores" value={`${protectedStores}/${keystores.length}`} icon={ShieldCheck} tone="success" hint="Stores requiring a passphrase to open" />
+        <KpiCard label="Locked entries" value={locked} icon={Lock} tone="warning" hint="Hidden from export and signing" />
+        <KpiCard label="Unlocked entries" value={rows.length - locked} icon={Unlock} hint="Available to every operation" />
+      </div>
     </Page>
   );
 };

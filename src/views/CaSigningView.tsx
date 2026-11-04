@@ -302,7 +302,7 @@ export const CaSigningView: React.FC<CaSigningViewProps> = ({
       </div>
 
       {/* Main Content Card */}
-      <div className="bg-surface rounded-card border border-line p-6 grid grid-cols-1 lg:grid-cols-12 gap-6 shadow-card">
+      <div className="bg-surface rounded-card border border-line p-6 grid grid-cols-1 lg:grid-cols-12 gap-6 shadow-card min-h-[640px]">
         {toolTab === "csr" && (
           <>
             <div className="lg:col-span-5 space-y-4">

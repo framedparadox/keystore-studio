@@ -9,7 +9,6 @@ import {
   ShieldCheck,
   KeyRound,
   Settings,
-  ChevronsUpDown,
 } from "lucide-react";
 import { TabType, Workspace } from "../types/crypto";
 
@@ -47,9 +46,6 @@ const GROUPS: { label?: string; items: NavItem[] }[] = [
 export const Sidebar: React.FC<SidebarProps> = ({
   currentTab,
   onSelectTab,
-  workspaces,
-  activeWorkspaceId,
-  onSelectWorkspace,
   counts,
 }) => {
   const NavButton: React.FC<{ item: NavItem }> = ({ item }) => {
@@ -94,31 +90,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </span>
         <span className="font-semibold text-[15px] tracking-[-0.01em] text-ink">xkeystore</span>
       </button>
-
-      {/* Workspace switcher */}
-      <div className="px-3 pb-3">
-        <label className="relative block">
-          <span className="sr-only">Active workspace</span>
-          <span className="absolute left-2.5 top-1/2 -translate-y-1/2 w-5 h-5 rounded-[4px] bg-brand-tint text-brand flex items-center justify-center pointer-events-none">
-            <Layers className="w-3 h-3" />
-          </span>
-          <select
-            value={activeWorkspaceId}
-            onChange={(e) => {
-              onSelectWorkspace(e.target.value);
-              onSelectTab("workspaces");
-            }}
-            className="appearance-none w-full h-9 pl-9 pr-7 rounded-control border border-line-strong bg-surface text-[12.5px] font-medium text-ink shadow-card truncate cursor-pointer focus:outline-none focus:border-brand"
-          >
-            {workspaces.map((ws) => (
-              <option key={ws.id} value={ws.id}>
-                {ws.name}
-              </option>
-            ))}
-          </select>
-          <ChevronsUpDown className="absolute right-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-subtle pointer-events-none" />
-        </label>
-      </div>
 
       {/* Navigation */}
       <nav className="flex-1 overflow-y-auto px-3 space-y-5 pt-1" aria-label="Primary">

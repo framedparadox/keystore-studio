@@ -51,7 +51,6 @@ import {
   Segmented,
 } from "../components/ui";
 import {
-  AgeCell,
   AlgorithmCell,
   EntryNameCell,
   EntryTypeBadge,
@@ -59,9 +58,73 @@ import {
   HealthBadge,
   LabelList,
 } from "../components/entry";
-import { daysUntilExpiry, entryHealth, formatDuration, keyAgeDays, summarize } from "../lib/metrics";
+import { daysUntilExpiry, entryHealth, formatDuration, summarize } from "../lib/metrics";
 
 type TypeFilter = "ALL" | "KeyPair" | "TrustedCertificate" | "SecretKey";
+
+const cnOf = (dn: string) => dn.match(/(?:^|,\s*)CN=([^,]+)/i)?.[1]?.trim() ?? "";
+
+const CopyIcon: React.FC<{ value: string; label: string }> = ({ value, label }) => {
+  const [copied, setCopied] = useState(false);
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      title={label}
+      onClick={() =>
+        navigator.clipboard?.writeText(value).then(() => {
+          setCopied(true);
+          setTimeout(() => setCopied(false), 1200);
+        })
+      }
+      className="w-6 h-6 rounded-control inline-flex items-center justify-center text-subtle hover:text-ink hover:bg-surface-3 cursor-pointer"
+    >
+      {copied ? <CheckCircle2 className="w-3.5 h-3.5 text-success" /> : <Copy className="w-3.5 h-3.5" />}
+    </button>
+  );
+};
+
+const CodeBlock: React.FC<{ label: string; value: string; copyValue?: string; wrap?: boolean }> = ({
+  label,
+  value,
+  copyValue,
+  wrap,
+}) => (
+  <div>
+    <div className="flex items-center justify-between mb-1">
+      <span className="text-[11px] font-semibold uppercase text-faint">{label}</span>
+      <CopyIcon value={copyValue ?? value} label={`Copy ${label}`} />
+    </div>
+    <pre
+      className={clsx(
+        "bg-term-bg text-term-fg p-3.5 rounded-control font-mono text-[11px]",
+        wrap ? "break-all whitespace-pre-wrap" : "overflow-x-auto"
+      )}
+    >
+      {value}
+    </pre>
+  </div>
+);
+
+const DetailTable: React.FC<{ rows: { label: string; value: string; mono?: boolean; copy?: string }[] }> = ({ rows }) => (
+  <table className="w-full border border-line rounded-card overflow-hidden border-separate border-spacing-0 text-[12.5px]">
+    <tbody>
+      {rows.map((r) => (
+        <tr key={r.label}>
+          <th scope="row" className="w-[34%] align-top text-left font-medium text-faint bg-surface-2 border-b border-line px-3 py-2">
+            {r.label}
+          </th>
+          <td className={clsx("align-top border-b border-line px-3 py-2 text-ink break-all", r.mono && "font-mono text-[11.5px]")}>
+            <div className="flex items-start justify-between gap-2">
+              <span>{r.value}</span>
+              {r.copy !== undefined && r.copy !== "" && <CopyIcon value={r.copy} label={`Copy ${r.label}`} />}
+            </div>
+          </td>
+        </tr>
+      ))}
+    </tbody>
+  </table>
+);
 
 interface KeystoresViewProps {
   keystores: KeystoreFile[];
@@ -116,7 +179,7 @@ export const KeystoresView: React.FC<KeystoresViewProps> = ({
   >(null);
 
   const [selectedEntry, setSelectedEntry] = useState<KeystoreEntry | null>(null);
-  const [inspectTab, setInspectTab] = useState<"cert" | "extensions" | "private" | "public" | "chain">("cert");
+  const [inspectTab, setInspectTab] = useState<"cert" | "pem" | "extensions" | "private" | "public" | "chain">("cert");
   const [csrData, setCsrData] = useState<CsrResult | null>(null);
   const [exportResult, setExportResult] = useState<ExportPayloadResult | null>(null);
   const [toastMsg, setToastMsg] = useState<string | null>(null);
@@ -509,17 +572,25 @@ export const KeystoresView: React.FC<KeystoresViewProps> = ({
       cell: (e) => <EntryTypeBadge type={e.entry_type} />,
     },
     {
+      id: "ext",
+      header: "Extensions",
+      sortValue: (e) => e.certificate_chain[0]?.extensions.length ?? 0,
+      cell: (e) => {
+        const exts = e.certificate_chain[0]?.extensions ?? [];
+        return exts.length ? (
+          <span className="text-ink-2" title={exts.map((x) => x.name).join(", ")}>
+            {exts.length} {exts.length === 1 ? "extension" : "extensions"}
+          </span>
+        ) : (
+          <span className="text-subtle">—</span>
+        );
+      },
+    },
+    {
       id: "alg",
       header: "Algorithm",
       sortValue: (e) => e.algorithm,
       cell: (e) => <AlgorithmCell entry={e} />,
-    },
-    {
-      id: "age",
-      header: "Key age",
-      hideBelow: "lg",
-      sortValue: (e) => keyAgeDays(e),
-      cell: (e) => <AgeCell entry={e} />,
     },
     {
       id: "expiry",
@@ -707,28 +778,6 @@ export const KeystoresView: React.FC<KeystoresViewProps> = ({
         })}
       </div>
 
-      {/* KPI strip for the active keystore */}
-      <div className="grid grid-cols-2 xl:grid-cols-4 gap-4 mt-4">
-        <KpiCard label="Entries" value={ksSummary.total} hint={`${typeCounts.KeyPair} key pairs · ${typeCounts.TrustedCertificate} certs · ${typeCounts.SecretKey} secrets`} />
-        <KpiCard
-          label="Expiring in 90 days"
-          value={ksSummary.expiring90}
-          hint={ksSummary.expiring30 ? `${ksSummary.expiring30} within 30 days` : "None within 30 days"}
-          hintTone={ksSummary.expiring30 ? "warning" : "neutral"}
-        />
-        <KpiCard
-          label="Needs action"
-          value={ksSummary.expired + ksSummary.weak}
-          hint={`${ksSummary.expired} expired · ${ksSummary.weak} weak`}
-          hintTone={ksSummary.expired + ksSummary.weak ? "danger" : "success"}
-        />
-        <KpiCard
-          label="Median key age"
-          value={formatDuration(ksSummary.medianAgeDays)}
-          hint={`Oldest ${formatDuration(ksSummary.oldestAgeDays)}`}
-        />
-      </div>
-
       {/* Entries */}
       <Card padded={false} className="mt-4 overflow-hidden flex flex-col">
         <div className="px-5 py-3 border-b border-line flex flex-wrap items-center gap-3">
@@ -862,6 +911,28 @@ export const KeystoresView: React.FC<KeystoresViewProps> = ({
           </div>
         )}
       </Card>
+
+      {/* KPI strip for the active keystore */}
+      <div className="grid grid-cols-2 xl:grid-cols-4 gap-4 mt-4">
+        <KpiCard label="Entries" value={ksSummary.total} hint={`${typeCounts.KeyPair} key pairs · ${typeCounts.TrustedCertificate} certs · ${typeCounts.SecretKey} secrets`} />
+        <KpiCard
+          label="Expiring in 90 days"
+          value={ksSummary.expiring90}
+          hint={ksSummary.expiring30 ? `${ksSummary.expiring30} within 30 days` : "None within 30 days"}
+          hintTone={ksSummary.expiring30 ? "warning" : "neutral"}
+        />
+        <KpiCard
+          label="Needs action"
+          value={ksSummary.expired + ksSummary.weak}
+          hint={`${ksSummary.expired} expired · ${ksSummary.weak} weak`}
+          hintTone={ksSummary.expired + ksSummary.weak ? "danger" : "success"}
+        />
+        <KpiCard
+          label="Median key age"
+          value={formatDuration(ksSummary.medianAgeDays)}
+          hint={`Oldest ${formatDuration(ksSummary.oldestAgeDays)}`}
+        />
+      </div>
 
       <Modal
         open={pendingDelete !== null}
@@ -1269,7 +1340,7 @@ export const KeystoresView: React.FC<KeystoresViewProps> = ({
           ==================================================================== */}
       {activeModal === "inspect_entry" && selectedEntry && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/40 p-4">
-          <div className="w-full max-w-2xl bg-surface rounded-panel border border-line-strong shadow-pop p-6 max-h-[88vh] flex flex-col">
+          <div className="w-full max-w-[682px] bg-surface rounded-panel border border-line-strong shadow-pop p-6 max-h-[88vh] flex flex-col">
             <div className="flex items-center justify-between pb-3 border-b border-line">
               <div>
                 <span className="text-[11px] font-semibold uppercase tracking-wider text-brand">
@@ -1293,6 +1364,14 @@ export const KeystoresView: React.FC<KeystoresViewProps> = ({
                     }`}
                   >
                     X.509 Certificate
+                  </button>
+                  <button
+                    onClick={() => setInspectTab("pem")}
+                    className={`px-3.5 py-1.5 rounded-control text-[12px] font-semibold cursor-pointer ${
+                      inspectTab === "pem" ? "bg-brand-soft text-brand-deep" : "bg-surface-3 text-muted"
+                    }`}
+                  >
+                    PEM
                   </button>
                   <button
                     onClick={() => setInspectTab("extensions")}
@@ -1328,60 +1407,25 @@ export const KeystoresView: React.FC<KeystoresViewProps> = ({
             <div className="flex-1 overflow-y-auto py-4 space-y-3 text-[12.5px] select-text">
               {inspectTab === "cert" && (
                 <>
-                  <div className="grid grid-cols-2 gap-3 bg-surface-2 p-4 rounded-card border border-line">
-                    <div>
-                      <span className="text-faint block text-[11px]">Subject DN</span>
-                      <span className="font-mono text-ink font-medium">{selectedEntry.subject}</span>
-                    </div>
-                    <div>
-                      <span className="text-faint block text-[11px]">Issuer DN</span>
-                      <span className="font-mono text-ink">{selectedEntry.issuer}</span>
-                    </div>
-                    <div>
-                      <span className="text-faint block text-[11px]">Serial Number</span>
-                      <span className="font-mono text-ink">{selectedEntry.serial_number}</span>
-                    </div>
-                    <div>
-                      <span className="text-faint block text-[11px]">Algorithm &amp; Key Size</span>
-                      <span className="font-semibold text-ink">
-                        {selectedEntry.algorithm} ({selectedEntry.key_size} bits)
-                      </span>
-                    </div>
-                    <div>
-                      <span className="text-faint block text-[11px]">Created</span>
-                      <span className="text-ink">{selectedEntry.creation_date}</span>
-                    </div>
-                    <div>
-                      <span className="text-faint block text-[11px]">Expires</span>
-                      <span className="text-ink">{selectedEntry.expiry_date}</span>
-                    </div>
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <span className="text-[11px] font-semibold uppercase text-faint block">
-                      SHA-256 &amp; SHA-1 Fingerprints
-                    </span>
-                    <div className="p-2.5 bg-surface-2 border border-line rounded-control font-mono text-[11px] break-all">
-                      <div>
-                        <strong>SHA-256:</strong> {selectedEntry.sha256_fingerprint}
-                      </div>
-                      <div className="mt-1 text-muted">
-                        <strong>SHA-1:</strong> {selectedEntry.sha1_fingerprint}
-                      </div>
-                    </div>
-                  </div>
-
-                  {selectedEntry.certificate_chain[0] && (
-                    <div>
-                      <span className="text-[11px] font-semibold uppercase text-faint block mb-1">
-                        PEM Encoded Certificate
-                      </span>
-                      <pre className="bg-term-bg text-term-fg p-3 rounded-control font-mono text-[11px] overflow-x-auto max-h-40">
-                        {selectedEntry.certificate_chain[0].pem}
-                      </pre>
-                    </div>
-                  )}
+                  <DetailTable
+                    rows={[
+                      { label: "Subject CN", value: cnOf(selectedEntry.subject), mono: true, copy: cnOf(selectedEntry.subject) },
+                      { label: "Subject DN", value: selectedEntry.subject, mono: true, copy: selectedEntry.subject },
+                      { label: "Issuer CN", value: cnOf(selectedEntry.issuer), mono: true, copy: cnOf(selectedEntry.issuer) },
+                      { label: "Issuer DN", value: selectedEntry.issuer, mono: true, copy: selectedEntry.issuer },
+                      { label: "Serial Number", value: selectedEntry.serial_number, mono: true, copy: selectedEntry.serial_number },
+                      { label: "Algorithm & Key Size", value: `${selectedEntry.algorithm} (${selectedEntry.key_size} bits)` },
+                      { label: "Created", value: selectedEntry.creation_date },
+                      { label: "Expires", value: selectedEntry.expiry_date },
+                      { label: "SHA-256", value: selectedEntry.sha256_fingerprint, mono: true, copy: selectedEntry.sha256_fingerprint },
+                      { label: "SHA-1", value: selectedEntry.sha1_fingerprint, mono: true, copy: selectedEntry.sha1_fingerprint },
+                    ].filter((r) => r.value !== "")}
+                  />
                 </>
+              )}
+
+              {inspectTab === "pem" && selectedEntry.certificate_chain[0] && (
+                <CodeBlock label="PEM Encoded Certificate" value={selectedEntry.certificate_chain[0].pem} />
               )}
 
               {inspectTab === "extensions" && (
@@ -1409,37 +1453,24 @@ export const KeystoresView: React.FC<KeystoresViewProps> = ({
 
               {inspectTab === "public" && (
                 <div className="space-y-3">
-                  <div>
-                    <span className="text-[11px] font-semibold uppercase text-faint block mb-1">
-                      SubjectPublicKeyInfo (PEM)
-                    </span>
-                    <pre className="bg-term-bg text-term-fg p-3.5 rounded-control font-mono text-[11px] overflow-x-auto">
-                      {selectedEntry.public_key_pem || "Public key embedded in X.509 certificate."}
-                    </pre>
-                  </div>
+                  <CodeBlock
+                    label="SubjectPublicKeyInfo (PEM)"
+                    value={selectedEntry.public_key_pem || "Public key embedded in X.509 certificate."}
+                    copyValue={selectedEntry.public_key_pem ?? undefined}
+                  />
                 </div>
               )}
 
               {inspectTab === "private" && (
                 <div className="space-y-3">
                   {selectedEntry.entry_type === "SecretKey" ? (
-                    <div>
-                      <span className="text-[11px] font-semibold uppercase text-faint block mb-1">
-                        Raw Symmetric Key Material (Hexadecimal)
-                      </span>
-                      <pre className="bg-term-bg text-term-fg p-3.5 rounded-control font-mono text-[12px] break-all whitespace-pre-wrap">
-                        {selectedEntry.secret_key_hex}
-                      </pre>
-                    </div>
+                    <CodeBlock
+                      label="Raw Symmetric Key Material (Hexadecimal)"
+                      value={selectedEntry.secret_key_hex ?? ""}
+                      wrap
+                    />
                   ) : (
-                    <div>
-                      <span className="text-[11px] font-semibold uppercase text-faint block mb-1">
-                        PKCS#8 Private Key (PEM)
-                      </span>
-                      <pre className="bg-term-bg text-term-fg p-3.5 rounded-control font-mono text-[11px] overflow-x-auto">
-                        {selectedEntry.private_key_pem}
-                      </pre>
-                    </div>
+                    <CodeBlock label="PKCS#8 Private Key (PEM)" value={selectedEntry.private_key_pem ?? ""} />
                   )}
                 </div>
               )}
@@ -1449,10 +1480,11 @@ export const KeystoresView: React.FC<KeystoresViewProps> = ({
               {onToggleEntryInWorkspace ? (
                 <button
                   onClick={() => setActiveModal("assign_workspace")}
-                  className="px-4 py-2 rounded-control bg-brand-tint hover:bg-brand-soft text-brand-deep text-[12.5px] font-semibold flex items-center space-x-1.5 cursor-pointer"
+                  className="w-9 h-9 rounded-control bg-brand-tint hover:bg-brand-soft text-brand-deep flex items-center justify-center cursor-pointer"
+                  aria-label="Assign to workspace"
+                  title="Assign to workspace"
                 >
                   <Layers className="w-4 h-4" />
-                  <span>Assign to Workspace...</span>
                 </button>
               ) : (
                 <div />

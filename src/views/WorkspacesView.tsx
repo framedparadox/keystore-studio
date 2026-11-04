@@ -343,38 +343,6 @@ export const WorkspacesView: React.FC<WorkspacesViewProps> = ({
 
       {activeWorkspace && (
         <>
-          <div className="grid grid-cols-2 xl:grid-cols-4 gap-4 mt-4">
-            <KpiCard label="Assigned entries" value={wsSummary.total} icon={Layers} tone="brand" hint={`From ${new Set(workspaceEntries.map((x) => x.keystore.id)).size} keystores`} />
-            <KpiCard
-              label="Key pairs / trusted certs"
-              value={
-                <>
-                  {stats.keyPairs}
-                  <span className="text-subtle font-normal mx-1">/</span>
-                  {stats.trustedCerts}
-                </>
-              }
-              icon={KeyRound}
-              hint={`${wsSummary.secrets} secret keys`}
-            />
-            <KpiCard
-              label="Expiring in 90 days"
-              value={wsSummary.expiring90}
-              icon={CalendarClock}
-              tone="warning"
-              hint={wsSummary.expiring30 ? `${wsSummary.expiring30} within 30 days` : "None within 30 days"}
-              hintTone={wsSummary.expiring30 ? "warning" : "neutral"}
-            />
-            <KpiCard
-              label="Policy alerts"
-              value={stats.warnings}
-              icon={AlertTriangle}
-              tone="danger"
-              hint={stats.warnings ? "Weak or expired entries" : "No weak or expired entries"}
-              hintTone={stats.warnings ? "danger" : "success"}
-            />
-          </div>
-
           <Card padded={false} className="mt-4 overflow-hidden">
             <div className="px-5 py-3 border-b border-line flex flex-wrap items-center justify-between gap-3">
               <div className="min-w-0">
@@ -413,6 +381,38 @@ export const WorkspacesView: React.FC<WorkspacesViewProps> = ({
               footer={<span>{workspaceEntries.length} of {activeWorkspace.entryIds.length} entries</span>}
             />
           </Card>
+
+          <div className="grid grid-cols-2 xl:grid-cols-4 gap-4 mt-4">
+            <KpiCard label="Assigned entries" value={wsSummary.total} icon={Layers} tone="brand" hint={`From ${new Set(workspaceEntries.map((x) => x.keystore.id)).size} keystores`} />
+            <KpiCard
+              label="Key pairs / trusted certs"
+              value={
+                <>
+                  {stats.keyPairs}
+                  <span className="text-subtle font-normal mx-1">/</span>
+                  {stats.trustedCerts}
+                </>
+              }
+              icon={KeyRound}
+              hint={`${wsSummary.secrets} secret keys`}
+            />
+            <KpiCard
+              label="Expiring in 90 days"
+              value={wsSummary.expiring90}
+              icon={CalendarClock}
+              tone="warning"
+              hint={wsSummary.expiring30 ? `${wsSummary.expiring30} within 30 days` : "None within 30 days"}
+              hintTone={wsSummary.expiring30 ? "warning" : "neutral"}
+            />
+            <KpiCard
+              label="Policy alerts"
+              value={stats.warnings}
+              icon={AlertTriangle}
+              tone="danger"
+              hint={stats.warnings ? "Weak or expired entries" : "No weak or expired entries"}
+              hintTone={stats.warnings ? "danger" : "success"}
+            />
+          </div>
         </>
       )}
 
