@@ -40,9 +40,9 @@ import {
   Card,
   Column,
   DataTable,
-  DescriptionList,
   EmptyState,
   IconButton,
+  KeyValueTable,
   KpiCard,
   Modal,
   Page,
@@ -111,10 +111,10 @@ const DetailTable: React.FC<{ rows: { label: string; value: string; mono?: boole
     <tbody>
       {rows.map((r) => (
         <tr key={r.label}>
-          <th scope="row" className="w-[34%] align-top text-left font-medium text-faint bg-surface-2 border-b border-line px-3 py-2">
+          <th scope="row" className="w-[34%] align-top text-left font-medium text-faint bg-surface-2 border-b border-line px-3.5 py-3.5">
             {r.label}
           </th>
-          <td className={clsx("align-top border-b border-line px-3 py-2 text-ink break-all", r.mono && "font-mono text-[11.5px]")}>
+          <td className={clsx("align-top border-b border-line px-3.5 py-3.5 text-ink break-all", r.mono && "font-mono text-[11.5px]")}>
             <div className="flex items-start justify-between gap-2">
               <span>{r.value}</span>
               {r.copy !== undefined && r.copy !== "" && <CopyIcon value={r.copy} label={`Copy ${r.label}`} />}
@@ -952,7 +952,7 @@ export const KeystoresView: React.FC<KeystoresViewProps> = ({
         title="Keystore properties"
         description={activeKs.path}
       >
-        <DescriptionList
+        <KeyValueTable
           items={[
             { label: "File name", value: activeKs.name },
             { label: "Provider", value: "xkeystore native Rust core" },

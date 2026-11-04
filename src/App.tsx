@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { Header } from "./components/Header";
 import { Sidebar } from "./components/Sidebar";
@@ -12,6 +12,7 @@ import { VaultsView } from "./views/VaultsView";
 import { SettingsView } from "./views/SettingsView";
 import { TerminalProvider } from "./components/Terminal";
 import { NewKeystoreModal } from "./components/NewKeystoreModal";
+import { VaultLockScreen } from "./components/VaultLockScreen";
 import {
   TabType,
   KeystoreFile,
@@ -53,6 +54,40 @@ export const App: React.FC = () => {
   const [isNewKeystoreModalOpen, setIsNewKeystoreModalOpen] = useState(false);
   const [newKeystoreFormat, setNewKeystoreFormat] = useState<KeystoreFormat>("PKCS12");
   const [examineSeed, setExamineSeed] = useState<string | null>(null);
+
+  // Vault gate: only the Vaults tab (and its secrets) sit behind the master key. The rest of
+  // the app — dashboard, keystores, CA signing, examine, security, settings — is usable
+  // immediately; "loading" is a brief check of vault_status on mount, then "setup" (no vault
+  // file yet) or "locked" (vault exists but not unlocked) until the master key is verified,
+  // then "unlocked".
+  const [vaultState, setVaultState] = useState<"loading" | "locked" | "setup" | "unlocked">(
+    "loading"
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    invoke<{ exists: boolean; unlocked: boolean }>("vault_status")
+      .then((status) => {
+        if (cancelled) return;
+        if (!status.exists) {
+          setVaultState("setup");
+        } else if (status.unlocked) {
+          setVaultState("unlocked");
+        } else {
+          setVaultState("locked");
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setVaultState("locked");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const handleLockVault = () => {
+    invoke("vault_lock").finally(() => setVaultState("locked"));
+  };
 
   const pushState = (nextKeystores: KeystoreFile[]) => {
     setHistory((prev) => [...prev.slice(-19), keystores]);
@@ -191,6 +226,8 @@ export const App: React.FC = () => {
           onUndo={handleUndo}
           onRedo={handleRedo}
           onOpenNewKeystoreModal={openNewKeystore}
+          onLockVault={handleLockVault}
+          showLockVault={currentTab === "passwords" && vaultState === "unlocked"}
         />
 
         <main className="flex-1 min-h-0 flex flex-col overflow-hidden relative">
@@ -271,7 +308,15 @@ export const App: React.FC = () => {
             />
           )}
 
-          {currentTab === "passwords" && (
+          {currentTab === "passwords" && vaultState !== "unlocked" && (
+            <VaultLockScreen
+              mode={vaultState === "setup" ? "setup" : "unlock"}
+              onUnlocked={() => setVaultState("unlocked")}
+              inline
+            />
+          )}
+
+          {currentTab === "passwords" && vaultState === "unlocked" && (
             <VaultsView keystores={keystores} onUpdateKeystore={handleUpdateKeystore} />
           )}
 

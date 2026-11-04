@@ -709,6 +709,42 @@ export const DescriptionList: React.FC<{ items: { label: string; value: React.Re
   </dl>
 );
 
+/** Proper two-column table (left key, right value) for property/detail panes, as opposed to
+ * DescriptionList's stacked-label grid. Rows get generous vertical padding for readability. */
+export const KeyValueTable: React.FC<{ items: { label: string; value: React.ReactNode; mono?: boolean }[] }> = ({
+  items,
+}) => (
+  <table className="w-full border border-line rounded-card overflow-hidden border-separate border-spacing-0 text-[13px]">
+    <tbody>
+      {items.map((i, idx) => {
+        const isLast = idx === items.length - 1;
+        return (
+          <tr key={i.label}>
+            <th
+              scope="row"
+              className={clsx(
+                "w-[38%] align-top text-left font-medium text-faint bg-surface-2 px-3.5 py-3",
+                !isLast && "border-b border-line"
+              )}
+            >
+              {i.label}
+            </th>
+            <td
+              className={clsx(
+                "align-top px-3.5 py-3 text-ink break-words select-text",
+                !isLast && "border-b border-line",
+                i.mono && "font-mono text-[12px]"
+              )}
+            >
+              {i.value}
+            </td>
+          </tr>
+        );
+      })}
+    </tbody>
+  </table>
+);
+
 /* -------------------------------------------------------------------------- */
 /* Overlays                                                                    */
 /* -------------------------------------------------------------------------- */

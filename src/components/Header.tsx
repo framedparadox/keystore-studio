@@ -1,5 +1,5 @@
 import React from "react";
-import { Plus, TerminalSquare } from "lucide-react";
+import { Lock, Plus, TerminalSquare } from "lucide-react";
 import { useTerminal } from "./Terminal";
 import { Button } from "./ui";
 
@@ -11,6 +11,8 @@ interface HeaderProps {
   onUndo: () => void;
   onRedo: () => void;
   onOpenNewKeystoreModal: () => void;
+  onLockVault: () => void;
+  showLockVault?: boolean;
 }
 
 /** Top bar of the content area: breadcrumb on the left, global actions on the right. */
@@ -22,6 +24,8 @@ export const Header: React.FC<HeaderProps> = ({
   onUndo,
   onRedo,
   onOpenNewKeystoreModal,
+  onLockVault,
+  showLockVault = false,
 }) => {
   const { toggle: toggleTerminal } = useTerminal();
 
@@ -32,6 +36,11 @@ export const Header: React.FC<HeaderProps> = ({
       </nav>
 
       <div className="flex items-center gap-2">
+        {showLockVault && (
+          <Button icon={Lock} onClick={onLockVault} title="Lock vault">
+            Lock vault
+          </Button>
+        )}
         <Button icon={TerminalSquare} onClick={toggleTerminal} title="Toggle terminal (Ctrl+`)">
           Terminal
         </Button>
