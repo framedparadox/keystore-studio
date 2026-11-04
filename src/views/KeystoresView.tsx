@@ -572,21 +572,6 @@ export const KeystoresView: React.FC<KeystoresViewProps> = ({
       cell: (e) => <EntryTypeBadge type={e.entry_type} />,
     },
     {
-      id: "ext",
-      header: "Extensions",
-      sortValue: (e) => e.certificate_chain[0]?.extensions.length ?? 0,
-      cell: (e) => {
-        const exts = e.certificate_chain[0]?.extensions ?? [];
-        return exts.length ? (
-          <span className="text-ink-2" title={exts.map((x) => x.name).join(", ")}>
-            {exts.length} {exts.length === 1 ? "extension" : "extensions"}
-          </span>
-        ) : (
-          <span className="text-subtle">—</span>
-        );
-      },
-    },
-    {
       id: "alg",
       header: "Algorithm",
       sortValue: (e) => e.algorithm,
@@ -819,8 +804,8 @@ export const KeystoresView: React.FC<KeystoresViewProps> = ({
             value={subView}
             onChange={setSubView}
             options={[
-              { value: "list", label: <><List className="w-3.5 h-3.5" /> Table</> },
-              { value: "graph", label: <><Network className="w-3.5 h-3.5" /> Hierarchy</> },
+              { value: "list", label: <List className="w-3.5 h-3.5" aria-label="Table view" /> },
+              { value: "graph", label: <Network className="w-3.5 h-3.5" aria-label="Hierarchy view" /> },
             ]}
           />
         </div>

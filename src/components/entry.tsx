@@ -63,9 +63,6 @@ export const AlgorithmCell: React.FC<{ entry: KeystoreEntry }> = ({ entry }) => 
       <span className="text-ink font-medium">{entry.algorithm}</span>
       {entry.is_post_quantum && <Badge tone="brand">PQC</Badge>}
     </div>
-    <div className="text-[12px] text-faint tabular-nums">
-      {entry.key_size.toLocaleString()} bit{entry.curve ? ` · ${entry.curve.split(" ")[0]}` : ""}
-    </div>
   </div>
 );
 

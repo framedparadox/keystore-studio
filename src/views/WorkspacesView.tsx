@@ -11,8 +11,6 @@ import {
   Eye,
   Download,
   Copy,
-  FolderArchive,
-  ArrowUpRight,
   CheckCircle2,
   FolderPlus,
   Filter,
@@ -206,25 +204,6 @@ export const WorkspacesView: React.FC<WorkspacesViewProps> = ({
       width: "30%",
       sortValue: (r) => r.entry.alias,
       cell: (r) => <EntryNameCell entry={r.entry} />,
-    },
-    {
-      id: "ks",
-      header: "Source keystore",
-      sortValue: (r) => r.keystore.name,
-      cell: ({ keystore }) => (
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            onSelectKeystore(keystore.id);
-            onNavigateTab("keystores");
-          }}
-          className="inline-flex items-center gap-1.5 text-muted hover:text-brand cursor-pointer"
-        >
-          <FolderArchive className="w-3.5 h-3.5 text-subtle" />
-          <span className="truncate max-w-[180px]">{keystore.name}</span>
-          <ArrowUpRight className="w-3 h-3 text-subtle" />
-        </button>
-      ),
     },
     { id: "alg", header: "Algorithm", sortValue: (r) => r.entry.algorithm, cell: (r) => <AlgorithmCell entry={r.entry} /> },
     {
