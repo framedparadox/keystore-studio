@@ -683,15 +683,9 @@ pub fn decode_pkcs12(bytes: &[u8], password: &str) -> Result<KeystoreFile, Strin
 
     for ci in content_infos {
         let safe_contents_der = match ci {
-            DecodedContentInfo::Data(bytes) => {
-                eprintln!("DEBUG ContentInfo::Data len={} first20={:?}", bytes.len(), &bytes[..bytes.len().min(20)]);
-                bytes
-            }
+            DecodedContentInfo::Data(bytes) => bytes,
             DecodedContentInfo::EncryptedData { salt, iv, iterations, ciphertext } => {
-                eprintln!("DEBUG ContentInfo::EncryptedData ciphertext_len={} salt_len={} iv_len={} iters={}", ciphertext.len(), salt.len(), iv.len(), iterations);
-                let pt = pbes2_decrypt(password, &ciphertext, &salt, &iv, iterations)?;
-                eprintln!("DEBUG decrypted len={} first20={:?}", pt.len(), &pt[..pt.len().min(20)]);
-                pt
+                pbes2_decrypt(password, &ciphertext, &salt, &iv, iterations)?
             }
         };
 
@@ -700,31 +694,12 @@ pub fn decode_pkcs12(bytes: &[u8], password: &str) -> Result<KeystoreFile, Strin
         yasna::parse_der(&safe_contents_der, |reader| {
             reader.read_sequence_of(|reader| {
                 let der = reader.read_der()?;
-                if let Ok(dir) = std::env::var("XKS_DUMP_DIR") {
-                    let path = format!("{}/xks_bag_{}.der", dir, der.len());
-                    match std::fs::write(&path, &der) {
-                        Ok(_) => eprintln!("DEBUG wrote {}", path),
-                        Err(e) => eprintln!("DEBUG write failed for {}: {}", path, e),
-                    }
-                }
-                let cert_err = match yasna::parse_der(&der, read_safe_bag_cert) {
-                    Ok(bag) => {
-                        let key_id = bag.attrs.local_key_id.clone().unwrap_or_default();
-                        certs_by_key_id.push((key_id, bag));
-                        None
-                    }
-                    Err(e) => Some(e),
-                };
-                if let Some(cert_err) = cert_err {
-                    match yasna::parse_der(&der, read_safe_bag_key) {
-                        Ok(bag) => {
-                            let key_id = bag.attrs.local_key_id.clone().unwrap_or_default();
-                            keys_by_key_id.push((key_id, bag));
-                        }
-                        Err(key_err) => {
-                            eprintln!("DEBUG neither cert nor key bag shape matched: cert_err={cert_err:?} key_err={key_err:?} der_len={}", der.len());
-                        }
-                    }
+                if let Ok(bag) = yasna::parse_der(&der, read_safe_bag_cert) {
+                    let key_id = bag.attrs.local_key_id.clone().unwrap_or_default();
+                    certs_by_key_id.push((key_id, bag));
+                } else if let Ok(bag) = yasna::parse_der(&der, read_safe_bag_key) {
+                    let key_id = bag.attrs.local_key_id.clone().unwrap_or_default();
+                    keys_by_key_id.push((key_id, bag));
                 }
                 Ok(())
             })
@@ -983,168 +958,5 @@ mod tests {
         assert_eq!(decoded.entries.len(), 1);
         assert_eq!(decoded.entries[0].entry_type, "TrustedCertificate");
         assert_eq!(normalize_pem(&decoded.entries[0].certificate_chain[0].pem), normalize_pem(&original_cert));
-    }
-}
-
-#[cfg(test)]
-mod debug_tests {
-    use super::*;
-
-    #[test]
-    fn debug_cert_bag_roundtrip() {
-        let cert_der = vec![0xAAu8; 50];
-        let key_id = vec![0xBBu8; 20];
-        let bag_der = yasna::construct_der(|writer| {
-            write_cert_bag(writer, &cert_der, "myalias", &key_id);
-        });
-        eprintln!("bag_der = {:?}", bag_der);
-        let result = yasna::parse_der(&bag_der, read_safe_bag_cert);
-        match &result {
-            Ok(bag) => eprintln!("OK: cert_der_len={} friendly={:?} key_id={:?}", bag.cert_der.len(), bag.attrs.friendly_name, bag.attrs.local_key_id),
-            Err(e) => eprintln!("ERR: {:?}", e),
-        }
-        assert!(result.is_ok());
-    }
-
-    #[test]
-    fn debug_raw_yasna_write_set_sort_order() {
-        // Two SEQUENCE elements of different lengths, same tag - does write_set sort them
-        // ascending by length as the DERWriterSet::next() sort comparator implies?
-        let der = yasna::construct_der(|writer| {
-            writer.write_set(|writer| {
-                writer.next().write_sequence(|writer| {
-                    writer.next().write_bytes(&[0xAAu8; 41 - 2]); // long content -> long elem
-                });
-                writer.next().write_sequence(|writer| {
-                    writer.next().write_bytes(&[0xBBu8; 35 - 2]); // shorter content
-                });
-            });
-        });
-        eprintln!("raw set der = {}", der.iter().map(|b| format!("{:02X}", b)).collect::<String>());
-    }
-
-    #[test]
-    fn debug_minimal_set_of_order() {
-        let der = yasna::construct_der(|writer| {
-            write_bag_attributes(writer, "p12-roundtrip", &[0u8; 20]);
-        });
-        eprintln!("attrs der len = {} hex = {}", der.len(), der.iter().map(|b| format!("{:02X}", b)).collect::<String>());
-        let elems: Vec<Vec<u8>> = yasna::parse_der(&der, |reader| {
-            let mut v = Vec::new();
-            reader.read_sequence_of(|r| { v.push(r.read_der()?); Ok(()) })?;
-            // Note: using read_sequence_of (no order check) just to dump elements, since
-            // the der here is actually a SET tag (0x31) not SEQUENCE (0x30) - adjust below.
-            Ok(v)
-        }).unwrap_or_default();
-        eprintln!("elems via seq_of (wrong tag, expect err) = {}", elems.len());
-        // Manually strip the outer SET tag+len and dump both inner element byte strings.
-        eprintln!("first byte (tag) = {:#04X}", der[0]);
-        let result: ASN1Result<()> = yasna::parse_der(&der, |reader| {
-            reader.read_set_of(|r| {
-                let bytes = r.read_der()?;
-                eprintln!("set element hex = {}", bytes.iter().map(|b| format!("{:02X}", b)).collect::<String>());
-                Ok(())
-            })
-        });
-        eprintln!("minimal set_of result = {:?}", result);
-        assert!(result.is_ok());
-    }
-
-    #[test]
-    fn debug_parse_dumped_file() {
-        let dir = std::env::var("XKS_DUMP_DIR").unwrap_or_else(|_| "/tmp".to_string());
-        for entry in std::fs::read_dir(&dir).unwrap() {
-            let entry = entry.unwrap();
-            let path = entry.path();
-            let data = std::fs::read(&path).unwrap();
-            eprintln!("--- {:?} len={} ---", path, data.len());
-            let cert_result = yasna::parse_der(&data, read_safe_bag_cert);
-            eprintln!("cert_result: {:?}", cert_result.as_ref().map(|b| (b.cert_der.len(), &b.attrs.friendly_name)).map_err(|e| e.clone()));
-            let key_result = yasna::parse_der(&data, read_safe_bag_key);
-            eprintln!("key_result: {:?}", key_result.as_ref().map(|b| (b.encrypted_private_key_info_der.len(), &b.attrs.friendly_name)).map_err(|e| e.clone()));
-        }
-    }
-
-    #[test]
-    fn debug_real_fixture_bag_roundtrip() {
-        use crate::crypto::{create_keystore_keypair_entry, GenerateKeyPairInput};
-        let input = GenerateKeyPairInput {
-            alias: "dbg".to_string(),
-            algorithm: "RSA".to_string(),
-            key_size: 2048,
-            curve: None,
-            common_name: "dbg.example.com".to_string(),
-            organization: "Test".to_string(),
-            organizational_unit: "".to_string(),
-            locality: "".to_string(),
-            state: "".to_string(),
-            country: "US".to_string(),
-            email: "".to_string(),
-            validity_days: 365,
-            is_ca: false,
-            sans: vec![],
-            key_usage: vec![],
-            extended_key_usage: vec![],
-            signer_alias: None,
-            labels: vec![],
-        };
-        let entry = create_keystore_keypair_entry(&input, None).unwrap();
-        let cert_der = pem_to_der(&entry.certificate_chain[0].pem).unwrap();
-        eprintln!("real cert_der len = {}", cert_der.len());
-        let key_id = sha1_of(&cert_der);
-        let bag_der = yasna::construct_der(|writer| {
-            write_cert_bag(writer, &cert_der, &entry.alias, &key_id);
-        });
-        eprintln!("real bag_der len = {}", bag_der.len());
-        let result = yasna::parse_der(&bag_der, read_safe_bag_cert);
-        match &result {
-            Ok(bag) => eprintln!("OK: cert_der_len={}", bag.cert_der.len()),
-            Err(e) => eprintln!("ERR: {:?}", e),
-        }
-        assert!(result.is_ok());
-
-        // Now the key side.
-        let priv_pem = entry.private_key_pem.clone().unwrap();
-        let pkcs8_der = pem_to_der(&priv_pem).unwrap();
-        eprintln!("pkcs8_der len = {}", pkcs8_der.len());
-        let shrouded = shroud_private_key("testpw", &pkcs8_der).unwrap();
-        eprintln!("shrouded len = {}", shrouded.len());
-        let key_bag_der = yasna::construct_der(|writer| {
-            write_key_bag(writer, &shrouded, &entry.alias, &key_id);
-        });
-        eprintln!("key_bag_der len = {}", key_bag_der.len());
-        let key_result = yasna::parse_der(&key_bag_der, read_safe_bag_key);
-        match &key_result {
-            Ok(_) => eprintln!("KEY OK"),
-            Err(e) => eprintln!("KEY ERR: {:?}", e),
-        }
-        assert!(key_result.is_ok());
-    }
-
-    #[test]
-    fn debug_safe_contents_roundtrip() {
-        let cert_der = vec![0xAAu8; 50];
-        let key_id = vec![0xBBu8; 20];
-        let bag_der = yasna::construct_der(|writer| {
-            write_cert_bag(writer, &cert_der, "myalias", &key_id);
-        });
-        let safe_contents = yasna::construct_der(|writer| {
-            writer.write_sequence_of(|writer| {
-                writer.next().write_der(&bag_der);
-            });
-        });
-        eprintln!("safe_contents = {:?}", safe_contents);
-        let result: Result<usize, _> = yasna::parse_der(&safe_contents, |reader| {
-            let mut count = 0usize;
-            reader.read_sequence_of(|reader| {
-                let der = reader.read_der()?;
-                eprintln!("inner der len={} bytes={:?}", der.len(), &der[..der.len().min(10)]);
-                count += 1;
-                Ok(())
-            })?;
-            Ok(count)
-        });
-        eprintln!("result = {:?}", result);
-        assert_eq!(result.unwrap(), 1);
     }
 }
