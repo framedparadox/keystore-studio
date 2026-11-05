@@ -1,276 +1,289 @@
-import React, { useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
-import {
-  ShieldCheck,
-  AlertTriangle,
-  CheckCircle2,
-  RefreshCw,
-  Zap,
-  Lock,
-  CalendarClock,
-  Sparkles,
-  KeyRound,
-} from "lucide-react";
-import { KeystoreFile, KeystoreEntry, GenerateKeyPairInput } from "../types/crypto";
-import {
-  Button,
-  Card,
-  CardHeader,
-  Column,
-  DataTable,
-  EmptyState,
-  KpiCard,
-  Meter,
-  Page,
-  PageHeader,
-  ScoreRing,
-  Segmented,
-} from "../components/ui";
-import { AlgorithmCell, EntryNameCell, ExpiryCell, HealthBadge } from "../components/entry";
-import { daysUntilExpiry, entryHealth, formatDuration, isWeak, summarize } from "../lib/metrics";
+import React, { useMemo, useState } from "react";
+import clsx from "clsx";
+import { AlertTriangle, CalendarClock, CheckCircle2, FileText, KeyRound, Link2Off, RefreshCw, RotateCcw, ShieldCheck } from "lucide-react";
+import type { KeystoreEntry, OpenKeystore } from "../types/crypto";
+import { api, errorMessage } from "../lib/api";
+import { pickSavePath } from "../lib/files";
+import { cnOf, isCaEntry } from "../lib/keystore";
+import { Finding, daysUntilExpiry, entryHealth, findingsFor, formatDuration, summarize } from "../lib/metrics";
+import { useStore } from "../state/store";
+import { Alert, Badge, Button, Card, CardHeader, Column, DataTable, EmptyState, KpiCard, Modal, Page, PageHeader, ScoreRing, Segmented, Select, Spinner, useToast } from "../components/ui";
+import { AlgorithmCell, EntryNameCell, ExpiryCell } from "../components/entry";
 
-type FlatEntry = { entry: KeystoreEntry; ks: KeystoreFile };
-
-interface ScannerViewProps {
-  keystores: KeystoreFile[];
-  onUpdateKeystore: (updated: KeystoreFile) => void;
-  onRecordOp: (increment?: number, isSig?: boolean) => void;
+interface Row {
+  entry: KeystoreEntry;
+  ks: OpenKeystore;
+  findings: Finding[];
 }
 
-export const ScannerView: React.FC<ScannerViewProps> = ({
-  keystores,
-  onUpdateKeystore,
-  onRecordOp,
-}) => {
-  const [busyId, setBusyId] = useState<string | null>(null);
-  const [toast, setToast] = useState<string | null>(null);
+const SEVERITY_TONE = { critical: "danger", high: "danger", medium: "warning", low: "neutral" } as const;
+const SEVERITY_RANK = { critical: 0, high: 1, medium: 2, low: 3 } as const;
 
-  const allEntriesWithKs = keystores.flatMap((ks) =>
-    ks.entries.map((entry) => ({ ks, entry }))
-  );
-
-  const weakEntries = allEntriesWithKs.filter((item) => isWeak(item.entry));
-  const pqEntries = allEntriesWithKs.filter((item) => item.entry.is_post_quantum);
-  const totalCount = allEntriesWithKs.length;
-
-  const handleAutoRotateEntry = async (ks: KeystoreFile, entry: KeystoreEntry, targetAlg: string, targetBits: number) => {
-    setBusyId(entry.id);
+const RotateDialog: React.FC<{ row: Row | null; onClose: () => void }> = ({ row, onClose }) => {
+  const { keystores, replaceEntry } = useStore();
+  const toast = useToast();
+  const [spec, setSpec] = useState("ECDSA:P-256");
+  const [busy, setBusy] = useState(false);
+  const issuer = useMemo(() => {
+    if (!row) return null;
+    const leaf = row.entry.certificate_chain[0];
+    if (!leaf || leaf.self_signed) return null;
+    for (const ks of keystores) for (const e of ks.entries) if (isCaEntry(e) && e.subject === row.entry.issuer && e.id !== row.entry.id) return { entry: e, ks };
+    return null;
+  }, [row, keystores]);
+  if (!row) return null;
+  const leaf = row.entry.certificate_chain[0];
+  const selfSigned = !!leaf?.self_signed;
+  const run = async () => {
+    setBusy(true);
     try {
-      const input: GenerateKeyPairInput = {
-        alias: entry.alias,
-        algorithm: targetAlg,
-        key_size: targetBits,
-        curve: targetAlg === "ECDSA" ? "secp256r1 (P-256)" : null,
-        common_name: entry.alias,
-        organization: "xkeystore Auto-Rotated Security",
-        organizational_unit: "Automated Compliance Engine",
-        locality: "San Francisco",
-        state: "CA",
-        country: "US",
-        email: `security@${entry.alias}`,
-        validity_days: 730,
-        is_ca: entry.labels.includes("CA"),
-        sans: [entry.alias],
-        key_usage: ["Digital Signature", "Key Encipherment"],
-        extended_key_usage: ["TLS Web Server Authentication"],
-        signer_alias: null,
-        labels: [...entry.labels.filter((l) => l !== "Weak-Key" && l !== "Legacy"), "Rotated-Safe"],
-      };
+      const [alg, param] = spec.split(":");
+      const rotated = await api.rotateKey(row.entry, alg, alg === "RSA" ? Number(param) : 0, alg === "ECDSA" ? param : null, issuer?.entry ?? null);
+      replaceEntry(row.ks.id, { ...rotated, id: row.entry.id, labels: row.entry.labels });
+      toast.success(`Rotated '${row.entry.alias}' to ${rotated.algorithm} ${rotated.key_size}-bit${issuer ? `, re-issued by ${issuer.entry.alias}` : " (self-signed)"}. Save ${row.ks.name} to keep it.`);
+      onClose();
+    } catch (err) {
+      toast.error(errorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <Modal
+      open
+      busy={busy}
+      onClose={onClose}
+      icon={RotateCcw}
+      title={`Rotate key of ${row.entry.alias}`}
+      description="Generates a new key and certificate with the same subject, SANs, usages and lifetime."
+      footer={
+        <>
+          <Button onClick={onClose}>Cancel</Button>
+          <Button variant="primary" onClick={run} disabled={busy} data-testid="rotate-submit">
+            {busy && <Spinner />} Rotate
+          </Button>
+        </>
+      }
+    >
+      <div className="space-y-4">
+        <Select label="New key" value={spec} onChange={(e) => setSpec(e.target.value)}>
+          <option value="ECDSA:P-256">ECDSA P-256</option>
+          <option value="ECDSA:P-384">ECDSA P-384</option>
+          <option value="RSA:3072">RSA 3072</option>
+          <option value="RSA:4096">RSA 4096</option>
+          <option value="Ed25519:0">Ed25519</option>
+        </Select>
+        {selfSigned ? (
+          <Alert tone="info">The current certificate is self-signed, so the new one will be self-signed too. Clients that pinned the old certificate must be updated.</Alert>
+        ) : issuer ? (
+          <Alert tone="success">The issuing CA '{issuer.entry.alias}' ({issuer.ks.name}) is open; the new certificate will be issued by it.</Alert>
+        ) : (
+          <Alert tone="warning" title="Issuing CA not open">
+            The certificate was issued by {cnOf(row.entry.issuer)}, which is not in any open keystore. The new certificate will be self-signed — afterwards generate a CSR for it and have your CA sign it.
+          </Alert>
+        )}
+      </div>
+    </Modal>
+  );
+};
 
-      const rotated = await invoke<KeystoreEntry>("generate_keypair_entry", {
-        input,
-        issuerDn: entry.issuer,
-      });
+export const ScannerView: React.FC = () => {
+  const { keystores, replaceEntry, settings, openFiles, setTab } = useStore();
+  const toast = useToast();
+  const [filter, setFilter] = useState<"issues" | "all">("issues");
+  const [rotate, setRotate] = useState<Row | null>(null);
+  const [busyId, setBusyId] = useState<string | null>(null);
 
-      const updatedKs: KeystoreFile = {
-        ...ks,
-        updated_at: "Just now",
-        entries: ks.entries.map((en) => (en.id === entry.id ? { ...rotated, id: entry.id } : en)),
-      };
-      onUpdateKeystore(updatedKs);
-      onRecordOp(targetBits, true);
-      setToast(`Automatically rotated '${entry.alias}' to ${targetAlg}-${targetBits} inside ${ks.name}!`);
-      setTimeout(() => setToast(null), 4000);
-    } catch (e) {
-      alert("Auto-rotation failed: " + e);
+  const rows: Row[] = useMemo(() => keystores.flatMap((ks) => ks.entries.map((entry) => ({ entry, ks, findings: findingsFor(entry) }))), [keystores]);
+  const sum = summarize(rows.map((r) => r.entry));
+  const withIssues = rows.filter((r) => r.findings.some((f) => f.severity !== "low") || entryHealth(r.entry) !== "healthy");
+  const visible = filter === "issues" ? withIssues : rows;
+  const scoreTone = sum.healthScore >= 85 ? "success" : sum.healthScore >= 65 ? "warning" : "danger";
+  const incomplete = rows.filter((r) => r.findings.some((f) => f.title === "Incomplete chain")).length;
+  const sealed = keystores.filter((k) => k.sealed).length;
+
+  /** Renew the certificate keeping the key: CSR → sign with the open issuing CA → install reply. */
+  const renew = async (r: Row) => {
+    const ca = keystores.flatMap((ks) => ks.entries).find((e) => isCaEntry(e) && e.subject === r.entry.issuer && e.id !== r.entry.id);
+    if (!ca) return toast.error(`The issuing CA (${cnOf(r.entry.issuer)}) is not open. Generate a CSR from the entry and send it to your CA instead.`);
+    setBusyId(r.entry.id);
+    try {
+      const leaf = r.entry.certificate_chain[0];
+      const lifetime = leaf ? Math.max(1, Math.round((leaf.not_after - leaf.not_before) / 86_400)) : 365;
+      const csr = await api.generateCsr(r.entry, {});
+      const signed = await api.signCsr({ csr_pem: csr.csr_pem, validity_days: lifetime, is_ca: !!leaf?.is_ca, path_len: leaf?.path_len ?? null, sans: [], key_usage: [], extended_key_usage: [], copy_requested_sans: true }, ca);
+      const updated = await api.importCaReply(r.entry, { text: signed.chain_pem });
+      replaceEntry(r.ks.id, { ...updated, id: r.entry.id, labels: r.entry.labels });
+      toast.success(`Renewed '${r.entry.alias}' until ${signed.certificate.valid_to} (same key). Save ${r.ks.name} to keep it.`);
+    } catch (err) {
+      toast.error(errorMessage(err));
     } finally {
       setBusyId(null);
     }
   };
 
-  const [filter, setFilter] = useState<"issues" | "all" | "pqc">("issues");
-  const entries = allEntriesWithKs.map((f) => f.entry);
-  const sum = summarize(entries);
-  const issues = allEntriesWithKs.filter((f) => entryHealth(f.entry) !== "healthy");
-  const rows =
-    filter === "issues" ? issues : filter === "pqc" ? pqEntries : allEntriesWithKs;
-  const scoreTone = sum.healthScore >= 85 ? "success" : sum.healthScore >= 65 ? "warning" : "danger";
-  const RANK = { "at-risk": 0, attention: 1, healthy: 2 } as const;
+  const exportReport = async () => {
+    try {
+      const path = await pickSavePath("Save security report", `xkeystore-security-report-${new Date().toISOString().slice(0, 10)}.csv`, [{ name: "CSV", extensions: ["csv"] }]);
+      if (!path) return;
+      const esc = (s: string) => `"${s.replace(/"/g, '""')}"`;
+      const lines = ["Keystore,Alias,Type,Algorithm,Expires,Severity,Finding,Detail"];
+      for (const r of rows) {
+        for (const f of r.findings.length ? r.findings : [{ severity: "ok", title: "No findings", detail: "" } as unknown as Finding]) {
+          lines.push([r.ks.path || r.ks.name, r.entry.alias, r.entry.entry_type, `${r.entry.algorithm} ${r.entry.key_size}`, r.entry.expiry_date, f.severity, f.title, f.detail].map((x) => esc(String(x))).join(","));
+        }
+      }
+      await api.writeTextFile(path, lines.join("\n") + "\n");
+      toast.success(`Saved the security report to ${path}`);
+    } catch (err) {
+      toast.error(errorMessage(err));
+    }
+  };
 
-  const columns: Column<FlatEntry>[] = [
-    {
-      id: "entry",
-      header: "Entry",
-      width: "28%",
-      sortValue: (r) => r.entry.alias,
-      cell: (r) => <EntryNameCell entry={r.entry} meta={r.ks.name} />,
-    },
-    { id: "alg", header: "Algorithm", sortValue: (r) => r.entry.algorithm, cell: (r) => <AlgorithmCell entry={r.entry} /> },
-    {
-      id: "exp",
-      header: "Expires",
-      width: "210px",
-      sortValue: (r) => daysUntilExpiry(r.entry),
-      cell: (r) => <ExpiryCell entry={r.entry} />,
-    },
+  const columns: Column<Row>[] = [
+    { id: "entry", header: "Entry", width: "26%", sortValue: (r) => r.entry.alias, cell: (r) => <EntryNameCell entry={r.entry} meta={r.ks.name} /> },
+    { id: "alg", header: "Algorithm", sortValue: (r) => r.entry.algorithm, cell: (r) => <AlgorithmCell entry={r.entry} />, hideBelow: "xl" },
+    { id: "exp", header: "Expires", width: "190px", sortValue: (r) => daysUntilExpiry(r.entry), cell: (r) => <ExpiryCell entry={r.entry} /> },
     {
       id: "finding",
-      header: "Finding",
-      sortValue: (r) => RANK[entryHealth(r.entry)],
-      cell: (r) => <HealthBadge entry={r.entry} />,
+      header: "Findings",
+      sortValue: (r) => (r.findings[0] ? SEVERITY_RANK[r.findings[0].severity] : 9),
+      cell: (r) =>
+        r.findings.length === 0 ? (
+          <Badge tone="success" icon={CheckCircle2}>
+            No findings
+          </Badge>
+        ) : (
+          <div className="space-y-1 whitespace-normal max-w-[380px]">
+            {r.findings.slice(0, 3).map((f, i) => (
+              <div key={i} className="flex items-start gap-1.5 text-[12px]">
+                <Badge tone={SEVERITY_TONE[f.severity]}>{f.title}</Badge>
+                <span className="text-faint leading-5">{f.detail}</span>
+              </div>
+            ))}
+          </div>
+        ),
     },
     {
       id: "fix",
       header: "Remediation",
       align: "right",
-      width: "260px",
-      cell: ({ ks, entry }) =>
-        entry.entry_type === "KeyPair" ? (
+      width: "220px",
+      cell: (r) =>
+        r.entry.entry_type === "KeyPair" && !r.entry.locked ? (
           <div className="inline-flex items-center gap-1.5">
-            <Button
-              size="sm"
-              icon={RefreshCw}
-              disabled={busyId === entry.id}
-              onClick={() => handleAutoRotateEntry(ks, entry, "RSA", 4096)}
-              className={busyId === entry.id ? "[&_svg]:animate-spin" : undefined}
-            >
-              RSA-4096
-            </Button>
-            <Button
-              size="sm"
-              icon={Zap}
-              disabled={busyId === entry.id}
-              onClick={() => handleAutoRotateEntry(ks, entry, "ML-DSA-65", 1952)}
-            >
-              ML-DSA-65
+            {!r.entry.certificate_chain[0]?.self_signed && (
+              <Button size="sm" icon={RefreshCw} disabled={busyId === r.entry.id} onClick={() => renew(r)} title="Re-issue the certificate with the same key">
+                Renew
+              </Button>
+            )}
+            <Button size="sm" icon={RotateCcw} onClick={() => setRotate(r)} data-testid={`rotate-${r.entry.alias}`}>
+              Rotate key
             </Button>
           </div>
-        ) : entry.entry_type === "SecretKey" ? (
-          <span className="inline-flex items-center gap-1.5 text-[12px] text-faint">
-            <Lock className="w-3.5 h-3.5" /> Symmetric, no rotation needed
-          </span>
+        ) : r.entry.entry_type === "SecretKey" ? (
+          <span className="text-[12px] text-faint whitespace-normal">{r.entry.is_weak ? "Generate a new AES key and re-encrypt data" : "—"}</span>
         ) : (
-          <span className="text-[12px] text-faint">Replace via trust store import</span>
+          <span className="text-[12px] text-faint whitespace-normal">{entryHealth(r.entry) === "healthy" ? "—" : "Import the CA's replacement certificate"}</span>
         ),
     },
   ];
 
+  if (!rows.length) {
+    return (
+      <Page>
+        <PageHeader title="Security audit" description="Finds expired, expiring and weak keys and certificates across every open keystore." />
+        <Card className="py-14">
+          <EmptyState
+            icon={ShieldCheck}
+            title={sealed ? "Unlock your keystores to audit them" : "Nothing to audit yet"}
+            description={sealed ? `${sealed} keystore(s) from your last session are locked.` : "Open or create a keystore to see its security posture."}
+            action={<Button variant="primary" onClick={() => (sealed ? setTab("keystores") : openFiles())}>{sealed ? "Go to keystores" : "Open keystore…"}</Button>}
+          />
+        </Card>
+      </Page>
+    );
+  }
+
   return (
     <Page>
-      {toast && (
-        <div
-          role="status"
-          className="fixed bottom-6 right-6 z-[60] max-w-md flex items-start gap-2.5 bg-surface border border-line shadow-pop rounded-card px-4 py-3 text-[13px] text-ink"
-        >
-          <CheckCircle2 className="w-4 h-4 mt-0.5 text-success shrink-0" />
-          <span>{toast}</span>
-        </div>
-      )}
-
       <PageHeader
-        title="Security"
-        description="Audit every loaded keystore for weak, expired and expiring keys, and rotate them in place with the native engine."
+        title="Security audit"
+        description="Finds expired, expiring and weak keys and certificates across every open keystore, with one-click remediation."
+        actions={
+          <Button icon={FileText} onClick={exportReport}>
+            Export report
+          </Button>
+        }
       />
-
+      {sealed > 0 && (
+        <Alert tone="info" className="mb-4">
+          {sealed} locked keystore(s) are not included. Unlock them on the Keystores page.
+        </Alert>
+      )}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
         <Card className="lg:col-span-4 lg:row-span-2 flex flex-col">
-          <CardHeader title="Compliance score" subtitle={`Across ${totalCount} entries in ${keystores.length} keystores`} icon={ShieldCheck} />
+          <CardHeader title="Health score" subtitle={`${rows.length} entries in ${keystores.length - sealed} keystores`} icon={ShieldCheck} />
           <div className="flex-1 flex items-center gap-6">
-            <ScoreRing value={sum.healthScore} tone={scoreTone} size={128} label="Compliance score" />
+            <ScoreRing value={sum.healthScore} tone={scoreTone} size={128} label="Health score" />
             <ul className="flex-1 space-y-3 text-[12.5px]">
-              <li className="flex items-center justify-between">
+              <li className="flex justify-between">
                 <span className="text-muted">Healthy</span>
-                <span className="font-semibold text-ink tabular-nums">{totalCount - issues.length}</span>
+                <span className="font-semibold text-ink tabular-nums">{rows.length - withIssues.length}</span>
               </li>
-              <li className="flex items-center justify-between">
-                <span className="text-muted">Needs attention</span>
-                <span className="font-semibold text-ink tabular-nums">{issues.length}</span>
-              </li>
-              <li className="flex items-center justify-between">
-                <span className="text-muted">Runtime dependencies</span>
-                <span className="font-semibold text-ink tabular-nums">0</span>
+              <li className="flex justify-between">
+                <span className="text-muted">Need attention</span>
+                <span className="font-semibold text-ink tabular-nums">{withIssues.length}</span>
               </li>
             </ul>
           </div>
-          <p className="mt-4 pt-4 border-t border-line text-[12px] text-faint">
-            Score deducts fully for expired or weak keys and half for keys expiring within 90 days.
-          </p>
+          <p className="mt-4 pt-4 border-t border-line text-[12px] text-faint">Expired or weak entries count fully against the score; entries expiring within {settings.warningDays} days count half.</p>
         </Card>
-
+        <KpiCard className="lg:col-span-4" label="Weak cryptography" value={sum.weak} icon={AlertTriangle} tone="danger" hint={sum.weak ? "Short keys, deprecated ciphers or SHA-1 signatures" : "No weak keys found"} hintTone={sum.weak ? "danger" : "success"} />
         <KpiCard
           className="lg:col-span-4"
-          label="Weak keys"
-          value={weakEntries.length}
-          icon={AlertTriangle}
-          tone="danger"
-          hint={weakEntries.length ? "RSA below 2048 bits — rotate now" : "All keys meet NIST 2030+"}
-          hintTone={weakEntries.length ? "danger" : "success"}
-        />
-        <KpiCard
-          className="lg:col-span-4"
-          label="Expired or expiring ≤ 30 days"
-          value={sum.expired + sum.expiring30}
+          label={`Expired or expiring ≤ ${settings.criticalDays} days`}
+          value={sum.expired + sum.expiringCritical}
           icon={CalendarClock}
           tone="warning"
-          hint={`${sum.expired} expired · ${sum.expiring30} expiring`}
-          hintTone={sum.expired + sum.expiring30 ? "warning" : "success"}
+          hint={`${sum.expired} expired · ${sum.expiringCritical} expiring`}
+          hintTone={sum.expired + sum.expiringCritical ? "warning" : "success"}
         />
-        <KpiCard
-          className="lg:col-span-4"
-          label="Post-quantum ready"
-          value={pqEntries.length}
-          icon={Sparkles}
-          tone="brand"
-          hint="ML-DSA, ML-KEM and 256-bit symmetric"
-        >
-          <Meter value={totalCount ? pqEntries.length / totalCount : 0} label="Share of post-quantum entries" />
-        </KpiCard>
-        <KpiCard
-          className="lg:col-span-4"
-          label="Oldest key"
-          value={formatDuration(sum.oldestAgeDays)}
-          icon={KeyRound}
-          hint={`Median ${formatDuration(sum.medianAgeDays)}`}
-        />
+        <KpiCard className="lg:col-span-4" label="Incomplete chains" value={incomplete} icon={Link2Off} hint="CA-issued keys stored without their CA certificate" />
+        <KpiCard className="lg:col-span-4" label="Oldest key" value={formatDuration(sum.oldestAgeDays)} icon={KeyRound} hint={`Median ${formatDuration(sum.medianAgeDays)} · ${sum.locked} locked`} />
       </div>
 
       <Card padded={false} className="mt-4 overflow-hidden">
         <div className="px-5 py-3 border-b border-line flex flex-wrap items-center justify-between gap-3">
           <div>
-            <h3 className="text-[14px] font-semibold text-ink">Entry audit</h3>
-            <p className="text-[12px] text-faint">Rotation replaces the key in place and keeps its alias and labels.</p>
+            <h3 className="text-[14px] font-semibold text-ink">Findings</h3>
+            <p className="text-[12px] text-faint">Rotate replaces the key; Renew re-issues the certificate with the same key using the open issuing CA.</p>
           </div>
           <Segmented
             label="Audit filter"
             value={filter}
             onChange={setFilter}
             options={[
-              { value: "issues", label: "Needs action", count: issues.length },
-              { value: "pqc", label: "Post-quantum", count: pqEntries.length },
-              { value: "all", label: "All", count: totalCount },
+              { value: "issues", label: "Needs action", count: withIssues.length },
+              { value: "all", label: "All", count: rows.length },
             ]}
           />
         </div>
-        <DataTable<FlatEntry>
-          label="Entry audit"
+        <DataTable<Row>
+          label="Security findings"
           columns={columns}
-          rows={rows.map((r) => ({ entry: r.entry, ks: r.ks }))}
+          rows={visible}
           rowKey={(r) => r.entry.id}
           initialSort={{ id: "finding", dir: "asc" }}
-          empty={<EmptyState icon={CheckCircle2} title="Nothing to fix" description="Every entry in this view passes the audit." />}
-          footer={<span>{rows.length} of {totalCount} entries</span>}
+          empty={<EmptyState icon={CheckCircle2} title="Nothing needs action" description="Every entry passes the audit." />}
+          footer={
+            <span className={clsx(withIssues.length ? "text-warning" : "text-success")}>
+              {visible.length} of {rows.length} entries {withIssues.length ? "· " + withIssues.length + " need action" : "· all healthy"}
+            </span>
+          }
         />
       </Card>
+      <RotateDialog row={rotate} onClose={() => setRotate(null)} />
     </Page>
   );
 };

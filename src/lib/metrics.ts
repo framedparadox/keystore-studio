@@ -7,8 +7,15 @@ import { KeystoreEntry, KeystoreFile } from "../types/crypto";
 
 const DAY = 86_400_000;
 
+/** Expiry thresholds (days), adjustable from Settings. */
+export const thresholds = { critical: 30, warning: 90 };
+export function setThresholds(critical: number, warning: number) {
+  thresholds.critical = Math.max(1, critical);
+  thresholds.warning = Math.max(thresholds.critical, warning);
+}
+
 const parseDate = (value: string): Date | null => {
-  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(value);
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(value ?? "");
   if (!m) return null;
   return new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
 };
@@ -20,6 +27,8 @@ const todayUtc = () => {
 
 /** Days until the entry expires; `null` for entries that never expire (symmetric keys). */
 export const daysUntilExpiry = (entry: KeystoreEntry): number | null => {
+  const notAfter = entry.certificate_chain[0]?.not_after;
+  if (notAfter) return Math.floor((notAfter * 1000 - Date.now()) / DAY);
   const d = parseDate(entry.expiry_date);
   return d ? Math.round((d.getTime() - todayUtc()) / DAY) : null;
 };
@@ -32,9 +41,19 @@ export const keyAgeDays = (entry: KeystoreEntry): number | null => {
 
 /** Total validity period in days, used to draw the "life used" meter. */
 export const lifetimeDays = (entry: KeystoreEntry): number | null => {
+  const c = entry.certificate_chain[0];
+  if (c) return Math.max(1, Math.round((c.not_after - c.not_before) / 86_400));
   const a = parseDate(entry.creation_date);
   const b = parseDate(entry.expiry_date);
   return a && b ? Math.max(1, Math.round((b.getTime() - a.getTime()) / DAY)) : null;
+};
+
+/** Fraction of the validity period already elapsed (0–1). */
+export const lifeUsed = (entry: KeystoreEntry): number => {
+  const c = entry.certificate_chain[0];
+  if (!c) return 0;
+  const total = Math.max(1, c.not_after - c.not_before);
+  return Math.min(1, Math.max(0, (Date.now() / 1000 - c.not_before) / total));
 };
 
 export type ExpiryStatus = "expired" | "critical" | "warning" | "ok" | "never";
@@ -42,14 +61,13 @@ export type ExpiryStatus = "expired" | "critical" | "warning" | "ok" | "never";
 export const expiryStatus = (entry: KeystoreEntry): ExpiryStatus => {
   const days = daysUntilExpiry(entry);
   if (days === null) return "never";
-  if (entry.is_expired || days < 0) return "expired";
-  if (days <= 30) return "critical";
-  if (days <= 90) return "warning";
+  if (days < 0) return "expired";
+  if (days <= thresholds.critical) return "critical";
+  if (days <= thresholds.warning) return "warning";
   return "ok";
 };
 
-export const isWeak = (entry: KeystoreEntry) =>
-  entry.is_weak || (entry.algorithm === "RSA" && entry.entry_type !== "SecretKey" && entry.key_size < 2048);
+export const isWeak = (entry: KeystoreEntry) => entry.is_weak;
 
 export type Health = "healthy" | "attention" | "at-risk";
 
@@ -60,7 +78,7 @@ export const entryHealth = (entry: KeystoreEntry): Health => {
   return "healthy";
 };
 
-/** "3y 2m", "5 mo", "12 d" — compact human age. */
+/** "3y 2m", "5 mo", "12 d" — compact human duration. */
 export const formatDuration = (days: number | null): string => {
   if (days === null) return "—";
   const abs = Math.abs(days);
@@ -68,7 +86,7 @@ export const formatDuration = (days: number | null): string => {
   if (abs < 365) return `${Math.round(abs / 30)} mo`;
   const y = Math.floor(abs / 365);
   const m = Math.round((abs - y * 365) / 30);
-  return m ? `${y}y ${m}m` : `${y}y`;
+  return m && m < 12 ? `${y}y ${m}m` : `${y}y`;
 };
 
 export interface FlatEntry {
@@ -85,16 +103,16 @@ export interface Bucket {
   count: number;
 }
 
-export const EXPIRY_BUCKETS: { key: ExpiryStatus; label: string }[] = [
+export const expiryBucketDefs = (): { key: ExpiryStatus; label: string }[] => [
   { key: "expired", label: "Expired" },
-  { key: "critical", label: "≤ 30 days" },
-  { key: "warning", label: "31–90 days" },
-  { key: "ok", label: "> 90 days" },
+  { key: "critical", label: `≤ ${thresholds.critical} days` },
+  { key: "warning", label: `${thresholds.critical + 1}–${thresholds.warning} days` },
+  { key: "ok", label: `> ${thresholds.warning} days` },
   { key: "never", label: "No expiry" },
 ];
 
 export const expiryBuckets = (entries: KeystoreEntry[]): Bucket[] =>
-  EXPIRY_BUCKETS.map((b) => ({ ...b, count: entries.filter((e) => expiryStatus(e) === b.key).length }));
+  expiryBucketDefs().map((b) => ({ ...b, count: entries.filter((e) => expiryStatus(e) === b.key).length }));
 
 const AGE_BUCKETS: { key: string; label: string; max: number }[] = [
   { key: "lt90", label: "< 90 d", max: 90 },
@@ -117,12 +135,10 @@ export const ageBuckets = (entries: KeystoreEntry[]): Bucket[] => {
 export const algorithmMix = (entries: KeystoreEntry[]): Bucket[] => {
   const map = new Map<string, number>();
   for (const e of entries) {
-    const family = e.algorithm.startsWith("HMAC") ? "HMAC" : e.algorithm;
+    const family = e.algorithm.startsWith("Hmac") ? "HMAC" : e.algorithm || "Unknown";
     map.set(family, (map.get(family) ?? 0) + 1);
   }
-  return [...map.entries()]
-    .map(([label, count]) => ({ key: label, label, count }))
-    .sort((a, b) => b.count - a.count);
+  return [...map.entries()].map(([label, count]) => ({ key: label, label, count })).sort((a, b) => b.count - a.count);
 };
 
 export interface InventorySummary {
@@ -131,10 +147,10 @@ export interface InventorySummary {
   trusted: number;
   secrets: number;
   expired: number;
-  expiring30: number;
-  expiring90: number;
+  expiringCritical: number;
+  expiringWarning: number;
   weak: number;
-  pqc: number;
+  quantumSafe: number;
   locked: number;
   medianAgeDays: number | null;
   oldestAgeDays: number | null;
@@ -147,29 +163,47 @@ export const summarize = (entries: KeystoreEntry[]): InventorySummary => {
     .map(keyAgeDays)
     .filter((a): a is number => a !== null)
     .sort((a, b) => a - b);
-  const weak = entries.filter(isWeak).length;
-  const expired = statuses.filter((s) => s === "expired").length;
-  const expiring30 = statuses.filter((s) => s === "critical").length;
-  const expiring90 = expiring30 + statuses.filter((s) => s === "warning").length;
   const atRisk = entries.filter((e) => entryHealth(e) === "at-risk").length;
   const attention = entries.filter((e) => entryHealth(e) === "attention").length;
-  const healthScore = entries.length
-    ? Math.round(100 * (1 - (atRisk + 0.5 * attention) / entries.length))
-    : 100;
-
+  const expiringCritical = statuses.filter((s) => s === "critical").length;
   return {
     total: entries.length,
     keyPairs: entries.filter((e) => e.entry_type === "KeyPair").length,
     trusted: entries.filter((e) => e.entry_type === "TrustedCertificate").length,
     secrets: entries.filter((e) => e.entry_type === "SecretKey").length,
-    expired,
-    expiring30,
-    expiring90,
-    weak,
-    pqc: entries.filter((e) => e.is_post_quantum).length,
+    expired: statuses.filter((s) => s === "expired").length,
+    expiringCritical,
+    expiringWarning: expiringCritical + statuses.filter((s) => s === "warning").length,
+    weak: entries.filter(isWeak).length,
+    quantumSafe: entries.filter((e) => e.is_post_quantum).length,
     locked: entries.filter((e) => e.locked).length,
     medianAgeDays: ages.length ? ages[Math.floor(ages.length / 2)] : null,
     oldestAgeDays: ages.length ? ages[ages.length - 1] : null,
-    healthScore,
+    healthScore: entries.length ? Math.round(100 * (1 - (atRisk + 0.5 * attention) / entries.length)) : 100,
   };
 };
+
+/** Security findings for one entry, most severe first. */
+export interface Finding {
+  severity: "critical" | "high" | "medium" | "low";
+  title: string;
+  detail: string;
+}
+
+export function findingsFor(entry: KeystoreEntry): Finding[] {
+  const out: Finding[] = [];
+  const days = daysUntilExpiry(entry);
+  const status = expiryStatus(entry);
+  if (status === "expired") out.push({ severity: "critical", title: "Expired", detail: `Expired ${formatDuration(days)} ago — clients reject it.` });
+  else if (status === "critical") out.push({ severity: "high", title: "Expires soon", detail: `Expires in ${days} days.` });
+  else if (status === "warning") out.push({ severity: "medium", title: "Renew soon", detail: `Expires in ${days} days.` });
+  for (const r of entry.weak_reasons) out.push({ severity: "high", title: "Weak cryptography", detail: r });
+  const leaf = entry.certificate_chain[0];
+  if (entry.entry_type === "KeyPair" && leaf && leaf.self_signed && !leaf.is_ca && leaf.extended_key_usage.some((u) => u.includes("Server")))
+    out.push({ severity: "low", title: "Self-signed server certificate", detail: "Browsers and clients will not trust it unless pinned." });
+  if (entry.entry_type === "KeyPair" && leaf && !leaf.self_signed && entry.chain_length === 1)
+    out.push({ severity: "low", title: "Incomplete chain", detail: "The issuing CA certificate is not stored with this key; some clients cannot build the chain." });
+  if (entry.locked) out.push({ severity: "low", title: "Key locked", detail: "The private key uses a separate key password and is unavailable until unlocked." });
+  const order = { critical: 0, high: 1, medium: 2, low: 3 };
+  return out.sort((a, b) => order[a.severity] - order[b.severity]);
+}

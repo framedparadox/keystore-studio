@@ -1,134 +1,60 @@
-import React, { useMemo, useState } from "react";
+import React, { useMemo } from "react";
 import {
-  AlertCircle,
   AlertTriangle,
   ArrowRight,
-  BookOpen,
   CalendarClock,
-  CheckCircle2,
+  Clock,
   FilePlus2,
   FileSignature,
   FolderArchive,
-  HelpCircle,
+  FolderOpen,
   KeyRound,
   Layers,
+  Lock,
   SearchCode,
   ShieldCheck,
-  Sparkles,
-  Upload,
+  Unlock,
 } from "lucide-react";
-import { KeystoreFile, KeystoreFormat, TabType, Workspace } from "../types/crypto";
-import {
-  Badge,
-  BarList,
-  Button,
-  Card,
-  CardHeader,
-  ColumnChart,
-  DataTable,
-  KpiCard,
-  Meter,
-  Modal,
-  Page,
-  PageHeader,
-  ScoreRing,
-  SegmentedBar,
-} from "../components/ui";
+import { useStore } from "../state/store";
+import { Alert, Badge, BarList, Button, Card, CardHeader, ColumnChart, DataTable, EmptyState, KpiCard, Meter, Page, PageHeader, ScoreRing, SegmentedBar } from "../components/ui";
 import { EntryNameCell, ExpiryCell, HealthBadge } from "../components/entry";
-import {
-  ageBuckets,
-  algorithmMix,
-  daysUntilExpiry,
-  entryHealth,
-  expiryBuckets,
-  FlatEntry,
-  flattenEntries,
-  formatDuration,
-  summarize,
-} from "../lib/metrics";
-import { DropZone, useFileDrop } from "../components/DropZone";
-import { TerminalHint } from "../components/Terminal";
-import { ImportResult, importFile } from "../lib/importFile";
+import { ageBuckets, algorithmMix, daysUntilExpiry, entryHealth, expiryBuckets, FlatEntry, flattenEntries, formatDuration, summarize } from "../lib/metrics";
+import { DropZone } from "../components/DropZone";
+import { FORMAT_INFO } from "../lib/keystore";
+import type { KeystoreFormat, OpenKeystore } from "../types/crypto";
 
-interface HomeViewProps {
-  keystores: KeystoreFile[];
-  workspaces: Workspace[];
-  onSelectTab: (tab: TabType) => void;
-  onSelectKeystoreAndOpen: (ksId: string) => void;
-  onSelectWorkspaceAndOpen: (wsId: string) => void;
-  onOpenNewKeystoreWithFormat: (format?: KeystoreFormat) => void;
-  onImportKeystores: (list: KeystoreFile[]) => void;
-  onExamineText: (text: string) => void;
-}
-
-const FORMATS: KeystoreFormat[] = ["PKCS12", "JKS", "JCEKS", "BKS", "BCFKS", "UBER"];
-
-const HELP: Record<string, { label: string; body: React.ReactNode }> = {
-  formats: {
-    label: "Keystore formats",
-    body: (
-      <ul className="list-disc pl-5 space-y-1.5">
-        <li><strong>PKCS#12 (.p12 / .pfx):</strong> the standard archive for private keys, certificate chains and trusted roots.</li>
-        <li><strong>JKS (.jks):</strong> the classic Java keystore, identified by the 0xFEEDFEED header.</li>
-        <li><strong>JCEKS / BKS / BCFKS / UBER:</strong> variants that add secret keys or FIPS-oriented encryption.</li>
-      </ul>
-    ),
-  },
-  workspaces: {
-    label: "Workspaces",
-    body: (
-      <p>
-        Workspaces group certificates and keys by project, cluster or audit scope without changing the underlying
-        keystore files. Assign entries from the Workspaces tab or the keystore table, and switch the active workspace from the header.
-      </p>
-    ),
-  },
-  pqc: {
-    label: "Post-quantum",
-    body: (
-      <ul className="list-disc pl-5 space-y-1.5">
-        <li><strong>ML-DSA-65 (FIPS 204):</strong> lattice-based signatures.</li>
-        <li><strong>ML-KEM-768 (FIPS 203):</strong> key encapsulation for quantum-safe handshakes.</li>
-        <li><strong>SLH-DSA (FIPS 205):</strong> stateless hash-based signatures.</li>
-      </ul>
-    ),
-  },
-  signing: {
-    label: "CA and signing",
-    body: (
-      <ul className="list-disc pl-5 space-y-1.5">
-        <li><strong>Sign CSR:</strong> issue a certificate from any key pair in a keystore.</li>
-        <li><strong>Issue CRL:</strong> generate a signed revocation list.</li>
-        <li><strong>Sign JAR:</strong> write <code>META-INF/MANIFEST.MF</code> and signature files.</li>
-      </ul>
-    ),
-  },
+const RecentFiles: React.FC = () => {
+  const { recentFiles, openFiles, keystores } = useStore();
+  if (!recentFiles.length) return <p className="text-[12.5px] text-subtle">Files you open appear here.</p>;
+  return (
+    <ul className="divide-y divide-line -mx-1">
+      {recentFiles.slice(0, 6).map((f) => {
+        const open = keystores.some((k) => k.path === f.path && !k.sealed);
+        return (
+          <li key={f.path}>
+            <button onClick={() => openFiles([f.path])} className="w-full px-1 py-2.5 flex items-center gap-3 text-left hover:bg-surface-2 rounded-control cursor-pointer" title={f.path}>
+              <FolderArchive className="w-4 h-4 text-subtle shrink-0" />
+              <span className="min-w-0 flex-1">
+                <span className="block text-[13px] font-medium text-ink truncate">{f.name}</span>
+                <span className="block text-[11.5px] text-faint font-mono truncate">{f.path}</span>
+              </span>
+              {open ? <Badge tone="success">Open</Badge> : <Badge>{FORMAT_INFO[f.format as KeystoreFormat]?.label ?? f.format}</Badge>}
+            </button>
+          </li>
+        );
+      })}
+    </ul>
+  );
 };
 
-interface ImportLogEntry {
-  tone: "success" | "danger";
-  title: string;
-  detail?: string;
-}
-
-export const HomeView: React.FC<HomeViewProps> = ({
-  keystores,
-  workspaces,
-  onSelectTab,
-  onSelectKeystoreAndOpen,
-  onSelectWorkspaceAndOpen,
-  onOpenNewKeystoreWithFormat,
-  onImportKeystores,
-  onExamineText,
-}) => {
-  const [helpTopic, setHelpTopic] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [log, setLog] = useState<ImportLogEntry[]>([]);
-
-  const flat = useMemo(() => flattenEntries(keystores), [keystores]);
+export const HomeView: React.FC = () => {
+  const { keystores, workspaces, setTab, selectKeystore, openFiles, setNewKeystoreOpen, vault, requestVaultUnlock, setActiveWorkspaceId, settings, desktop } = useStore();
+  const loaded = keystores.filter((k) => !k.sealed);
+  const sealed = keystores.filter((k) => k.sealed);
+  const flat = useMemo(() => flattenEntries(loaded), [loaded]);
   const entries = useMemo(() => flat.map((f) => f.entry), [flat]);
   const s = useMemo(() => summarize(entries), [entries]);
-  const expiry = useMemo(() => expiryBuckets(entries), [entries]);
+  const expiry = useMemo(() => expiryBuckets(entries), [entries, settings.criticalDays, settings.warningDays]); // eslint-disable-line react-hooks/exhaustive-deps
   const ages = useMemo(() => ageBuckets(entries), [entries]);
   const algos = useMemo(() => algorithmMix(entries), [entries]);
   const health = useMemo(() => {
@@ -144,110 +70,118 @@ export const HomeView: React.FC<HomeViewProps> = ({
         .slice(0, 6),
     [flat]
   );
-
-  const handleFiles = async (files: File[]) => {
-    setBusy(true);
-    const results: ImportResult[] = [];
-    for (const f of files) {
-      try {
-        results.push(await importFile(f));
-      } catch (e) {
-        results.push({ kind: "unsupported", fileName: f.name, reason: e instanceof Error ? e.message : String(e) });
-      }
-    }
-    setBusy(false);
-
-    setLog(
-      results.map((r): ImportLogEntry => {
-        if (r.kind === "keystore")
-          return {
-            tone: "success",
-            title: `${r.fileName} → ${r.keystore.format} keystore, ${r.keystore.entries.length} entries`,
-            detail: r.note,
-          };
-        if (r.kind === "examine") return { tone: "success", title: `${r.fileName} → opened in Examine` };
-        return { tone: "danger", title: r.fileName, detail: r.reason };
-      })
-    );
-
-    const stores = results.flatMap((r) => (r.kind === "keystore" ? [r.keystore] : []));
-    const certs = results.flatMap((r) => (r.kind === "examine" ? [r.text] : []));
-    if (stores.length) onImportKeystores(stores);
-    else if (certs.length) onExamineText(certs[0]);
+  const scoreTone = s.healthScore >= 85 ? "success" : s.healthScore >= 65 ? "warning" : "danger";
+  const unsaved = keystores.filter((k) => k.dirty).length;
+  const openKs = (k: OpenKeystore) => {
+    selectKeystore(k.id);
+    setTab("keystores");
   };
 
-  const { dragging, bind } = useFileDrop(handleFiles);
-  const scoreTone = s.healthScore >= 85 ? "success" : s.healthScore >= 65 ? "warning" : "danger";
+  const sealedBanner = sealed.length > 0 && (
+    <Alert
+      tone="info"
+      className="mb-4"
+      title={`${sealed.length} keystore${sealed.length === 1 ? "" : "s"} from your last session ${sealed.length === 1 ? "is" : "are"} locked`}
+      action={
+        <div className="flex gap-2">
+          {vault.exists && !vault.unlocked && (
+            <Button size="sm" variant="primary" icon={Unlock} onClick={() => requestVaultUnlock()} data-testid="unlock-with-vault">
+              Unlock with vault
+            </Button>
+          )}
+          <Button size="sm" onClick={() => setTab("keystores")}>
+            Enter passwords
+          </Button>
+        </div>
+      }
+    >
+      {sealed.map((k) => k.name).join(", ")}
+    </Alert>
+  );
+
+  if (!loaded.length) {
+    return (
+      <Page>
+        <PageHeader title="Welcome to xkeystore" description="A workbench for Java keystores, PKCS#12 files and X.509 certificates. Everything runs locally." />
+        {!desktop && (
+          <Alert tone="warning" className="mb-4" title="Browser preview">
+            The native engine is only available in the desktop app (pnpm tauri dev). Buttons that touch files or keys will report an error here.
+          </Alert>
+        )}
+        {sealedBanner}
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
+          <Card className="lg:col-span-8">
+            <CardHeader title="Get started" />
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              {[
+                { icon: FolderOpen, title: "Open a keystore", text: "PKCS#12, JKS or JCEKS — enter its password to view and edit entries.", action: () => openFiles(), testId: "welcome-open" },
+                { icon: FilePlus2, title: "Create a keystore", text: "Start empty or with a fresh key pair and self-signed certificate.", action: () => setNewKeystoreOpen(true), testId: "welcome-new" },
+                { icon: SearchCode, title: "Examine", text: "Inspect a TLS server or decode a certificate, CSR, key or JWT.", action: () => setTab("examine"), testId: "welcome-examine" },
+              ].map((a) => (
+                <button key={a.title} onClick={a.action} data-testid={a.testId} className="text-left rounded-card border border-line p-4 hover:border-brand hover:bg-brand-tint/50 transition cursor-pointer">
+                  <a.icon className="w-5 h-5 text-brand mb-2" />
+                  <div className="text-[14px] font-semibold text-ink">{a.title}</div>
+                  <div className="text-[12.5px] text-faint mt-1">{a.text}</div>
+                </button>
+              ))}
+            </div>
+            <DropZone onClick={() => openFiles()} className="mt-4" />
+          </Card>
+          <Card className="lg:col-span-4">
+            <CardHeader title="Recent files" icon={Clock} />
+            <RecentFiles />
+          </Card>
+        </div>
+      </Page>
+    );
+  }
 
   return (
-    <Page {...bind}>
+    <Page>
       <PageHeader
         title="Dashboard"
-        description={`Certificate and key health across ${keystores.length} keystores and ${workspaces.length} workspaces.`}
+        description={`Certificate and key health across ${loaded.length} open keystore${loaded.length === 1 ? "" : "s"}${workspaces.length ? ` and ${workspaces.length} workspaces` : ""}.`}
         actions={
           <>
-            <Button icon={Layers} onClick={() => onSelectTab("workspaces")}>
-              Workspaces
+            <Button icon={FolderOpen} onClick={() => openFiles()}>
+              Open…
             </Button>
-            <Button icon={FolderArchive} onClick={() => onSelectTab("keystores")}>
-              Browse keystores
+            <Button variant="primary" icon={FilePlus2} onClick={() => setNewKeystoreOpen(true)}>
+              New keystore
             </Button>
           </>
         }
       />
+      {sealedBanner}
 
-      {/* KPI strip */}
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+        <KpiCard label="Total entries" value={s.total} icon={KeyRound} tone="brand" hint={`${s.keyPairs} key pairs · ${s.trusted} certificates · ${s.secrets} secret keys`} onClick={() => setTab("keystores")} />
         <KpiCard
-          label="Total entries"
-          value={s.total}
-          icon={KeyRound}
-          tone="brand"
-          hint={`Across ${keystores.length} keystores`}
-          onClick={() => onSelectTab("keystores")}
-        >
-          <div className="flex items-center justify-between text-[12px] text-faint">
-            <span><strong className="text-ink font-semibold">{s.keyPairs}</strong> key pairs</span>
-            <span><strong className="text-ink font-semibold">{s.trusted}</strong> certs</span>
-            <span><strong className="text-ink font-semibold">{s.secrets}</strong> secrets</span>
-          </div>
-        </KpiCard>
-        <KpiCard
-          label="Expiring in 90 days"
-          value={s.expiring90}
+          label={`Expiring within ${settings.warningDays} days`}
+          value={s.expiringWarning}
           icon={CalendarClock}
           tone="warning"
-          hint={s.expiring30 ? `${s.expiring30} within 30 days` : "None within 30 days"}
-          hintTone={s.expiring30 ? "warning" : "neutral"}
-          onClick={() => onSelectTab("keystores")}
+          hint={s.expiringCritical ? `${s.expiringCritical} within ${settings.criticalDays} days` : `None within ${settings.criticalDays} days`}
+          hintTone={s.expiringCritical ? "warning" : "neutral"}
+          onClick={() => setTab("scanner")}
         >
-          <Meter value={s.total ? s.expiring90 / s.total : 0} tone="warning" label="Share of entries expiring within 90 days" />
+          <Meter value={s.total ? s.expiringWarning / s.total : 0} tone="warning" label="Share of entries expiring soon" />
         </KpiCard>
         <KpiCard
           label="Needs action"
           value={s.expired + s.weak}
           icon={AlertTriangle}
           tone="danger"
-          hint={`${s.expired} expired · ${s.weak} weak ${s.weak === 1 ? "key" : "keys"}`}
+          hint={`${s.expired} expired · ${s.weak} weak`}
           hintTone={s.expired + s.weak ? "danger" : "success"}
-          onClick={() => onSelectTab("scanner")}
+          onClick={() => setTab("scanner")}
         >
           <Meter value={s.total ? (s.expired + s.weak) / s.total : 0} tone="danger" label="Share of entries needing action" />
         </KpiCard>
-        <KpiCard
-          label="Post-quantum ready"
-          value={s.total ? `${Math.round((s.pqc / s.total) * 100)}%` : "—"}
-          icon={Sparkles}
-          tone="brand"
-          hint={`${s.pqc} of ${s.total} entries`}
-        >
-          <Meter value={s.total ? s.pqc / s.total : 0} tone="brand" label="Share of post-quantum entries" />
-        </KpiCard>
+        <KpiCard label="Keystores" value={keystores.length} icon={FolderArchive} hint={unsaved ? `${unsaved} with unsaved changes` : sealed.length ? `${sealed.length} locked` : "All saved"} hintTone={unsaved ? "warning" : "neutral"} onClick={() => setTab("keystores")} />
       </div>
 
-      {/* Bento */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 mt-4">
-        {/* Posture — tall tile */}
         <Card className="lg:col-span-4 lg:row-span-2 flex flex-col">
           <CardHeader title="Security posture" subtitle="Weighted by expiry and key strength" icon={ShieldCheck} />
           <div className="flex items-center gap-5">
@@ -273,8 +207,8 @@ export const HomeView: React.FC<HomeViewProps> = ({
             {[
               ["Median key age", formatDuration(s.medianAgeDays)],
               ["Oldest key", formatDuration(s.oldestAgeDays)],
-              ["Locked entries", String(s.locked)],
-              ["Keystores", String(keystores.length)],
+              ["Locked keys", String(s.locked)],
+              ["Workspaces", String(workspaces.length)],
             ].map(([k, v]) => (
               <div key={k} className="bg-surface px-3.5 py-3">
                 <dt className="text-[11.5px] text-faint">{k}</dt>
@@ -283,8 +217,8 @@ export const HomeView: React.FC<HomeViewProps> = ({
             ))}
           </dl>
           <div className="mt-auto pt-5">
-            <Button className="w-full" icon={ShieldCheck} onClick={() => onSelectTab("scanner")}>
-              Open security review
+            <Button className="w-full" icon={ShieldCheck} onClick={() => setTab("scanner")}>
+              Open security audit
             </Button>
           </div>
         </Card>
@@ -298,63 +232,34 @@ export const HomeView: React.FC<HomeViewProps> = ({
               label: b.label,
               value: b.count,
               fill: b.key === "critical" ? "bg-serious-fill" : undefined,
-              tone:
-                b.key === "expired" || b.key === "critical"
-                  ? "danger"
-                  : b.key === "warning"
-                  ? "warning"
-                  : b.key === "ok"
-                  ? "success"
-                  : "neutral",
+              tone: b.key === "expired" || b.key === "critical" ? "danger" : b.key === "warning" ? "warning" : b.key === "ok" ? "success" : "neutral",
             }))}
           />
         </Card>
 
         <Card className="lg:col-span-4">
-          <CardHeader
-            title="Key age"
-            subtitle={`Median ${formatDuration(s.medianAgeDays)} since creation`}
-            icon={KeyRound}
-          />
+          <CardHeader title="Key age" subtitle={`Median ${formatDuration(s.medianAgeDays)} since creation`} icon={KeyRound} />
           <ColumnChart label="Key age distribution" items={ages} height={92} />
         </Card>
 
         <Card className="lg:col-span-4">
-          <CardHeader title="Algorithm mix" subtitle={`${algos.length} algorithm families`} />
+          <CardHeader title="Algorithm mix" subtitle={`${algos.length} algorithm famil${algos.length === 1 ? "y" : "ies"}`} />
           <BarList items={algos.slice(0, 5)} total={s.total} />
         </Card>
 
-        <Card className="lg:col-span-4 flex flex-col">
-          <CardHeader title="Import" subtitle="Keystores open in place; certificates open in Examine" icon={Upload} />
-          <DropZone dragging={dragging} busy={busy} onFiles={handleFiles} className="flex-1 !py-4" />
-          {log.length > 0 && (
-            <ul className="mt-3 space-y-1.5" aria-live="polite">
-              {log.map((entry, i) => (
-                <li key={i} className="flex items-start gap-2 text-[12px]">
-                  {entry.tone === "success" ? (
-                    <CheckCircle2 className="w-3.5 h-3.5 mt-0.5 text-success shrink-0" />
-                  ) : (
-                    <AlertCircle className="w-3.5 h-3.5 mt-0.5 text-danger shrink-0" />
-                  )}
-                  <div className="min-w-0">
-                    <div className="font-medium text-ink truncate">{entry.title}</div>
-                    {entry.detail && <div className="text-faint">{entry.detail}</div>}
-                  </div>
-                </li>
-              ))}
-            </ul>
-          )}
+        <Card className="lg:col-span-4">
+          <CardHeader title="Recent files" icon={Clock} />
+          <RecentFiles />
         </Card>
 
-        {/* Upcoming expirations */}
         <Card padded={false} className="lg:col-span-8 overflow-hidden flex flex-col">
           <CardHeader
             bordered
             title="Upcoming expirations"
-            subtitle="Soonest first, across every loaded keystore"
+            subtitle="Soonest first, across every open keystore"
             actions={
-              <Button size="sm" variant="ghost" onClick={() => onSelectTab("keystores")}>
-                View all <ArrowRight className="w-3.5 h-3.5" />
+              <Button size="sm" variant="ghost" onClick={() => setTab("scanner")}>
+                Audit <ArrowRight className="w-3.5 h-3.5" />
               </Button>
             }
           />
@@ -362,51 +267,27 @@ export const HomeView: React.FC<HomeViewProps> = ({
             label="Upcoming expirations"
             rows={upcoming}
             rowKey={(r) => r.entry.id}
-            onRowClick={(r) => onSelectKeystoreAndOpen(r.keystore.id)}
+            onRowClick={(r) => openKs(r.keystore as OpenKeystore)}
+            empty={<EmptyState icon={CalendarClock} title="No certificates" description="Only secret keys are open; they do not expire." />}
             columns={[
-              { id: "alias", header: "Entry", width: "38%", cell: (r) => <EntryNameCell entry={r.entry} /> },
-              {
-                id: "ks",
-                header: "Keystore",
-                hideBelow: "xl",
-                cell: (r) => <span className="text-muted truncate block">{r.keystore.name}</span>,
-              },
+              { id: "alias", header: "Entry", width: "40%", cell: (r) => <EntryNameCell entry={r.entry} meta={r.keystore.name} /> },
               { id: "exp", header: "Expires", width: "220px", cell: (r) => <ExpiryCell entry={r.entry} /> },
               { id: "status", header: "Status", width: "130px", cell: (r) => <HealthBadge entry={r.entry} /> },
             ]}
           />
         </Card>
 
-        {/* Quick actions */}
         <Card className="lg:col-span-4 flex flex-col">
           <CardHeader title="Quick actions" />
-          <div className="rounded-control border border-line p-3.5">
-            <div className="flex items-center gap-2 text-[13px] font-medium text-ink">
-              <FilePlus2 className="w-4 h-4 text-subtle" /> New keystore
-            </div>
-            <div className="grid grid-cols-3 gap-1.5 mt-2.5">
-              {FORMATS.map((fmt) => (
-                <button
-                  key={fmt}
-                  onClick={() => onOpenNewKeystoreWithFormat(fmt)}
-                  className="h-7 rounded-[5px] border border-line bg-surface-2 hover:bg-brand-tint hover:border-brand-soft hover:text-brand-deep text-ink-2 text-[11.5px] font-semibold transition cursor-pointer"
-                >
-                  {fmt}
-                </button>
-              ))}
-            </div>
-          </div>
-          <ul className="mt-2 divide-y divide-line">
+          <ul className="divide-y divide-line">
             {[
-              { icon: SearchCode, label: "Examine a server or PEM", tab: "examine" as TabType },
-              { icon: FileSignature, label: "Sign a CSR, JAR or JWT", tab: "ca_signing" as TabType },
-              { icon: ShieldCheck, label: "Rotate weak keys", tab: "scanner" as TabType },
+              { icon: SearchCode, label: "Inspect a TLS server", tab: "examine" as const },
+              { icon: FileSignature, label: "Sign a CSR, JAR or JWT", tab: "ca_signing" as const },
+              { icon: ShieldCheck, label: "Rotate weak or expiring keys", tab: "scanner" as const },
+              { icon: Lock, label: vault.exists ? "Manage remembered passwords" : "Set up the password vault", tab: "vault" as const },
             ].map((a) => (
               <li key={a.label}>
-                <button
-                  onClick={() => onSelectTab(a.tab)}
-                  className="w-full flex items-center gap-2.5 py-2.5 text-[13px] text-ink-2 hover:text-ink cursor-pointer group"
-                >
+                <button onClick={() => setTab(a.tab)} className="w-full flex items-center gap-2.5 py-2.5 text-[13px] text-ink-2 hover:text-ink cursor-pointer group">
                   <a.icon className="w-4 h-4 text-subtle group-hover:text-brand" />
                   <span className="flex-1 text-left">{a.label}</span>
                   <ArrowRight className="w-3.5 h-3.5 text-subtle group-hover:text-ink" />
@@ -414,40 +295,33 @@ export const HomeView: React.FC<HomeViewProps> = ({
               </li>
             ))}
           </ul>
-          <div className="mt-auto pt-2">
-            <TerminalHint command="ls -la ~/.keystore" label="Run" />
-          </div>
+          <DropZone onClick={() => openFiles()} className="mt-auto !py-4" />
         </Card>
 
-        {/* Keystores table */}
         <Card padded={false} className="lg:col-span-8 overflow-hidden flex flex-col">
-          <CardHeader bordered title="Loaded keystores" subtitle={`${keystores.length} files open`} icon={FolderArchive} />
-          <DataTable<KeystoreFile>
-            label="Loaded keystores"
+          <CardHeader bordered title="Keystores" subtitle={`${keystores.length} in this session`} icon={FolderArchive} />
+          <DataTable<OpenKeystore>
+            label="Keystores"
             rows={keystores}
             rowKey={(k) => k.id}
-            onRowClick={(k) => onSelectKeystoreAndOpen(k.id)}
+            onRowClick={openKs}
             columns={[
               {
                 id: "name",
                 header: "Name",
-                width: "40%",
+                width: "45%",
                 sortValue: (k) => k.name,
                 cell: (k) => (
                   <div className="min-w-0">
-                    <div className="font-medium text-ink truncate">{k.name}</div>
-                    <div className="text-[12px] text-faint truncate font-mono">{k.path}</div>
+                    <div className="font-medium text-ink truncate flex items-center gap-1.5">
+                      {k.name} {k.dirty && <Badge tone="warning">Unsaved</Badge>} {k.sealed && <Badge>Locked</Badge>}
+                    </div>
+                    <div className="text-[12px] text-faint truncate font-mono">{k.path || "Not saved yet"}</div>
                   </div>
                 ),
               },
-              { id: "fmt", header: "Format", sortValue: (k) => k.format, cell: (k) => <Badge>{k.format}</Badge> },
-              {
-                id: "n",
-                header: "Entries",
-                align: "right",
-                sortValue: (k) => k.entries.length,
-                cell: (k) => <span className="text-ink">{k.entries.length}</span>,
-              },
+              { id: "fmt", header: "Format", sortValue: (k) => k.format, cell: (k) => <Badge>{FORMAT_INFO[k.format].label}</Badge> },
+              { id: "n", header: "Entries", align: "right", sortValue: (k) => k.entries.length, cell: (k) => (k.sealed ? <span className="text-subtle">—</span> : k.entries.length) },
               {
                 id: "risk",
                 header: "Issues",
@@ -458,57 +332,42 @@ export const HomeView: React.FC<HomeViewProps> = ({
                   return n ? <Badge tone="warning">{n}</Badge> : <span className="text-subtle">—</span>;
                 },
               },
-              { id: "upd", header: "Updated", hideBelow: "xl", cell: (k) => <span className="text-faint">{k.updated_at}</span> },
             ]}
           />
         </Card>
 
-        {/* Workspaces */}
         <Card padded={false} className="lg:col-span-4 overflow-hidden">
           <CardHeader bordered title="Workspaces" subtitle={`${workspaces.length} collections`} icon={Layers} />
-          <ul className="divide-y divide-line">
-            {workspaces.map((ws) => (
-              <li key={ws.id}>
-                <button
-                  onClick={() => onSelectWorkspaceAndOpen(ws.id)}
-                  className="w-full px-5 py-3 flex items-center gap-3 text-left hover:bg-surface-2 transition cursor-pointer"
-                >
-                  <div className="flex-1 min-w-0">
-                    <div className="text-[13px] font-medium text-ink truncate">{ws.name}</div>
-                    <div className="text-[12px] text-faint">{ws.entryIds.length} entries · updated {ws.updated_at}</div>
-                  </div>
-                  <Badge tone={ws.environment === "Production" ? "brand" : "neutral"}>{ws.environment}</Badge>
-                </button>
-              </li>
-            ))}
-          </ul>
+          {workspaces.length === 0 ? (
+            <div className="p-5 text-[12.5px] text-faint">
+              Group entries across keystores by project or audit.{" "}
+              <button className="text-brand font-medium cursor-pointer" onClick={() => setTab("workspaces")}>
+                Create a workspace
+              </button>
+            </div>
+          ) : (
+            <ul className="divide-y divide-line">
+              {workspaces.slice(0, 6).map((ws) => (
+                <li key={ws.id}>
+                  <button
+                    onClick={() => {
+                      setActiveWorkspaceId(ws.id);
+                      setTab("workspaces");
+                    }}
+                    className="w-full px-5 py-3 flex items-center gap-3 text-left hover:bg-surface-2 transition cursor-pointer"
+                  >
+                    <div className="flex-1 min-w-0">
+                      <div className="text-[13px] font-medium text-ink truncate">{ws.name}</div>
+                      <div className="text-[12px] text-faint">{ws.entryIds.length} entries</div>
+                    </div>
+                    <Badge tone={ws.environment === "Production" ? "brand" : "neutral"}>{ws.environment}</Badge>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
         </Card>
       </div>
-
-      {/* Help */}
-      <div className="mt-6 flex flex-wrap items-center gap-1.5">
-        <HelpCircle className="w-4 h-4 text-subtle" />
-        <span className="text-[12.5px] text-faint mr-1">Guides</span>
-        {Object.entries(HELP).map(([id, t]) => (
-          <Button key={id} size="sm" variant="ghost" onClick={() => setHelpTopic(id)}>
-            {t.label}
-          </Button>
-        ))}
-      </div>
-
-      {/* Whole-page drop overlay */}
-      {dragging && (
-        <div className="pointer-events-none fixed inset-0 z-40 border-2 border-dashed border-brand bg-brand/5" />
-      )}
-
-      <Modal
-        open={helpTopic !== null}
-        onClose={() => setHelpTopic(null)}
-        icon={BookOpen}
-        title={helpTopic ? HELP[helpTopic].label : ""}
-      >
-        <div className="text-[13px] text-ink-2 leading-relaxed select-text">{helpTopic && HELP[helpTopic].body}</div>
-      </Modal>
     </Page>
   );
 };

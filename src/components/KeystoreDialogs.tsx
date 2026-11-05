@@ -1,0 +1,423 @@
+import React, { useEffect, useMemo, useState } from "react";
+import { FilePlus2, FolderOpen, KeyRound, Lock, Save, ShieldCheck } from "lucide-react";
+import { useStore } from "../state/store";
+import { api, errorMessage } from "../lib/api";
+import { FILTERS, baseName, pickSavePath, safeFileStem, withExtension } from "../lib/files";
+import { FORMAT_EXTENSION, FORMAT_INFO, canHoldSecretKeys } from "../lib/keystore";
+import { KEYSTORE_FORMATS, type GenerateKeyPairInput, type KeystoreFormat } from "../types/crypto";
+import { Alert, Button, Checkbox, Modal, PasswordInput, Select, Spinner, TextInput, passwordStrength, useToast } from "./ui";
+
+/** "Remember in vault" checkbox that explains how to enable it when the vault is unavailable. */
+export const RememberPassword: React.FC<{ checked: boolean; onChange: (v: boolean) => void }> = ({ checked, onChange }) => {
+  const { vault, requestVaultUnlock } = useStore();
+  if (!vault.exists) {
+    return (
+      <Checkbox
+        checked={false}
+        onChange={() => requestVaultUnlock()}
+        label="Remember the password in the vault"
+        hint="Set up a master key first (opens the vault setup)."
+      />
+    );
+  }
+  if (!vault.unlocked) {
+    return (
+      <div className="flex items-start gap-2.5">
+        <Checkbox checked={false} onChange={() => requestVaultUnlock(() => onChange(true))} label="Remember the password in the vault" hint="The vault is locked — checking this asks for your master key." />
+      </div>
+    );
+  }
+  return <Checkbox checked={checked} onChange={onChange} label="Remember the password in the vault" hint="Encrypted with your master key (AES-256-GCM)." />;
+};
+
+const StrengthHint: React.FC<{ password: string }> = ({ password }) => {
+  if (!password) return null;
+  const { score, label } = passwordStrength(password);
+  const tone = score <= 1 ? "text-danger" : score === 2 ? "text-warning" : "text-success";
+  return (
+    <span className={tone}>
+      Strength: {label}
+      {password.length < 6 && " — keytool requires at least 6 characters"}
+    </span>
+  );
+};
+
+export const OpenPasswordDialog: React.FC = () => {
+  const { pendingOpen, submitOpenPassword, cancelOpen, settings } = useStore();
+  const [password, setPassword] = useState("");
+  const [remember, setRemember] = useState(settings.rememberPasswordsByDefault);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    setPassword("");
+    setBusy(false);
+  }, [pendingOpen?.path]);
+  if (!pendingOpen) return null;
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    await submitOpenPassword(password, remember);
+    setBusy(false);
+  };
+  return (
+    <Modal
+      open
+      busy={busy}
+      onClose={cancelOpen}
+      icon={FolderOpen}
+      title={`Open ${pendingOpen.name}`}
+      description={<span className="font-mono break-all">{pendingOpen.path}</span>}
+      size="sm"
+      testId="open-password-dialog"
+      footer={
+        <>
+          <Button onClick={cancelOpen} disabled={busy}>
+            Cancel
+          </Button>
+          <Button variant="primary" type="submit" form="open-ks-form" disabled={busy || !password} data-testid="open-submit">
+            {busy && <Spinner />} Open
+          </Button>
+        </>
+      }
+    >
+      <form id="open-ks-form" onSubmit={submit} className="space-y-4">
+        <p className="text-[13px] text-muted">
+          This is a <strong className="text-ink">{FORMAT_INFO[pendingOpen.format as KeystoreFormat]?.label ?? pendingOpen.format}</strong> keystore. Enter its store password.
+        </p>
+        <PasswordInput label="Keystore password" value={password} onChange={setPassword} autoFocus data-testid="open-password" error={pendingOpen.error} />
+        <RememberPassword checked={remember} onChange={setRemember} />
+      </form>
+    </Modal>
+  );
+};
+
+export const SaveDialog: React.FC = () => {
+  const { pendingSave, keystores, getPassword, completeSave, cancelSave, settings } = useStore();
+  const ks = keystores.find((k) => k.id === pendingSave?.keystoreId);
+  const [format, setFormat] = useState<KeystoreFormat>("PKCS12");
+  const [password, setPassword] = useState("");
+  const [confirmPw, setConfirmPw] = useState("");
+  const [remember, setRemember] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const current = ks ? getPassword(ks.id) ?? "" : "";
+
+  useEffect(() => {
+    if (!ks) return;
+    setFormat(ks.format);
+    setPassword(current);
+    setConfirmPw(current);
+    setRemember(settings.rememberPasswordsByDefault);
+    setBusy(false);
+  }, [pendingSave?.keystoreId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const problems = useMemo(() => {
+    if (!ks) return [];
+    const p: string[] = [];
+    const secrets = ks.entries.filter((e) => e.entry_type === "SecretKey").length;
+    if (!canHoldSecretKeys(format) && secrets) p.push(`${FORMAT_INFO[format].label} cannot store secret keys; ${secrets} secret key(s) would be lost. Choose PKCS#12 or JCEKS.`);
+    const locked = ks.entries.filter((e) => e.locked).length;
+    if (locked && format !== ks.format) p.push(`${locked} entr${locked === 1 ? "y is" : "ies are"} locked by a separate key password and can only be saved back to ${ks.format}. Unlock them first.`);
+    return p;
+  }, [ks, format]);
+
+  if (!pendingSave || !ks) return null;
+  const mismatch = password !== confirmPw;
+  const submit = async () => {
+    const defaultName = ks.path ? withExtension(baseName(ks.path), FORMAT_EXTENSION[format]) : withExtension(safeFileStem(ks.name), FORMAT_EXTENSION[format]);
+    let path: string | null;
+    try {
+      path = await pickSavePath(`Save ${ks.name}`, defaultName, [FILTERS.keystores]);
+    } catch (err) {
+      return;
+    }
+    if (!path) return;
+    setBusy(true);
+    await completeSave({ path, password, format, remember });
+    setBusy(false);
+  };
+  return (
+    <Modal
+      open
+      busy={busy}
+      onClose={cancelSave}
+      icon={Save}
+      title={pendingSave.mode === "save-as" ? `Save ${ks.name} as…` : `Save ${ks.name}`}
+      description="Choose the format and password, then pick where to write the file."
+      testId="save-dialog"
+      footer={
+        <>
+          <Button onClick={cancelSave} disabled={busy}>
+            Cancel
+          </Button>
+          <Button variant="primary" onClick={submit} disabled={busy || !password || mismatch || problems.length > 0} data-testid="save-choose-location">
+            {busy && <Spinner />} Choose location and save…
+          </Button>
+        </>
+      }
+    >
+      <div className="space-y-4">
+        <Select label="Format" value={format} onChange={(e) => setFormat(e.target.value as KeystoreFormat)} hint={FORMAT_INFO[format].description} data-testid="save-format">
+          {KEYSTORE_FORMATS.map((f) => (
+            <option key={f} value={f}>
+              {FORMAT_INFO[f].label}
+            </option>
+          ))}
+        </Select>
+        <div className="grid grid-cols-2 gap-3">
+          <PasswordInput label="Store password" value={password} onChange={setPassword} hint={<StrengthHint password={password} />} data-testid="save-password" />
+          <PasswordInput label="Confirm password" value={confirmPw} onChange={setConfirmPw} error={mismatch && confirmPw ? "Passwords do not match" : undefined} data-testid="save-password-confirm" />
+        </div>
+        {format !== "PKCS12" && <p className="text-[12px] text-faint">In {FORMAT_INFO[format].label} every private key is protected with this same password.</p>}
+        <RememberPassword checked={remember} onChange={setRemember} />
+        {problems.map((p) => (
+          <Alert key={p} tone="danger">
+            {p}
+          </Alert>
+        ))}
+      </div>
+    </Modal>
+  );
+};
+
+export const NewKeystoreDialog: React.FC = () => {
+  const { newKeystoreOpen, setNewKeystoreOpen, createKeystore, settings, save } = useStore();
+  const toast = useToast();
+  const [format, setFormat] = useState<KeystoreFormat>(settings.defaultFormat);
+  const [name, setName] = useState("keystore.p12");
+  const [password, setPassword] = useState("");
+  const [confirmPw, setConfirmPw] = useState("");
+  const [remember, setRemember] = useState(settings.rememberPasswordsByDefault);
+  const [withKey, setWithKey] = useState(true);
+  const [alias, setAlias] = useState("server");
+  const [cn, setCn] = useState("");
+  const [alg, setAlg] = useState("ECDSA:P-256");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (newKeystoreOpen) {
+      setFormat(settings.defaultFormat);
+      setName(`keystore.${FORMAT_EXTENSION[settings.defaultFormat]}`);
+      setPassword("");
+      setConfirmPw("");
+      setError(null);
+      setBusy(false);
+    }
+  }, [newKeystoreOpen, settings.defaultFormat]);
+
+  if (!newKeystoreOpen) return null;
+  const close = () => setNewKeystoreOpen(false);
+  const mismatch = password !== confirmPw;
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    if (password.length < 6) return setError("Use a password of at least 6 characters (Java keytool rejects shorter ones).");
+    if (mismatch) return setError("Passwords do not match.");
+    setBusy(true);
+    try {
+      let initialEntry = null;
+      if (withKey) {
+        const [algorithm, param] = alg.split(":");
+        const input: GenerateKeyPairInput = {
+          alias: alias.trim() || "server",
+          algorithm: algorithm as GenerateKeyPairInput["algorithm"],
+          key_size: algorithm === "RSA" ? Number(param) : 0,
+          curve: algorithm === "ECDSA" ? param : null,
+          subject_dn: "",
+          common_name: cn.trim() || alias.trim() || "server",
+          validity_days: 365,
+          is_ca: false,
+          sans: cn.trim() ? [cn.trim()] : [],
+          key_usage: [],
+          extended_key_usage: [],
+          labels: [],
+        };
+        initialEntry = await api.generateKeyPair(input, null);
+      }
+      const ks = createKeystore({ name: name.trim() || withExtension("keystore", FORMAT_EXTENSION[format]), format, password, remember, initialEntry });
+      close();
+      toast.success(`Created ${ks.name}. It is not on disk yet.`, { label: "Save now", onClick: () => void save(ks.id) });
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <Modal
+      open
+      busy={busy}
+      onClose={close}
+      icon={FilePlus2}
+      title="New keystore"
+      description="Created in memory; choose where to save it with Save (Ctrl+S)."
+      testId="new-keystore-dialog"
+      footer={
+        <>
+          <Button onClick={close} disabled={busy}>
+            Cancel
+          </Button>
+          <Button variant="primary" type="submit" form="new-ks-form" disabled={busy} data-testid="new-keystore-create">
+            {busy && <Spinner />} {busy && withKey ? "Generating key…" : "Create keystore"}
+          </Button>
+        </>
+      }
+    >
+      <form id="new-ks-form" onSubmit={submit} className="space-y-4">
+        <div>
+          <span className="label">Format</span>
+          <div className="grid grid-cols-3 gap-2" role="radiogroup" aria-label="Keystore format">
+            {KEYSTORE_FORMATS.map((f) => (
+              <button
+                key={f}
+                type="button"
+                role="radio"
+                aria-checked={format === f}
+                data-testid={`format-${f}`}
+                onClick={() => {
+                  setFormat(f);
+                  setName((n) => withExtension(n, FORMAT_EXTENSION[f]));
+                }}
+                className={`p-2.5 rounded-control border text-left transition cursor-pointer ${format === f ? "bg-brand-tint border-brand" : "bg-surface border-line-strong hover:bg-surface-2"}`}
+              >
+                <div className="font-semibold text-[13px] text-ink">{FORMAT_INFO[f].label}</div>
+                <div className="text-[11.5px] text-faint leading-snug mt-0.5">{FORMAT_INFO[f].description}</div>
+              </button>
+            ))}
+          </div>
+        </div>
+        <TextInput label="Name" value={name} onChange={(e) => setName(e.target.value)} required data-testid="new-keystore-name" />
+        <div className="grid grid-cols-2 gap-3">
+          <PasswordInput label="Store password" value={password} onChange={setPassword} hint={<StrengthHint password={password} />} data-testid="new-keystore-password" />
+          <PasswordInput label="Confirm password" value={confirmPw} onChange={setConfirmPw} error={mismatch && confirmPw ? "Passwords do not match" : undefined} data-testid="new-keystore-password-confirm" />
+        </div>
+        <RememberPassword checked={remember} onChange={setRemember} />
+        <div className="rounded-card border border-line p-3.5 space-y-3">
+          <Checkbox checked={withKey} onChange={setWithKey} label="Generate an initial key pair" hint="A self-signed certificate you can replace later with a CA-signed one." />
+          {withKey && (
+            <div className="grid grid-cols-3 gap-3">
+              <TextInput label="Alias" value={alias} onChange={(e) => setAlias(e.target.value)} data-testid="new-keystore-alias" />
+              <TextInput label="Common name" placeholder="e.g. api.example.com" value={cn} onChange={(e) => setCn(e.target.value)} />
+              <Select label="Key" value={alg} onChange={(e) => setAlg(e.target.value)}>
+                <option value="ECDSA:P-256">ECDSA P-256</option>
+                <option value="ECDSA:P-384">ECDSA P-384</option>
+                <option value="RSA:2048">RSA 2048</option>
+                <option value="RSA:3072">RSA 3072</option>
+                <option value="RSA:4096">RSA 4096</option>
+                <option value="Ed25519:0">Ed25519</option>
+              </Select>
+            </div>
+          )}
+        </div>
+        {error && <Alert tone="danger">{error}</Alert>}
+      </form>
+    </Modal>
+  );
+};
+
+export const VaultPromptDialog: React.FC = () => {
+  const { vaultPromptOpen, closeVaultPrompt, onVaultUnlocked, vault } = useStore();
+  const [key, setKey] = useState("");
+  const [confirmKey, setConfirmKey] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    setKey("");
+    setConfirmKey("");
+    setError(null);
+  }, [vaultPromptOpen]);
+  if (!vaultPromptOpen) return null;
+  const setup = !vault.exists;
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    if (setup && key.length < 8) return setError("The master key must be at least 8 characters.");
+    if (setup && key !== confirmKey) return setError("The keys do not match.");
+    setBusy(true);
+    try {
+      if (setup) await api.vaultInit(key);
+      else await api.vaultUnlock(key);
+      await onVaultUnlocked();
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <Modal
+      open
+      busy={busy}
+      onClose={closeVaultPrompt}
+      icon={setup ? ShieldCheck : Lock}
+      title={setup ? "Set up the vault" : "Unlock the vault"}
+      description={setup ? "The master key encrypts remembered keystore passwords on this computer." : "Enter your master key to use remembered passwords."}
+      size="sm"
+      testId="vault-prompt"
+      footer={
+        <>
+          <Button onClick={closeVaultPrompt} disabled={busy}>
+            Cancel
+          </Button>
+          <Button variant="primary" type="submit" form="vault-prompt-form" disabled={busy || !key} data-testid="vault-prompt-submit">
+            {busy && <Spinner />} {setup ? "Create vault" : "Unlock"}
+          </Button>
+        </>
+      }
+    >
+      <form id="vault-prompt-form" onSubmit={submit} className="space-y-4">
+        <PasswordInput label="Master key" value={key} onChange={setKey} autoFocus data-testid="vault-prompt-key" />
+        {setup && <PasswordInput label="Confirm master key" value={confirmKey} onChange={setConfirmKey} data-testid="vault-prompt-confirm" />}
+        {setup && <p className="text-[12px] text-faint">It is never stored and cannot be recovered. If you forget it you can reset the vault, which deletes the remembered passwords.</p>}
+        {error && <Alert tone="danger">{error}</Alert>}
+      </form>
+    </Modal>
+  );
+};
+
+/** Prompt for a per-entry key password (JKS/JCEKS keys protected separately from the store). */
+export const KeyPasswordDialog: React.FC<{
+  open: boolean;
+  alias: string;
+  onClose: () => void;
+  onSubmit: (password: string) => Promise<string | null>;
+}> = ({ open, alias, onClose, onSubmit }) => {
+  const [pw, setPw] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    setPw("");
+    setError(null);
+  }, [open]);
+  return (
+    <Modal
+      open={open}
+      busy={busy}
+      onClose={onClose}
+      icon={KeyRound}
+      size="sm"
+      title={`Unlock key '${alias}'`}
+      description="This private key is protected by its own key password."
+      footer={
+        <>
+          <Button onClick={onClose} disabled={busy}>
+            Cancel
+          </Button>
+          <Button
+            variant="primary"
+            disabled={busy || !pw}
+            onClick={async () => {
+              setBusy(true);
+              setError(await onSubmit(pw));
+              setBusy(false);
+            }}
+          >
+            {busy && <Spinner />} Unlock key
+          </Button>
+        </>
+      }
+    >
+      <PasswordInput label="Key password" value={pw} onChange={setPw} error={error ?? undefined} autoFocus />
+      <p className="text-[12px] text-faint mt-3">After unlocking, saving re-protects the key with the store password.</p>
+    </Modal>
+  );
+};

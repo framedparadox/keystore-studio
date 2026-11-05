@@ -1,962 +1,625 @@
-//! Real PKCS#12 (RFC 7292) encoder/decoder, OpenSSL/`keytool`-compatible.
+//! PKCS#12 / PFX (RFC 7292) codec compatible with OpenSSL 1.x/3.x, Java keytool and Windows.
 //!
-//! Layout matches the modern OpenSSL 3.x default (`openssl pkcs12 -export`) exactly:
+//! Reading accepts BER, SHA-1/SHA-2 MACs, PBES2 and the legacy PKCS#12 PBE ciphers (3DES, RC2),
+//! key bags, shrouded key bags, certificate bags, Java secret bags and nested safe contents.
+//! Keys are matched to certificates by public key (falling back to localKeyId/friendlyName).
 //!
-//! ```text
-//! PFX
-//!   version = 3
-//!   authSafe = ContentInfo(data, OCTET STRING(AuthenticatedSafe))
-//!     AuthenticatedSafe = SEQUENCE OF ContentInfo
-//!       [0] ContentInfo(encryptedData): EncryptedData wrapping a SafeContents of CertBag(s),
-//!           PBES2(PBKDF2-HMAC-SHA256, AES-256-CBC)-encrypted.
-//!       [1] ContentInfo(data): plaintext SafeContents of PKCS8ShroudedKeyBag(s), where the
-//!           key itself is protected internally as an EncryptedPrivateKeyInfo, also
-//!           PBES2(PBKDF2-HMAC-SHA256, AES-256-CBC).
-//!   macData = MacData: HMAC-SHA256 over the authSafe OCTET STRING content, keyed via the
-//!     RFC 7292 Appendix B KDF (id = 3) from the password.
-//! ```
-//!
-//! Each CertBag/KeyBag SafeBag carries matching `friendlyName` (alias) and `localKeyId`
-//! (SHA-1 of the cert DER) attributes so `keytool` associates the key with its chain.
+//! Writing follows modern keytool/OpenSSL 3 defaults: certificates in a PBES2/AES-256-CBC
+//! encrypted safe, keys as PBES2-shrouded bags, HMAC-SHA256 MAC, 10 000 iterations. Trusted
+//! certificates carry Oracle's trustedKeyUsage attribute so keytool lists them as
+//! `trustedCertEntry`; secret keys use Java's SecretBag layout.
 
-use crate::crypto::{CertificateInfo, KeystoreEntry, KeystoreFile};
-use aes::cipher::{block_padding::Pkcs7, BlockDecryptMut, BlockEncryptMut, KeyIvInit};
-use rand::RngCore;
-use sha1::{Digest as Sha1Digest, Sha1};
-use sha2::Sha256;
-use yasna::models::ObjectIdentifier;
-use yasna::{ASN1Result, BERReader, DERWriter, Tag};
+use crate::entry;
+use crate::keys::{self, PrivateKey};
+use crate::model::KeystoreEntry;
+use crate::oids::{self, oid};
+use crate::pbe::{self, HashAlg};
+use crate::util::*;
+use crate::x509;
+use yasna::{DERWriter, Tag};
 
-type Aes256CbcEnc = cbc::Encryptor<aes::Aes256>;
-type Aes256CbcDec = cbc::Decryptor<aes::Aes256>;
+const WRONG_PASSWORD: &str = "keystore password incorrect or file corrupt";
 
-// ---------------------------------------------------------------------------
-// OIDs
-// ---------------------------------------------------------------------------
-const OID_PKCS7_DATA: &[u64] = &[1, 2, 840, 113549, 1, 7, 1];
-const OID_PKCS7_ENCRYPTED_DATA: &[u64] = &[1, 2, 840, 113549, 1, 7, 6];
-const OID_PBES2: &[u64] = &[1, 2, 840, 113549, 1, 5, 13];
-const OID_PBKDF2: &[u64] = &[1, 2, 840, 113549, 1, 5, 12];
-const OID_HMAC_SHA256: &[u64] = &[1, 2, 840, 113549, 2, 9];
-const OID_AES256_CBC: &[u64] = &[2, 16, 840, 1, 101, 3, 4, 1, 42];
-const OID_SHA256: &[u64] = &[2, 16, 840, 1, 101, 3, 4, 2, 1];
-const OID_CERT_BAG: &[u64] = &[1, 2, 840, 113549, 1, 12, 10, 1, 3];
-const OID_KEY_BAG_SHROUDED: &[u64] = &[1, 2, 840, 113549, 1, 12, 10, 1, 2];
-const OID_X509_CERTTYPE: &[u64] = &[1, 2, 840, 113549, 1, 9, 22, 1];
-const OID_FRIENDLY_NAME: &[u64] = &[1, 2, 840, 113549, 1, 9, 20];
-const OID_LOCAL_KEY_ID: &[u64] = &[1, 2, 840, 113549, 1, 9, 21];
-
-const PBE_ITERATIONS: u64 = 2048;
-const SALT_LEN: usize = 16;
-const IV_LEN: usize = 16;
-const AES256_KEY_LEN: usize = 32;
-
-fn oid(parts: &[u64]) -> ObjectIdentifier {
-    ObjectIdentifier::from_slice(parts)
-}
-
-// ---------------------------------------------------------------------------
-// PKCS#12 Appendix B key-derivation (RFC 7292)
-// ---------------------------------------------------------------------------
-
-/// `ID` byte for the PKCS12 KDF purpose: 1 = key material, 2 = IV, 3 = MAC key.
-fn pkcs12_kdf(password: &str, salt: &[u8], iterations: u64, id: u8, out_len: usize) -> Vec<u8> {
-    // u and v are the SHA-256 block/input sizes in bits/bytes per Appendix B.
-    const U: usize = 32; // SHA-256 output size in bytes
-    const V: usize = 64; // SHA-256 block size in bytes
-
-    let mut password_utf16be = Vec::with_capacity(password.len() * 2 + 2);
-    for unit in password.encode_utf16() {
-        password_utf16be.extend_from_slice(&unit.to_be_bytes());
-    }
-    password_utf16be.extend_from_slice(&[0, 0]); // null terminator
-
-    let d = vec![id; V];
-
-    let s_len = V * ((salt.len() + V - 1) / V.max(1)).max(1);
-    let mut s = Vec::with_capacity(s_len);
-    while s.len() < s_len {
-        s.extend_from_slice(salt);
-    }
-    s.truncate(s_len.max(salt.len()));
-    if salt.is_empty() {
-        s.clear();
-    } else {
-        s.truncate(((salt.len() + V - 1) / V) * V);
-    }
-
-    let p_len = if password_utf16be.is_empty() {
-        0
-    } else {
-        ((password_utf16be.len() + V - 1) / V) * V
-    };
-    let mut p = Vec::with_capacity(p_len);
-    while p.len() < p_len {
-        p.extend_from_slice(&password_utf16be);
-    }
-    p.truncate(p_len);
-
-    let mut i = Vec::with_capacity(s.len() + p.len());
-    i.extend_from_slice(&s);
-    i.extend_from_slice(&p);
-
-    let mut result = Vec::with_capacity(out_len + U);
-    while result.len() < out_len {
-        let mut hasher = Sha256::new();
-        hasher.update(&d);
-        hasher.update(&i);
-        let mut a = hasher.finalize().to_vec();
-        for _ in 1..iterations {
-            let mut h = Sha256::new();
-            h.update(&a);
-            a = h.finalize().to_vec();
-        }
-
-        result.extend_from_slice(&a);
-
-        if i.len() > 0 {
-            // B = a repeated to fill a V-byte block
-            let mut b = Vec::with_capacity(V);
-            while b.len() < V {
-                b.extend_from_slice(&a);
-            }
-            b.truncate(V);
-
-            // I_j = (I_j + B + 1) mod 2^(V*8), applied per V-byte block of I
-            let block_count = i.len() / V;
-            for j in 0..block_count {
-                let block = &mut i[j * V..(j + 1) * V];
-                add_one_with_carry(block, &b);
-            }
-        }
-    }
-    result.truncate(out_len);
-    result
-}
-
-/// Big-endian modular addition of two equal-length byte buffers plus 1, in place into `block`.
-fn add_one_with_carry(block: &mut [u8], addend: &[u8]) {
-    let mut carry: u16 = 1;
-    for k in (0..block.len()).rev() {
-        let sum = block[k] as u16 + addend[k] as u16 + carry;
-        block[k] = (sum & 0xFF) as u8;
-        carry = sum >> 8;
-    }
-}
-
-fn derive_mac_key(password: &str, salt: &[u8], iterations: u64) -> Vec<u8> {
-    pkcs12_kdf(password, salt, iterations, 3, 32) // HMAC-SHA256 key length
-}
-
-fn derive_pbes2_key(password: &str, salt: &[u8], iterations: u64) -> Vec<u8> {
-    // PBES2 uses standard PKCS#5 PBKDF2-HMAC-SHA256 (NOT the Appendix B KDF), matching OpenSSL.
-    let mut key = vec![0u8; AES256_KEY_LEN];
-    pbkdf2::pbkdf2_hmac::<Sha256>(password.as_bytes(), salt, iterations as u32, &mut key);
-    key
-}
-
-fn hmac_sha256(key: &[u8], data: &[u8]) -> Vec<u8> {
-    use hmac::{Hmac, Mac};
-    let mut mac = <Hmac<Sha256> as Mac>::new_from_slice(key).expect("HMAC key length is always valid");
-    mac.update(data);
-    mac.finalize().into_bytes().to_vec()
-}
-
-// ---------------------------------------------------------------------------
-// AES-256-CBC + PKCS7 via PBES2
-// ---------------------------------------------------------------------------
-
-fn pbes2_encrypt(password: &str, plaintext: &[u8]) -> Result<(Vec<u8>, Vec<u8>, Vec<u8>), String> {
-    let mut salt = vec![0u8; SALT_LEN];
-    rand::thread_rng().fill_bytes(&mut salt);
-    let mut iv = vec![0u8; IV_LEN];
-    rand::thread_rng().fill_bytes(&mut iv);
-
-    let key = derive_pbes2_key(password, &salt, PBE_ITERATIONS);
-    let key_arr: [u8; AES256_KEY_LEN] = key.as_slice().try_into().map_err(|_| "bad key length".to_string())?;
-    let iv_arr: [u8; IV_LEN] = iv.as_slice().try_into().map_err(|_| "bad iv length".to_string())?;
-
-    let enc = Aes256CbcEnc::new(&key_arr.into(), &iv_arr.into());
-    let ciphertext = enc.encrypt_padded_vec_mut::<Pkcs7>(plaintext);
-
-    Ok((ciphertext, salt, iv))
-}
-
-fn pbes2_decrypt(password: &str, ciphertext: &[u8], salt: &[u8], iv: &[u8], iterations: u64) -> Result<Vec<u8>, String> {
-    let key = derive_pbes2_key(password, salt, iterations);
-    let key_arr: [u8; AES256_KEY_LEN] = key.as_slice().try_into().map_err(|_| "bad key length".to_string())?;
-    let iv_arr: [u8; IV_LEN] = iv.try_into().map_err(|_| "bad iv length".to_string())?;
-
-    let dec = Aes256CbcDec::new(&key_arr.into(), &iv_arr.into());
-    dec.decrypt_padded_vec_mut::<Pkcs7>(ciphertext)
-        .map_err(|_| "keystore password incorrect or file corrupt".to_string())
-}
-
-/// Writes a PBES2 `AlgorithmIdentifier` (PBKDF2-HMAC-SHA256 + AES-256-CBC) DER structure.
-fn write_pbes2_algorithm_identifier(writer: DERWriter, salt: &[u8], iv: &[u8], iterations: u64) {
-    writer.write_sequence(|writer| {
-        writer.next().write_oid(&oid(OID_PBES2));
-        writer.next().write_sequence(|writer| {
-            // keyDerivationFunc
-            writer.next().write_sequence(|writer| {
-                writer.next().write_oid(&oid(OID_PBKDF2));
-                writer.next().write_sequence(|writer| {
-                    writer.next().write_bytes(salt);
-                    writer.next().write_u64(iterations);
-                    writer.next().write_sequence(|writer| {
-                        writer.next().write_oid(&oid(OID_HMAC_SHA256));
-                        writer.next().write_null();
-                    });
-                });
-            });
-            // encryptionScheme
-            writer.next().write_sequence(|writer| {
-                writer.next().write_oid(&oid(OID_AES256_CBC));
-                writer.next().write_bytes(iv);
-            });
-        });
-    });
-}
-
-struct Pbes2Params {
-    salt: Vec<u8>,
-    iterations: u64,
-    iv: Vec<u8>,
-}
-
-fn read_pbes2_algorithm_identifier(reader: BERReader) -> ASN1Result<Pbes2Params> {
-    reader.read_sequence(|reader| {
-        let _oid = reader.next().read_oid()?;
-        reader.next().read_sequence(|reader| {
-            let (salt, iterations) = reader.next().read_sequence(|reader| {
-                let _oid = reader.next().read_oid()?;
-                reader.next().read_sequence(|reader| {
-                    let salt = reader.next().read_bytes()?;
-                    let iterations = reader.next().read_u64()?;
-                    // Optional keyLength + prf AlgorithmIdentifier; ignore remainder.
-                    reader.read_optional(|r| r.read_u64())?;
-                    reader.read_optional(|r| {
-                        r.read_sequence(|r| {
-                            let _oid = r.next().read_oid()?;
-                            r.read_optional(|r| r.read_null())?;
-                            Ok(())
-                        })
-                    })?;
-                    Ok((salt, iterations))
-                })
-            })?;
-            let iv = reader.next().read_sequence(|reader| {
-                let _oid = reader.next().read_oid()?;
-                reader.next().read_bytes()
-            })?;
-            Ok(Pbes2Params { salt, iterations, iv })
-        })
-    })
-}
-
-// ---------------------------------------------------------------------------
-// SafeBag attributes (friendlyName / localKeyId)
-// ---------------------------------------------------------------------------
-
-fn write_bag_attributes(writer: DERWriter, alias: &str, key_id: &[u8]) {
-    // `SET OF PKCS12Attribute` must be in DER canonical order, i.e. ascending
-    // lexicographic order of each element's full encoded bytes. `write_set_of` (unlike
-    // `write_set`, which sorts by a type/tag-aware rule meant for heterogeneous SET
-    // members) sorts with a plain byte-wise `Vec::sort`, matching what a DER reader's
-    // `read_set_of` enforces - so it must be used here, not `write_set`.
-    writer.write_set_of(|writer| {
-        writer.next().write_der(&yasna::construct_der(|writer| {
-            writer.write_sequence(|writer| {
-                writer.next().write_oid(&oid(OID_FRIENDLY_NAME));
-                writer.next().write_set_of(|writer| {
-                    writer.next().write_bmp_string(alias);
-                });
-            });
-        }));
-        writer.next().write_der(&yasna::construct_der(|writer| {
-            writer.write_sequence(|writer| {
-                writer.next().write_oid(&oid(OID_LOCAL_KEY_ID));
-                writer.next().write_set_of(|writer| {
-                    writer.next().write_bytes(key_id);
-                });
-            });
-        }));
-    });
-}
-
-struct BagAttrs {
+#[derive(Default, Clone)]
+struct Attrs {
     friendly_name: Option<String>,
     local_key_id: Option<Vec<u8>>,
+    trusted: bool,
 }
 
-fn read_bag_attributes(reader: BERReader) -> ASN1Result<BagAttrs> {
-    let mut friendly_name = None;
-    let mut local_key_id = None;
-    reader.read_set_of(|reader| {
-        reader.read_sequence(|reader| {
-            let attr_oid = reader.next().read_oid()?;
-            reader.next().read_set_of(|reader| {
-                if attr_oid == oid(OID_FRIENDLY_NAME) {
-                    friendly_name = Some(reader.read_bmp_string()?);
-                } else if attr_oid == oid(OID_LOCAL_KEY_ID) {
-                    local_key_id = Some(reader.read_bytes()?);
+struct RawBag {
+    bag_id: Vec<u64>,
+    value: Vec<u8>,
+    attrs: Attrs,
+}
+
+#[derive(Default)]
+struct Collected {
+    keys: Vec<(Vec<u8>, Attrs)>,
+    certs: Vec<(Vec<u8>, Attrs)>,
+    secrets: Vec<(String, Vec<u8>, Attrs)>,
+}
+
+/// Cheap structural check: SEQUENCE { INTEGER 3, SEQUENCE { OID pkcs7-data | signedData … } }.
+pub fn looks_like_pkcs12(bytes: &[u8]) -> bool {
+    yasna::parse_ber(bytes, |r| {
+        r.read_sequence(|r| {
+            let v = r.next().read_u8()?;
+            let ct = r.next().read_sequence(|r| {
+                let o = r.next().read_oid()?;
+                r.next().read_der()?;
+                Ok(o)
+            })?;
+            let _ = r.read_optional(|r| r.read_der())?;
+            Ok(v == 3 && (ct.components().as_slice() == oids::PKCS7_DATA || ct.components().as_slice() == oids::PKCS7_SIGNED_DATA))
+        })
+    })
+    .unwrap_or(false)
+}
+
+fn read_attrs(r: yasna::BERReader) -> yasna::ASN1Result<Attrs> {
+    let mut attrs = Attrs::default();
+    r.read_set_of(|r| {
+        r.read_sequence(|r| {
+            let id = r.next().read_oid()?;
+            let id = id.components().as_slice().to_vec();
+            r.next().read_set_of(|r| {
+                if id == oids::FRIENDLY_NAME {
+                    attrs.friendly_name = Some(r.read_bmp_string()?);
+                } else if id == oids::LOCAL_KEY_ID {
+                    attrs.local_key_id = Some(r.read_bytes()?);
                 } else {
-                    let _ = reader.read_der();
+                    if id == oids::ORACLE_TRUSTED_KEY_USAGE {
+                        attrs.trusted = true;
+                    }
+                    r.read_der()?;
                 }
                 Ok(())
             })
         })
     })?;
-    Ok(BagAttrs { friendly_name, local_key_id })
+    Ok(attrs)
 }
 
-// ---------------------------------------------------------------------------
-// PEM <-> DER helpers
-// ---------------------------------------------------------------------------
-
-fn pem_to_der(pem_str: &str) -> Result<Vec<u8>, String> {
-    let parsed = pem::parse(pem_str.as_bytes()).map_err(|e| format!("invalid PEM: {e}"))?;
-    Ok(parsed.contents().to_vec())
-}
-
-fn der_to_pem(der: &[u8], tag: &str) -> String {
-    let p = pem::Pem::new(tag, der.to_vec());
-    pem::encode(&p)
-}
-
-fn sha1_of(data: &[u8]) -> Vec<u8> {
-    let mut hasher = Sha1::new();
-    hasher.update(data);
-    hasher.finalize().to_vec()
-}
-
-// ---------------------------------------------------------------------------
-// CertBag / KeyBag SafeBag encoding
-// ---------------------------------------------------------------------------
-
-fn write_cert_bag(writer: DERWriter, cert_der: &[u8], alias: &str, key_id: &[u8]) {
-    writer.write_sequence(|writer| {
-        writer.next().write_oid(&oid(OID_CERT_BAG));
-        writer.next().write_tagged(Tag::context(0), |writer| {
-            writer.write_sequence(|writer| {
-                writer.next().write_oid(&oid(OID_X509_CERTTYPE));
-                writer.next().write_tagged(Tag::context(0), |writer| {
-                    writer.write_bytes(cert_der);
-                });
-            });
-        });
-        write_bag_attributes(writer.next(), alias, key_id);
-    });
-}
-
-struct DecodedCertBag {
-    cert_der: Vec<u8>,
-    attrs: BagAttrs,
-}
-
-fn read_safe_bag_cert(reader: BERReader) -> ASN1Result<DecodedCertBag> {
-    reader.read_sequence(|reader| {
-        let _bag_id = reader.next().read_oid()?;
-        let cert_der = reader.next().read_tagged(Tag::context(0), |reader| {
-            reader.read_sequence(|reader| {
-                let _oid = reader.next().read_oid()?;
-                reader.next().read_tagged(Tag::context(0), |reader| reader.read_bytes())
+fn read_safe_contents(der: &[u8]) -> Res<Vec<RawBag>> {
+    yasna::parse_ber(der, |r| {
+        let mut bags = Vec::new();
+        r.read_sequence_of(|r| {
+            r.read_sequence(|r| {
+                let bag_id = r.next().read_oid()?.components().to_vec();
+                let value = r.next().read_tagged(Tag::context(0), |r| r.read_der())?;
+                let attrs = r.read_optional(read_attrs)?.unwrap_or_default();
+                bags.push(RawBag { bag_id, value, attrs });
+                Ok(())
             })
         })?;
-        let attrs = reader
-            .read_optional(read_bag_attributes)?
-            .unwrap_or(BagAttrs { friendly_name: None, local_key_id: None });
-        Ok(DecodedCertBag { cert_der, attrs })
+        Ok(bags)
+    })
+    .map_err(|err| format!("malformed PKCS#12 SafeContents: {err}"))
+}
+
+fn secret_algorithm_name(arcs: &[u64]) -> String {
+    match arcs {
+        a if a == oids::AES || a.starts_with(oids::AES) => "AES".into(),
+        a if a == oids::HMAC_SHA1 => "HmacSHA1".into(),
+        a if a == oids::HMAC_SHA224 => "HmacSHA224".into(),
+        a if a == oids::HMAC_SHA256 => "HmacSHA256".into(),
+        a if a == oids::HMAC_SHA384 => "HmacSHA384".into(),
+        a if a == oids::HMAC_SHA512 => "HmacSHA512".into(),
+        a if a == oids::DES_EDE3_CBC => "DESede".into(),
+        other => oids::oid_str(other),
+    }
+}
+
+fn secret_algorithm_oid(name: &str) -> Res<&'static [u64]> {
+    Ok(match entry::canonical_secret_algorithm(name).as_str() {
+        "AES" => oids::AES,
+        "HmacSHA1" => oids::HMAC_SHA1,
+        "HmacSHA224" => oids::HMAC_SHA224,
+        "HmacSHA256" => oids::HMAC_SHA256,
+        "HmacSHA384" => oids::HMAC_SHA384,
+        "HmacSHA512" => oids::HMAC_SHA512,
+        "DESede" => oids::DES_EDE3_CBC,
+        other => return Err(format!("PKCS#12 cannot store '{other}' secret keys (supported: AES, HmacSHA*, DESede)")),
     })
 }
 
-fn write_key_bag(writer: DERWriter, encrypted_private_key_info_der: &[u8], alias: &str, key_id: &[u8]) {
-    writer.write_sequence(|writer| {
-        writer.next().write_oid(&oid(OID_KEY_BAG_SHROUDED));
-        writer.next().write_tagged(Tag::context(0), |writer| {
-            writer.write_der(encrypted_private_key_info_der);
-        });
-        write_bag_attributes(writer.next(), alias, key_id);
-    });
-}
-
-struct DecodedKeyBag {
-    encrypted_private_key_info_der: Vec<u8>,
-    attrs: BagAttrs,
-}
-
-fn read_safe_bag_key(reader: BERReader) -> ASN1Result<DecodedKeyBag> {
-    reader.read_sequence(|reader| {
-        let _bag_id = reader.next().read_oid()?;
-        let der = reader.next().read_tagged(Tag::context(0), |reader| reader.read_der())?;
-        let attrs = reader
-            .read_optional(read_bag_attributes)?
-            .unwrap_or(BagAttrs { friendly_name: None, local_key_id: None });
-        Ok(DecodedKeyBag { encrypted_private_key_info_der: der, attrs })
-    })
-}
-
-/// Wraps a plaintext PKCS8 DER key into a PBES2-protected `EncryptedPrivateKeyInfo` DER blob.
-fn shroud_private_key(password: &str, pkcs8_der: &[u8]) -> Result<Vec<u8>, String> {
-    let (ciphertext, salt, iv) = pbes2_encrypt(password, pkcs8_der)?;
-    Ok(yasna::construct_der(|writer| {
-        writer.write_sequence(|writer| {
-            write_pbes2_algorithm_identifier(writer.next(), &salt, &iv, PBE_ITERATIONS);
-            writer.next().write_bytes(&ciphertext);
-        });
-    }))
-}
-
-fn unshroud_private_key(password: &str, encrypted_info_der: &[u8]) -> Result<Vec<u8>, String> {
-    yasna::parse_der(encrypted_info_der, |reader| {
-        reader.read_sequence(|reader| {
-            let params = read_pbes2_algorithm_identifier(reader.next())?;
-            let ciphertext = reader.next().read_bytes()?;
-            Ok((params, ciphertext))
-        })
-    })
-    .map_err(|e| format!("malformed EncryptedPrivateKeyInfo: {e:?}"))
-    .and_then(|(params, ciphertext)| {
-        pbes2_decrypt(password, &ciphertext, &params.salt, &params.iv, params.iterations)
-    })
-}
-
-// ---------------------------------------------------------------------------
-// ContentInfo helpers
-// ---------------------------------------------------------------------------
-
-fn write_content_info_data(writer: DERWriter, inner_octets: &[u8]) {
-    writer.write_sequence(|writer| {
-        writer.next().write_oid(&oid(OID_PKCS7_DATA));
-        writer.next().write_tagged(Tag::context(0), |writer| {
-            writer.write_bytes(inner_octets);
-        });
-    });
-}
-
-fn write_content_info_encrypted_data(writer: DERWriter, salt: &[u8], iv: &[u8], iterations: u64, ciphertext: &[u8]) {
-    writer.write_sequence(|writer| {
-        writer.next().write_oid(&oid(OID_PKCS7_ENCRYPTED_DATA));
-        writer.next().write_tagged(Tag::context(0), |writer| {
-            // EncryptedData ::= SEQUENCE { version INTEGER(0), encryptedContentInfo }
-            writer.write_sequence(|writer| {
-                writer.next().write_u32(0);
-                writer.next().write_sequence(|writer| {
-                    writer.next().write_oid(&oid(OID_PKCS7_DATA));
-                    write_pbes2_algorithm_identifier(writer.next(), salt, iv, iterations);
-                    writer.next().write_tagged_implicit(Tag::context(0), |writer| {
-                        writer.write_bytes(ciphertext);
-                    });
-                });
-            });
-        });
-    });
-}
-
-enum DecodedContentInfo {
-    Data(Vec<u8>),
-    EncryptedData { salt: Vec<u8>, iv: Vec<u8>, iterations: u64, ciphertext: Vec<u8> },
-}
-
-fn read_content_info(reader: BERReader) -> ASN1Result<DecodedContentInfo> {
-    reader.read_sequence(|reader| {
-        let content_oid = reader.next().read_oid()?;
-        if content_oid == oid(OID_PKCS7_DATA) {
-            let bytes = reader.next().read_tagged(Tag::context(0), |reader| reader.read_bytes())?;
-            Ok(DecodedContentInfo::Data(bytes))
-        } else if content_oid == oid(OID_PKCS7_ENCRYPTED_DATA) {
-            let (salt, iv, iterations, ciphertext) = reader.next().read_tagged(Tag::context(0), |reader| {
-                reader.read_sequence(|reader| {
-                    let _version = reader.next().read_u32()?;
-                    reader.next().read_sequence(|reader| {
-                        let _content_type = reader.next().read_oid()?;
-                        let params = read_pbes2_algorithm_identifier(reader.next())?;
-                        let ciphertext = reader.next().read_tagged_implicit(Tag::context(0), |reader| reader.read_bytes())?;
-                        Ok((params.salt, params.iv, params.iterations, ciphertext))
+fn collect_bags(bags: Vec<RawBag>, password: &str, out: &mut Collected, depth: usize) -> Res<()> {
+    if depth > 4 {
+        return Err("PKCS#12 safe contents nested too deeply".into());
+    }
+    for bag in bags {
+        let id = bag.bag_id.as_slice();
+        if id == oids::KEY_BAG {
+            out.keys.push((bag.value, bag.attrs));
+        } else if id == oids::SHROUDED_KEY_BAG {
+            let pkcs8 = pbe::decrypt_pkcs8(password, &bag.value).map_err(|_| WRONG_PASSWORD.to_string())?;
+            out.keys.push((pkcs8, bag.attrs));
+        } else if id == oids::CERT_BAG {
+            let (cert_type, cert) = yasna::parse_ber(&bag.value, |r| {
+                r.read_sequence(|r| {
+                    let t = r.next().read_oid()?.components().to_vec();
+                    let c = r.next().read_tagged(Tag::context(0), |r| r.read_bytes())?;
+                    Ok((t, c))
+                })
+            })
+            .map_err(|err| format!("malformed PKCS#12 CertBag: {err}"))?;
+            if cert_type == oids::X509_CERT_TYPE {
+                out.certs.push((cert, bag.attrs));
+            }
+        } else if id == oids::SECRET_BAG {
+            let (secret_type, value) = yasna::parse_ber(&bag.value, |r| {
+                r.read_sequence(|r| {
+                    let t = r.next().read_oid()?.components().to_vec();
+                    let v = r.next().read_tagged(Tag::context(0), |r| r.read_der())?;
+                    Ok((t, v))
+                })
+            })
+            .map_err(|err| format!("malformed PKCS#12 SecretBag: {err}"))?;
+            if secret_type == oids::SHROUDED_KEY_BAG {
+                // Java wraps the EncryptedPrivateKeyInfo in an OCTET STRING.
+                let encrypted = yasna::parse_ber(&value, |r| r.read_bytes()).unwrap_or(value);
+                let info = pbe::decrypt_pkcs8(password, &encrypted).map_err(|_| WRONG_PASSWORD.to_string())?;
+                let (alg, key) = yasna::parse_ber(&info, |r| {
+                    r.read_sequence(|r| {
+                        let _v = r.next().read_u8()?;
+                        let alg = pbe::read_algorithm_id(r.next())?;
+                        let key = r.next().read_bytes()?;
+                        let _ = r.read_optional(|r| r.read_der())?;
+                        Ok((alg.oid, key))
                     })
                 })
-            })?;
-            Ok(DecodedContentInfo::EncryptedData { salt, iv, iterations, ciphertext })
-        } else {
-            Err(yasna::ASN1Error::new(yasna::ASN1ErrorKind::Invalid))
+                .map_err(|err| format!("malformed secret key: {err}"))?;
+                out.secrets.push((secret_algorithm_name(&alg), key, bag.attrs));
+            }
+        } else if id == oids::SAFE_CONTENTS_BAG {
+            collect_bags(read_safe_contents(&bag.value)?, password, out, depth + 1)?;
         }
-    })
+        // CRL bags and unknown bags are ignored.
+    }
+    Ok(())
 }
 
-// ---------------------------------------------------------------------------
-// MacData
-// ---------------------------------------------------------------------------
+pub fn decode(bytes: &[u8], password: &str) -> Res<Vec<KeystoreEntry>> {
+    struct Mac {
+        hash_oid: Vec<u64>,
+        digest: Vec<u8>,
+        salt: Vec<u8>,
+        iterations: u64,
+    }
+    let (auth_safe, mac) = yasna::parse_ber(bytes, |r| {
+        r.read_sequence(|r| {
+            let _version = r.next().read_u8()?;
+            let (ct, content) = r.next().read_sequence(|r| {
+                let ct = r.next().read_oid()?.components().to_vec();
+                let content = r.next().read_tagged(Tag::context(0), |r| r.read_bytes())?;
+                Ok((ct, content))
+            })?;
+            if ct != oids::PKCS7_DATA {
+                return Err(yasna::ASN1Error::new(yasna::ASN1ErrorKind::Invalid));
+            }
+            let mac = r.read_optional(|r| {
+                r.read_sequence(|r| {
+                    let (alg, digest) = r.next().read_sequence(|r| {
+                        let alg = pbe::read_algorithm_id(r.next())?;
+                        let d = r.next().read_bytes()?;
+                        Ok((alg, d))
+                    })?;
+                    let salt = r.next().read_bytes()?;
+                    let iterations = r.read_optional(|r| r.read_u64())?.unwrap_or(1);
+                    Ok(Mac { hash_oid: alg.oid, digest, salt, iterations })
+                })
+            })?;
+            Ok((content, mac))
+        })
+    })
+    .map_err(|_| "not a valid PKCS#12 file (public-key-signed PFX files are not supported)".to_string())?;
 
-fn write_mac_data(writer: DERWriter, mac: &[u8], salt: &[u8], iterations: u64) {
-    writer.write_sequence(|writer| {
-        writer.next().write_sequence(|writer| {
-            writer.next().write_sequence(|writer| {
-                writer.next().write_oid(&oid(OID_SHA256));
-                writer.next().write_null();
-            });
-            writer.next().write_bytes(mac);
+    if let Some(mac) = &mac {
+        if mac.hash_oid == [1, 2, 840, 113549, 1, 5, 14] {
+            return Err("PBMAC1-protected PKCS#12 files (OpenSSL 3.4+ -pbmac1_pbkdf2) are not supported yet".into());
+        }
+        let hash = HashAlg::from_digest_oid(&mac.hash_oid).ok_or_else(|| format!("unsupported PKCS#12 MAC algorithm {}", oids::oid_str(&mac.hash_oid)))?;
+        let key = pbe::pkcs12_kdf(hash, password, &mac.salt, mac.iterations, 3, hash.output_len());
+        if hash.hmac(&key, &auth_safe) != mac.digest {
+            return Err(WRONG_PASSWORD.into());
+        }
+    }
+
+    enum Ci {
+        Data(Vec<u8>),
+        Encrypted(pbe::AlgorithmId, Vec<u8>),
+        Enveloped,
+    }
+    let infos: Vec<Ci> = yasna::parse_ber(&auth_safe, |r| {
+        let mut out = Vec::new();
+        r.read_sequence_of(|r| {
+            r.read_sequence(|r| {
+                let ct = r.next().read_oid()?.components().to_vec();
+                if ct == oids::PKCS7_DATA {
+                    out.push(Ci::Data(r.next().read_tagged(Tag::context(0), |r| r.read_bytes())?));
+                } else if ct == oids::PKCS7_ENCRYPTED_DATA {
+                    let (alg, data) = r.next().read_tagged(Tag::context(0), |r| {
+                        r.read_sequence(|r| {
+                            let _v = r.next().read_u8()?;
+                            let res = r.next().read_sequence(|r| {
+                                let _ct = r.next().read_oid()?;
+                                let alg = pbe::read_algorithm_id(r.next())?;
+                                let data = r.next().read_tagged_implicit(Tag::context(0), |r| r.read_bytes())?;
+                                Ok((alg, data))
+                            })?;
+                            let _ = r.read_optional(|r| r.read_der())?;
+                            Ok(res)
+                        })
+                    })?;
+                    out.push(Ci::Encrypted(alg, data));
+                } else {
+                    r.next().read_der()?;
+                    out.push(Ci::Enveloped);
+                }
+                Ok(())
+            })
+        })?;
+        Ok(out)
+    })
+    .map_err(|err| format!("malformed PKCS#12 AuthenticatedSafe: {err}"))?;
+
+    let mut collected = Collected::default();
+    for ci in infos {
+        let safe = match ci {
+            Ci::Data(d) => d,
+            Ci::Encrypted(alg, data) => pbe::decrypt(&alg, password, &data).map_err(|err| {
+                if err.contains("not supported") || err.contains("unsupported") { err } else { WRONG_PASSWORD.to_string() }
+            })?,
+            Ci::Enveloped => return Err("PKCS#12 files with public-key encrypted contents are not supported".into()),
+        };
+        collect_bags(read_safe_contents(&safe)?, password, &mut collected, 0)?;
+    }
+    assemble(collected)
+}
+
+fn unique_alias(base: &str, used: &mut std::collections::HashSet<String>) -> String {
+    let base = if base.trim().is_empty() { "entry" } else { base.trim() };
+    let mut alias = base.to_string();
+    let mut n = 2;
+    while used.contains(&alias.to_lowercase()) {
+        alias = format!("{base}-{n}");
+        n += 1;
+    }
+    used.insert(alias.to_lowercase());
+    alias
+}
+
+fn assemble(c: Collected) -> Res<Vec<KeystoreEntry>> {
+    let pool: Vec<Vec<u8>> = c.certs.iter().map(|(d, _)| d.clone()).collect();
+    let mut leaf_used = vec![false; c.certs.len()];
+    let mut in_chain = vec![false; c.certs.len()];
+    let mut used_aliases = std::collections::HashSet::new();
+    let mut entries = Vec::new();
+
+    for (idx, (pkcs8, attrs)) in c.keys.iter().enumerate() {
+        let key = PrivateKey::from_pkcs8_der(pkcs8)?;
+        let by_key = c.certs.iter().position(|(d, _)| x509::cert_summary(d).map(|s| keys::key_matches_spki(&key, &s.spki)).unwrap_or(false));
+        let by_id = || attrs.local_key_id.as_ref().and_then(|id| c.certs.iter().position(|(_, a)| a.local_key_id.as_ref() == Some(id)));
+        let by_name = || attrs.friendly_name.as_ref().and_then(|n| c.certs.iter().position(|(_, a)| a.friendly_name.as_ref() == Some(n)));
+        // localKeyId pairs a key with its exact certificate bag; fall back to the public key
+        // (some tools omit localKeyId) and finally to the friendly name.
+        let by_id_key = attrs.local_key_id.as_ref().and_then(|id| {
+            c.certs.iter().position(|(d, a)| a.local_key_id.as_ref() == Some(id) && x509::cert_summary(d).map(|s| keys::key_matches_spki(&key, &s.spki)).unwrap_or(true))
         });
-        writer.next().write_bytes(salt);
-        writer.next().write_u64(iterations);
+        let leaf_idx = by_id_key.or(by_key).or_else(by_id).or_else(by_name);
+        let chain = match leaf_idx {
+            Some(i) => {
+                leaf_used[i] = true;
+                let chain = x509::build_chain(&c.certs[i].0, &pool);
+                // A CA shared by several chains may be stored more than once: mark every copy.
+                for (j, p) in pool.iter().enumerate() {
+                    if chain.contains(p) {
+                        in_chain[j] = true;
+                    }
+                }
+                chain
+            }
+            None => Vec::new(),
+        };
+        let name = attrs
+            .friendly_name
+            .clone()
+            .or_else(|| leaf_idx.and_then(|i| c.certs[i].1.friendly_name.clone()))
+            .or_else(|| chain.first().and_then(|d| x509::parse_certificate(d).ok()).map(|i| x509::cn_of(&i.subject).to_lowercase().replace(' ', "-")))
+            .unwrap_or_else(|| format!("key-{}", idx + 1));
+        let alias = unique_alias(&name, &mut used_aliases);
+        entries.push(entry::key_pair_entry(&alias, pkcs8, &chain, None)?);
+    }
+
+    let mut emitted: Vec<&Vec<u8>> = Vec::new();
+    for (i, (der, attrs)) in c.certs.iter().enumerate() {
+        if leaf_used[i] {
+            continue;
+        }
+        // Identical certificates stored more than once become a single entry.
+        let is_some_keys_leaf = c.certs.iter().enumerate().any(|(j, (d, _))| leaf_used[j] && d == der);
+        if emitted.contains(&der) || (is_some_keys_leaf && !attrs.trusted) {
+            continue;
+        }
+        // A CA certificate that only exists to complete a key's chain is not a separate entry
+        // unless it was explicitly stored as one (friendly name / trusted attribute).
+        if in_chain[i] && attrs.friendly_name.is_none() && !attrs.trusted {
+            continue;
+        }
+        let name = attrs
+            .friendly_name
+            .clone()
+            .or_else(|| x509::parse_certificate(der).ok().map(|i| x509::cn_of(&i.subject).to_lowercase().replace(' ', "-")))
+            .unwrap_or_else(|| format!("cert-{}", i + 1));
+        let alias = unique_alias(&name, &mut used_aliases);
+        entries.push(entry::trusted_cert_entry(&alias, der, None)?);
+        emitted.push(der);
+    }
+
+    for (i, (alg, key, attrs)) in c.secrets.iter().enumerate() {
+        let alias = unique_alias(attrs.friendly_name.as_deref().unwrap_or(&format!("secret-{}", i + 1)), &mut used_aliases);
+        entries.push(entry::secret_key_entry(&alias, alg, key, None));
+    }
+    Ok(entries)
+}
+
+// ---------------------------------------------------------------------------------------------
+// Encoding
+// ---------------------------------------------------------------------------------------------
+
+fn write_attrs(w: DERWriter, alias: Option<&str>, key_id: Option<&[u8]>, trusted: bool) {
+    w.write_set_of(|w| {
+        if let Some(alias) = alias {
+            w.next().write_sequence(|w| {
+                w.next().write_oid(&oid(oids::FRIENDLY_NAME));
+                w.next().write_set_of(|w| w.next().write_bmp_string(alias));
+            });
+        }
+        if let Some(id) = key_id {
+            w.next().write_sequence(|w| {
+                w.next().write_oid(&oid(oids::LOCAL_KEY_ID));
+                w.next().write_set_of(|w| w.next().write_bytes(id));
+            });
+        }
+        if trusted {
+            w.next().write_sequence(|w| {
+                w.next().write_oid(&oid(oids::ORACLE_TRUSTED_KEY_USAGE));
+                w.next().write_set_of(|w| w.next().write_oid(&oid(oids::ANY_EXTENDED_KEY_USAGE)));
+            });
+        }
     });
 }
 
-struct DecodedMacData {
-    mac: Vec<u8>,
-    salt: Vec<u8>,
-    iterations: u64,
-}
-
-fn read_mac_data(reader: BERReader) -> ASN1Result<DecodedMacData> {
-    reader.read_sequence(|reader| {
-        let mac = reader.next().read_sequence(|reader| {
-            reader.next().read_sequence(|reader| {
-                let _oid = reader.next().read_oid()?;
-                reader.read_optional(|r| r.read_null())?;
-                Ok(())
-            })?;
-            reader.next().read_bytes()
-        })?;
-        let salt = reader.next().read_bytes()?;
-        let iterations = reader
-            .read_optional(|r| r.read_u64())?
-            .unwrap_or(1);
-        Ok(DecodedMacData { mac, salt, iterations })
+fn cert_bag(cert: &[u8], alias: Option<&str>, key_id: Option<&[u8]>, trusted: bool) -> Vec<u8> {
+    yasna::construct_der(|w| {
+        w.write_sequence(|w| {
+            w.next().write_oid(&oid(oids::CERT_BAG));
+            w.next().write_tagged(Tag::context(0), |w| {
+                w.write_sequence(|w| {
+                    w.next().write_oid(&oid(oids::X509_CERT_TYPE));
+                    w.next().write_tagged(Tag::context(0), |w| w.write_bytes(cert));
+                })
+            });
+            if alias.is_some() || key_id.is_some() || trusted {
+                write_attrs(w.next(), alias, key_id, trusted);
+            }
+        })
     })
 }
 
-// ---------------------------------------------------------------------------
-// Public API
-// ---------------------------------------------------------------------------
+fn safe_contents(bags: &[Vec<u8>]) -> Vec<u8> {
+    yasna::construct_der(|w| {
+        w.write_sequence(|w| {
+            for b in bags {
+                w.next().write_der(b);
+            }
+        })
+    })
+}
 
-/// Encodes a [`KeystoreFile`] into real RFC 7292 PKCS#12 (PFX) bytes, readable by
-/// `openssl pkcs12` and `keytool`.
-pub fn encode_pkcs12(ks: &KeystoreFile, password: &str) -> Result<Vec<u8>, String> {
-    let mut cert_safe_bags: Vec<Vec<u8>> = Vec::new();
-    let mut key_safe_bags: Vec<Vec<u8>> = Vec::new();
+pub fn encode(entries: &[KeystoreEntry], password: &str) -> Res<Vec<u8>> {
+    let iterations = pbe::DEFAULT_ITERATIONS;
+    let mut cert_bags = Vec::new();
+    let mut key_bags = Vec::new();
+    let mut aliases = std::collections::HashSet::new();
 
-    for entry in &ks.entries {
+    for (n, entry) in entries.iter().enumerate() {
+        if !aliases.insert(entry.alias.to_lowercase()) {
+            return Err(format!("duplicate alias '{}'", entry.alias));
+        }
         match entry.entry_type.as_str() {
             "KeyPair" => {
-                let priv_pem = entry
-                    .private_key_pem
-                    .as_deref()
-                    .ok_or_else(|| format!("entry '{}' is a KeyPair but has no private key", entry.alias))?;
-                let pkcs8_der = pem_to_der(priv_pem)?;
-                let leaf_cert = entry
-                    .certificate_chain
-                    .first()
-                    .ok_or_else(|| format!("entry '{}' has no certificate", entry.alias))?;
-                let leaf_der = pem_to_der(&leaf_cert.pem)?;
-                let key_id = sha1_of(&leaf_der);
-
-                let shrouded = shroud_private_key(password, &pkcs8_der)?;
-                let key_bag_der = yasna::construct_der(|writer| {
-                    write_key_bag(writer, &shrouded, &entry.alias, &key_id);
-                });
-                key_safe_bags.push(key_bag_der);
-
-                for cert in &entry.certificate_chain {
-                    let cert_der = pem_to_der(&cert.pem)?;
-                    let cert_bag_der = yasna::construct_der(|writer| {
-                        write_cert_bag(writer, &cert_der, &entry.alias, &key_id);
-                    });
-                    cert_safe_bags.push(cert_bag_der);
+                if entry.locked {
+                    return Err(format!("'{}' is locked by a separate key password; unlock it before saving as PKCS#12", entry.alias));
+                }
+                let pkcs8 = entry::private_key_der(entry)?;
+                let chain = entry::chain_der(entry)?;
+                let key_id = chain.first().map(|c| sha1(c)).unwrap_or_else(|| sha1(&pkcs8));
+                let shrouded = pbe::encrypt_pkcs8(password, &pkcs8, iterations)?;
+                key_bags.push(yasna::construct_der(|w| {
+                    w.write_sequence(|w| {
+                        w.next().write_oid(&oid(oids::SHROUDED_KEY_BAG));
+                        w.next().write_tagged(Tag::context(0), |w| w.write_der(&shrouded));
+                        write_attrs(w.next(), Some(&entry.alias), Some(&key_id), false);
+                    })
+                }));
+                for (i, cert) in chain.iter().enumerate() {
+                    if i == 0 {
+                        cert_bags.push(cert_bag(cert, Some(&entry.alias), Some(&key_id), false));
+                    } else {
+                        cert_bags.push(cert_bag(cert, None, None, false));
+                    }
                 }
             }
             "TrustedCertificate" => {
-                let cert = entry
-                    .certificate_chain
-                    .first()
-                    .ok_or_else(|| format!("entry '{}' has no certificate", entry.alias))?;
-                let cert_der = pem_to_der(&cert.pem)?;
-                let key_id = sha1_of(&cert_der);
-                let cert_bag_der = yasna::construct_der(|writer| {
-                    write_cert_bag(writer, &cert_der, &entry.alias, &key_id);
-                });
-                cert_safe_bags.push(cert_bag_der);
+                let chain = entry::chain_der(entry)?;
+                let cert = chain.first().ok_or_else(|| format!("'{}' has no certificate", entry.alias))?;
+                cert_bags.push(cert_bag(cert, Some(&entry.alias), None, true));
             }
             "SecretKey" => {
-                // PKCS#12 has no standard SecretBag understood by keytool/openssl in this
-                // layout; secret keys are out of scope for the binary PKCS12 container here.
-                return Err(format!(
-                    "entry '{}': PKCS#12 export of raw SecretKey entries is not supported",
-                    entry.alias
-                ));
-            }
-            other => {
-                return Err(format!("unsupported entry type '{other}' for PKCS#12 export"));
-            }
-        }
-    }
-
-    // SafeContents for certs -> encrypted ContentInfo
-    let cert_safe_contents = yasna::construct_der(|writer| {
-        writer.write_sequence_of(|writer| {
-            for bag in &cert_safe_bags {
-                writer.next().write_der(bag);
-            }
-        });
-    });
-    let (cert_ciphertext, cert_salt, cert_iv) = pbes2_encrypt(password, &cert_safe_contents)?;
-
-    // SafeContents for keys -> plaintext ContentInfo (key itself is shrouded internally)
-    let key_safe_contents = yasna::construct_der(|writer| {
-        writer.write_sequence_of(|writer| {
-            for bag in &key_safe_bags {
-                writer.next().write_der(bag);
-            }
-        });
-    });
-
-    let authenticated_safe = yasna::construct_der(|writer| {
-        writer.write_sequence_of(|writer| {
-            writer.next().write_der(&yasna::construct_der(|writer| {
-                write_content_info_encrypted_data(writer, &cert_salt, &cert_iv, PBE_ITERATIONS, &cert_ciphertext);
-            }));
-            writer.next().write_der(&yasna::construct_der(|writer| {
-                write_content_info_data(writer, &key_safe_contents);
-            }));
-        });
-    });
-
-    let mut mac_salt = vec![0u8; SALT_LEN];
-    rand::thread_rng().fill_bytes(&mut mac_salt);
-    let mac_key = derive_mac_key(password, &mac_salt, PBE_ITERATIONS);
-    let mac = hmac_sha256(&mac_key, &authenticated_safe);
-
-    let pfx = yasna::construct_der(|writer| {
-        writer.write_sequence(|writer| {
-            writer.next().write_u32(3);
-            writer.next().write_der(&yasna::construct_der(|writer| {
-                write_content_info_data(writer, &authenticated_safe);
-            }));
-            write_mac_data(writer.next(), &mac, &mac_salt, PBE_ITERATIONS);
-        });
-    });
-
-    Ok(pfx)
-}
-
-/// Decodes RFC 7292 PKCS#12 bytes (as produced by `openssl pkcs12 -export`, `keytool`, or
-/// [`encode_pkcs12`]) into a [`KeystoreFile`]. Verifies the integrity MAC first and rejects
-/// with `Err` on mismatch before attempting to decrypt anything.
-pub fn decode_pkcs12(bytes: &[u8], password: &str) -> Result<KeystoreFile, String> {
-    struct Pfx {
-        auth_safe_content: Vec<u8>,
-        mac: Option<DecodedMacData>,
-    }
-
-    let pfx: Pfx = yasna::parse_der(bytes, |reader| {
-        reader.read_sequence(|reader| {
-            let _version = reader.next().read_u32()?;
-            let auth_safe_content = reader.next().read_sequence(|reader| {
-                let _oid = reader.next().read_oid()?;
-                reader.next().read_tagged(Tag::context(0), |reader| reader.read_bytes())
-            })?;
-            let mac = reader.read_optional(read_mac_data)?;
-            Ok(Pfx { auth_safe_content, mac })
-        })
-    })
-    .map_err(|e| format!("not a valid PKCS#12 file: {e:?}"))?;
-
-    if let Some(mac_data) = &pfx.mac {
-        let mac_key = derive_mac_key(password, &mac_data.salt, mac_data.iterations);
-        let expected = hmac_sha256(&mac_key, &pfx.auth_safe_content);
-        if expected != mac_data.mac {
-            return Err("keystore password incorrect or file corrupt".to_string());
-        }
-    }
-
-    let content_infos: Vec<DecodedContentInfo> = yasna::parse_der(&pfx.auth_safe_content, |reader| {
-        let mut items = Vec::new();
-        reader.read_sequence_of(|reader| {
-            items.push(read_content_info(reader)?);
-            Ok(())
-        })?;
-        Ok(items)
-    })
-    .map_err(|e| format!("malformed AuthenticatedSafe: {e:?}"))?;
-
-    let mut certs_by_key_id: Vec<(Vec<u8>, DecodedCertBag)> = Vec::new();
-    let mut keys_by_key_id: Vec<(Vec<u8>, DecodedKeyBag)> = Vec::new();
-
-    for ci in content_infos {
-        let safe_contents_der = match ci {
-            DecodedContentInfo::Data(bytes) => bytes,
-            DecodedContentInfo::EncryptedData { salt, iv, iterations, ciphertext } => {
-                pbes2_decrypt(password, &ciphertext, &salt, &iv, iterations)?
-            }
-        };
-
-        // A SafeContents can hold either CertBags or KeyBags; try both interpretations
-        // bag-by-bag since the bagId at the start of each SafeBag tells us which it is.
-        yasna::parse_der(&safe_contents_der, |reader| {
-            reader.read_sequence_of(|reader| {
-                let der = reader.read_der()?;
-                if let Ok(bag) = yasna::parse_der(&der, read_safe_bag_cert) {
-                    let key_id = bag.attrs.local_key_id.clone().unwrap_or_default();
-                    certs_by_key_id.push((key_id, bag));
-                } else if let Ok(bag) = yasna::parse_der(&der, read_safe_bag_key) {
-                    let key_id = bag.attrs.local_key_id.clone().unwrap_or_default();
-                    keys_by_key_id.push((key_id, bag));
+                if entry.locked {
+                    return Err(format!("'{}' is locked; unlock it before saving as PKCS#12", entry.alias));
                 }
-                Ok(())
+                let key = entry::secret_bytes(entry)?;
+                let alg = secret_algorithm_oid(&entry.algorithm)?;
+                let info = yasna::construct_der(|w| {
+                    w.write_sequence(|w| {
+                        w.next().write_u8(0);
+                        w.next().write_sequence(|w| w.next().write_oid(&oid(alg)));
+                        w.next().write_bytes(&key);
+                    })
+                });
+                let encrypted = pbe::encrypt_pkcs8(password, &info, iterations)?;
+                let key_id = format!("Time {}", chrono::Utc::now().timestamp_millis() + n as i64);
+                key_bags.push(yasna::construct_der(|w| {
+                    w.write_sequence(|w| {
+                        w.next().write_oid(&oid(oids::SECRET_BAG));
+                        w.next().write_tagged(Tag::context(0), |w| {
+                            w.write_sequence(|w| {
+                                w.next().write_oid(&oid(oids::SHROUDED_KEY_BAG));
+                                w.next().write_tagged(Tag::context(0), |w| w.write_bytes(&encrypted));
+                            })
+                        });
+                        write_attrs(w.next(), Some(&entry.alias), Some(key_id.as_bytes()), false);
+                    })
+                }));
+            }
+            other => return Err(format!("unsupported entry type '{other}'")),
+        }
+    }
+
+    let mut infos = Vec::new();
+    if !cert_bags.is_empty() {
+        let (alg, ciphertext) = pbe::pbes2_encrypt(password, &safe_contents(&cert_bags), iterations)?;
+        infos.push(yasna::construct_der(|w| {
+            w.write_sequence(|w| {
+                w.next().write_oid(&oid(oids::PKCS7_ENCRYPTED_DATA));
+                w.next().write_tagged(Tag::context(0), |w| {
+                    w.write_sequence(|w| {
+                        w.next().write_u8(0);
+                        w.next().write_sequence(|w| {
+                            w.next().write_oid(&oid(oids::PKCS7_DATA));
+                            w.next().write_der(&alg);
+                            pbe::write_implicit_octets(w.next(), 0, &ciphertext);
+                        });
+                    })
+                });
             })
+        }));
+    }
+    if !key_bags.is_empty() {
+        let sc = safe_contents(&key_bags);
+        infos.push(yasna::construct_der(|w| {
+            w.write_sequence(|w| {
+                w.next().write_oid(&oid(oids::PKCS7_DATA));
+                w.next().write_tagged(Tag::context(0), |w| w.write_bytes(&sc));
+            })
+        }));
+    }
+    let auth_safe = yasna::construct_der(|w| {
+        w.write_sequence(|w| {
+            for i in &infos {
+                w.next().write_der(i);
+            }
         })
-        .map_err(|e: yasna::ASN1Error| format!("malformed SafeContents: {e:?}"))?;
-    }
-
-    let mut entries = Vec::new();
-
-    for (key_id, key_bag) in &keys_by_key_id {
-        let pkcs8_der = unshroud_private_key(password, &key_bag.encrypted_private_key_info_der)?;
-        let priv_pem = der_to_pem(&pkcs8_der, "PRIVATE KEY");
-
-        let alias = key_bag
-            .attrs
-            .friendly_name
-            .clone()
-            .unwrap_or_else(|| format!("imported-key-{}", entries.len() + 1));
-
-        let mut chain = Vec::new();
-        for (cert_key_id, cert_bag) in &certs_by_key_id {
-            if cert_key_id == key_id {
-                chain.push(certificate_info_from_der(&cert_bag.cert_der));
-            }
-        }
-        // Fallback: if no local_key_id match was found (some tools omit it), associate by
-        // friendly name instead, and finally by position if there's exactly one of each.
-        if chain.is_empty() {
-            for (_, cert_bag) in &certs_by_key_id {
-                if cert_bag.attrs.friendly_name.as_deref() == Some(alias.as_str()) {
-                    chain.push(certificate_info_from_der(&cert_bag.cert_der));
-                }
-            }
-        }
-        if chain.is_empty() && certs_by_key_id.len() == 1 && keys_by_key_id.len() == 1 {
-            chain.push(certificate_info_from_der(&certs_by_key_id[0].1.cert_der));
-        }
-
-        entries.push(build_entry(alias, "KeyPair", Some(priv_pem), chain));
-    }
-
-    // Any certs not claimed by a key become standalone TrustedCertificate entries.
-    let claimed_key_ids: std::collections::HashSet<Vec<u8>> = keys_by_key_id.iter().map(|(id, _)| id.clone()).collect();
-    for (key_id, cert_bag) in &certs_by_key_id {
-        let is_claimed = claimed_key_ids.contains(key_id)
-            || entries.iter().any(|e: &KeystoreEntry| {
-                e.certificate_chain
-                    .iter()
-                    .any(|c| c.pem == der_to_pem(&cert_bag.cert_der, "CERTIFICATE"))
+    });
+    let mac_salt = random_bytes(20);
+    let mac_key = pbe::pkcs12_kdf(HashAlg::Sha256, password, &mac_salt, iterations, 3, 32);
+    let mac = HashAlg::Sha256.hmac(&mac_key, &auth_safe);
+    Ok(yasna::construct_der(|w| {
+        w.write_sequence(|w| {
+            w.next().write_u8(3);
+            w.next().write_sequence(|w| {
+                w.next().write_oid(&oid(oids::PKCS7_DATA));
+                w.next().write_tagged(Tag::context(0), |w| w.write_bytes(&auth_safe));
             });
-        if !is_claimed {
-            let alias = cert_bag
-                .attrs
-                .friendly_name
-                .clone()
-                .unwrap_or_else(|| format!("imported-cert-{}", entries.len() + 1));
-            entries.push(build_entry(
-                alias,
-                "TrustedCertificate",
-                None,
-                vec![certificate_info_from_der(&cert_bag.cert_der)],
-            ));
-        }
-    }
-
-    Ok(KeystoreFile {
-        id: format!("p12-{}", uuid::Uuid::new_v4()),
-        name: "imported.p12".to_string(),
-        format: "PKCS12".to_string(),
-        path: String::new(),
-        description: "Decoded from PKCS#12 binary".to_string(),
-        password_protected: true,
-        created_at: chrono::Utc::now().to_rfc3339(),
-        updated_at: chrono::Utc::now().to_rfc3339(),
-        entries,
-    })
-}
-
-fn certificate_info_from_der(der: &[u8]) -> CertificateInfo {
-    let pem = der_to_pem(der, "CERTIFICATE");
-    let sha256 = crate::crypto::compute_sha256_colon(der);
-    let sha1 = crate::crypto::compute_sha1_colon(der);
-    let md5 = crate::crypto::compute_md5_colon(der);
-    CertificateInfo {
-        version: 3,
-        serial_number: String::new(),
-        signature_algorithm: String::new(),
-        subject: String::new(),
-        issuer: String::new(),
-        valid_from: String::new(),
-        valid_to: String::new(),
-        days_remaining: 0,
-        is_ca: false,
-        public_key_algorithm: String::new(),
-        key_size: 0,
-        sans: vec![],
-        key_usage: vec![],
-        extended_key_usage: vec![],
-        extensions: vec![],
-        sha256_fingerprint: sha256,
-        sha1_fingerprint: sha1,
-        md5_fingerprint: md5,
-        pem,
-    }
-}
-
-fn build_entry(
-    alias: String,
-    entry_type: &str,
-    private_key_pem: Option<String>,
-    chain: Vec<CertificateInfo>,
-) -> KeystoreEntry {
-    let now = chrono::Utc::now().format("%Y-%m-%d").to_string();
-    let first = chain.first();
-    KeystoreEntry {
-        id: format!("entry-{}", uuid::Uuid::new_v4()),
-        alias,
-        entry_type: entry_type.to_string(),
-        algorithm: String::new(),
-        key_size: 0,
-        curve: None,
-        creation_date: now.clone(),
-        expiry_date: first.map(|c| c.valid_to.clone()).unwrap_or_default(),
-        last_modified: now,
-        subject: first.map(|c| c.subject.clone()).unwrap_or_default(),
-        issuer: first.map(|c| c.issuer.clone()).unwrap_or_default(),
-        serial_number: first.map(|c| c.serial_number.clone()).unwrap_or_default(),
-        sha256_fingerprint: first.map(|c| c.sha256_fingerprint.clone()).unwrap_or_default(),
-        sha1_fingerprint: first.map(|c| c.sha1_fingerprint.clone()).unwrap_or_default(),
-        chain_length: chain.len(),
-        certificate_chain: chain,
-        private_key_pem,
-        public_key_pem: None,
-        secret_key_hex: None,
-        locked: false,
-        labels: vec![],
-        is_expired: false,
-        is_weak: false,
-        is_post_quantum: false,
-    }
+            w.next().write_sequence(|w| {
+                w.next().write_sequence(|w| {
+                    w.next().write_sequence(|w| {
+                        w.next().write_oid(&oid(oids::SHA256));
+                        w.next().write_null();
+                    });
+                    w.next().write_bytes(&mac);
+                });
+                w.next().write_bytes(&mac_salt);
+                w.next().write_u64(iterations);
+            });
+        })
+    }))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::crypto::{create_keystore_keypair_entry, GenerateKeyPairInput};
 
-    fn normalize_pem(s: &str) -> String {
-        s.replace("\r\n", "\n").trim().to_string()
-    }
-
-    fn fixture_entry(alias: &str) -> KeystoreEntry {
-        let input = GenerateKeyPairInput {
-            alias: alias.to_string(),
-            algorithm: "RSA".to_string(),
+    fn key_pair(alias: &str, alg: &str) -> KeystoreEntry {
+        let input = crate::model::GenerateKeyPairInput {
+            alias: alias.into(),
+            algorithm: alg.into(),
             key_size: 2048,
-            curve: None,
-            common_name: "p12-test.example.com".to_string(),
-            organization: "Test Org".to_string(),
-            organizational_unit: "".to_string(),
-            locality: "".to_string(),
-            state: "".to_string(),
-            country: "US".to_string(),
-            email: "".to_string(),
-            validity_days: 365,
+            curve: Some("P-256".into()),
+            signature_hash: None,
+            subject_dn: format!("CN={alias}.example"),
+            common_name: String::new(),
+            organization: String::new(),
+            organizational_unit: String::new(),
+            locality: String::new(),
+            state: String::new(),
+            country: String::new(),
+            email: String::new(),
+            validity_days: 30,
             is_ca: false,
+            path_len: None,
             sans: vec![],
             key_usage: vec![],
             extended_key_usage: vec![],
-            signer_alias: None,
             labels: vec![],
         };
-        create_keystore_keypair_entry(&input, None).expect("fixture keypair generation failed")
-    }
-
-    fn fixture_keystore(alias: &str) -> (KeystoreFile, String, String) {
-        let entry = fixture_entry(alias);
-        let priv_pem = entry.private_key_pem.clone().unwrap();
-        let cert_pem = entry.certificate_chain[0].pem.clone();
-        let ks = KeystoreFile {
-            id: "ks-p12".to_string(),
-            name: "test.p12".to_string(),
-            format: "PKCS12".to_string(),
-            path: String::new(),
-            description: String::new(),
-            password_protected: true,
-            created_at: String::new(),
-            updated_at: String::new(),
-            entries: vec![entry],
-        };
-        (ks, priv_pem, cert_pem)
+        crate::ops::generate_key_pair(&input, None).unwrap()
     }
 
     #[test]
-    fn pkcs12_kdf_matches_known_vector_length() {
-        // Sanity check: output length and determinism of the Appendix B KDF.
-        let out1 = pkcs12_kdf("password", b"saltsaltsaltsalt", 2048, 3, 32);
-        let out2 = pkcs12_kdf("password", b"saltsaltsaltsalt", 2048, 3, 32);
-        assert_eq!(out1.len(), 32);
-        assert_eq!(out1, out2);
-        let out_different_id = pkcs12_kdf("password", b"saltsaltsaltsalt", 2048, 1, 32);
-        assert_ne!(out1, out_different_id);
+    fn round_trip_all_entry_types() {
+        let kp = key_pair("web", "RSA");
+        let ed = key_pair("signer", "Ed25519");
+        let ca_der = entry::chain_der(&key_pair("root", "ECDSA")).unwrap();
+        let trusted = entry::trusted_cert_entry("root", &ca_der[0], None).unwrap();
+        let secret = entry::secret_key_entry("aes", "AES", &[3u8; 32], None);
+        let entries = vec![kp.clone(), ed.clone(), trusted.clone(), secret.clone()];
+        let bytes = encode(&entries, "s3cret").unwrap();
+        assert!(looks_like_pkcs12(&bytes));
+        let back = decode(&bytes, "s3cret").unwrap();
+        assert_eq!(back.len(), 4);
+        let find = |a: &str| back.iter().find(|e| e.alias == a).unwrap();
+        assert_eq!(find("web").private_key_pem, kp.private_key_pem);
+        assert_eq!(find("web").sha256_fingerprint, kp.sha256_fingerprint);
+        assert_eq!(find("signer").algorithm, "Ed25519");
+        assert_eq!(find("root").entry_type, "TrustedCertificate");
+        assert_eq!(find("aes").secret_key_hex, secret.secret_key_hex);
+        assert_eq!(decode(&bytes, "nope").unwrap_err(), WRONG_PASSWORD);
     }
 
     #[test]
-    fn pkcs12_round_trip_preserves_key_and_cert() {
-        let (ks, original_priv, original_cert) = fixture_keystore("p12-roundtrip");
-        let password = "correct-horse-battery-staple";
-
-        let bytes = encode_pkcs12(&ks, password).expect("encode failed");
-        let decoded = decode_pkcs12(&bytes, password).expect("decode failed");
-
-        assert_eq!(decoded.entries.len(), 1);
-        let decoded_entry = &decoded.entries[0];
-        assert_eq!(decoded_entry.entry_type, "KeyPair");
-        assert_eq!(
-            normalize_pem(decoded_entry.private_key_pem.as_deref().unwrap()),
-            normalize_pem(&original_priv)
-        );
-        assert_eq!(decoded_entry.certificate_chain.len(), 1);
-        assert_eq!(normalize_pem(&decoded_entry.certificate_chain[0].pem), normalize_pem(&original_cert));
+    fn shared_ca_in_several_chains_does_not_create_extra_entries() {
+        let ca = crate::ops::generate_key_pair(&{ let mut i = crate::ops::tests_support::input("ca", "ECDSA", true); i.subject_dn = "CN=Shared CA".into(); i }, None).unwrap();
+        let a = crate::ops::generate_key_pair(&crate::ops::tests_support::input("a", "ECDSA", false), Some(&ca)).unwrap();
+        let b = crate::ops::generate_key_pair(&crate::ops::tests_support::input("b", "RSA", false), Some(&ca)).unwrap();
+        // Both orders: chains that mention the CA before and after the CA's own entry.
+        for entries in [vec![a.clone(), ca.clone(), b.clone()], vec![ca.clone(), a.clone(), b.clone()], vec![a.clone(), b.clone(), ca.clone()]] {
+            let bytes = encode(&entries, "pw").unwrap();
+            let back = decode(&bytes, "pw").unwrap();
+            let mut aliases: Vec<_> = back.iter().map(|e| e.alias.as_str()).collect();
+            aliases.sort();
+            assert_eq!(aliases, vec!["a", "b", "ca"]);
+            assert!(back.iter().filter(|e| e.alias != "ca").all(|e| e.chain_length == 2));
+            assert!(back.iter().all(|e| e.entry_type == "KeyPair"));
+        }
     }
 
     #[test]
-    fn pkcs12_wrong_password_fails_mac_check() {
-        let (ks, _, _) = fixture_keystore("p12-wrongpw");
-        let bytes = encode_pkcs12(&ks, "right-password").expect("encode failed");
-        let err = decode_pkcs12(&bytes, "wrong-password").unwrap_err();
-        assert_eq!(err, "keystore password incorrect or file corrupt");
-    }
-
-    #[test]
-    fn pkcs12_trusted_cert_only_round_trips() {
-        let entry = fixture_entry("p12-cert-fixture");
-        let cert_only = KeystoreEntry {
-            entry_type: "TrustedCertificate".to_string(),
-            private_key_pem: None,
-            ..entry
-        };
-        let original_cert = cert_only.certificate_chain[0].pem.clone();
-        let ks = KeystoreFile {
-            id: "ks-p12-cert".to_string(),
-            name: "cert-only.p12".to_string(),
-            format: "PKCS12".to_string(),
-            path: String::new(),
-            description: String::new(),
-            password_protected: true,
-            created_at: String::new(),
-            updated_at: String::new(),
-            entries: vec![cert_only],
-        };
-
-        let password = "trustpw123";
-        let bytes = encode_pkcs12(&ks, password).expect("encode failed");
-        let decoded = decode_pkcs12(&bytes, password).expect("decode failed");
-        assert_eq!(decoded.entries.len(), 1);
-        assert_eq!(decoded.entries[0].entry_type, "TrustedCertificate");
-        assert_eq!(normalize_pem(&decoded.entries[0].certificate_chain[0].pem), normalize_pem(&original_cert));
+    fn empty_keystore_round_trips() {
+        let bytes = encode(&[], "pw").unwrap();
+        assert!(decode(&bytes, "pw").unwrap().is_empty());
     }
 }

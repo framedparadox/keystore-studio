@@ -1,6 +1,22 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import clsx from "clsx";
-import { ArrowDown, ArrowUp, ChevronsUpDown, CheckCircle2, Search, X, AlertCircle } from "lucide-react";
+import {
+  AlertCircle,
+  AlertTriangle,
+  ArrowDown,
+  ArrowUp,
+  Check,
+  CheckCircle2,
+  ChevronsUpDown,
+  Copy,
+  Eye,
+  EyeOff,
+  Info,
+  Loader2,
+  Search,
+  X,
+} from "lucide-react";
 
 /*
  * Shared UI primitives. Compose pages from these instead of hand-rolling
@@ -164,7 +180,7 @@ export const Badge: React.FC<{
 );
 
 export const PageHeader: React.FC<{
-  title: string;
+  title: React.ReactNode;
   description?: React.ReactNode;
   eyebrow?: React.ReactNode;
   actions?: React.ReactNode;
@@ -760,21 +776,44 @@ export const Modal: React.FC<{
   size?: keyof typeof modalSizes;
   footer?: React.ReactNode;
   children: React.ReactNode;
-}> = ({ open, onClose, title, description, icon: Icon, size = "md", footer, children }) => {
+  /** While true the dialog cannot be dismissed (an operation is running). */
+  busy?: boolean;
+  testId?: string;
+}> = ({ open, onClose, title, description, icon: Icon, size = "md", footer, children, busy, testId }) => {
+  const panel = useRef<HTMLDivElement>(null);
+  const close = useCallback(() => {
+    if (!busy) onClose();
+  }, [busy, onClose]);
   useEffect(() => {
     if (!open) return;
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.stopPropagation();
+        close();
+      }
+    };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [open, onClose]);
+  }, [open, close]);
+  useEffect(() => {
+    if (!open) return;
+    const t = window.setTimeout(() => {
+      if (panel.current && !panel.current.contains(document.activeElement)) {
+        panel.current.querySelector<HTMLElement>("input:not([type=hidden]):not([disabled]), textarea, select, [autofocus]")?.focus();
+      }
+    }, 30);
+    return () => window.clearTimeout(t);
+  }, [open]);
 
   if (!open) return null;
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/40 p-4" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/40 p-4" onMouseDown={(e) => e.target === e.currentTarget && close()}>
       <div
+        ref={panel}
         role="dialog"
         aria-modal="true"
-        className={clsx("w-full bg-surface rounded-panel border border-line shadow-pop flex flex-col max-h-[88vh]", modalSizes[size])}
+        data-testid={testId}
+        className={clsx("w-full bg-surface rounded-panel border border-line shadow-pop flex flex-col max-h-[90vh]", modalSizes[size])}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-start justify-between gap-3 px-6 pt-5 pb-4 border-b border-line">
@@ -789,7 +828,7 @@ export const Modal: React.FC<{
               {description && <p className="text-[12.5px] text-faint mt-0.5">{description}</p>}
             </div>
           </div>
-          <IconButton icon={X} label="Close" onClick={onClose} />
+          <IconButton icon={X} label="Close" onClick={close} disabled={busy} />
         </div>
         <div className="flex-1 overflow-y-auto px-6 py-5">{children}</div>
         {footer && <div className="px-6 py-4 border-t border-line bg-surface-2 rounded-b-panel flex justify-end gap-2">{footer}</div>}
@@ -798,28 +837,526 @@ export const Modal: React.FC<{
   );
 };
 
-/** Transient confirmation toast. `const [toast, showToast] = useToast()` then render `{toast}`. */
-export const useToast = (): [React.ReactNode, (msg: string, tone?: "success" | "danger") => void] => {
-  const [state, setState] = useState<{ msg: string; tone: "success" | "danger" } | null>(null);
-  const timer = useRef<number | undefined>(undefined);
-  const show = useCallback((msg: string, tone: "success" | "danger" = "success") => {
-    setState({ msg, tone });
-    window.clearTimeout(timer.current);
-    timer.current = window.setTimeout(() => setState(null), 4000);
+/* -------------------------------------------------------------------------- */
+/* Toasts (app-wide)                                                           */
+/* -------------------------------------------------------------------------- */
+
+type ToastTone = "success" | "danger" | "info";
+interface ToastItem {
+  id: number;
+  msg: React.ReactNode;
+  tone: ToastTone;
+  action?: { label: string; onClick: () => void };
+}
+interface ToastApi {
+  success: (msg: React.ReactNode, action?: ToastItem["action"]) => void;
+  error: (msg: React.ReactNode) => void;
+  info: (msg: React.ReactNode) => void;
+}
+
+const ToastContext = createContext<ToastApi>({ success: () => {}, error: () => {}, info: () => {} });
+export const useToast = () => useContext(ToastContext);
+
+export const ToastProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const [items, setItems] = useState<ToastItem[]>([]);
+  const seq = useRef(0);
+  const push = useCallback((msg: React.ReactNode, tone: ToastTone, action?: ToastItem["action"]) => {
+    const id = ++seq.current;
+    setItems((list) => [...list.slice(-3), { id, msg, tone, action }]);
+    window.setTimeout(() => setItems((list) => list.filter((t) => t.id !== id)), tone === "danger" ? 9000 : 5000);
   }, []);
-  useEffect(() => () => window.clearTimeout(timer.current), []);
-  const node = state ? (
-    <div
-      role="status"
-      className="fixed bottom-6 right-6 z-[60] max-w-md flex items-start gap-2.5 bg-surface border border-line shadow-pop rounded-card px-4 py-3 text-[13px] text-ink"
-    >
-      {state.tone === "success" ? (
-        <CheckCircle2 className="w-4 h-4 mt-0.5 text-success shrink-0" />
-      ) : (
-        <AlertCircle className="w-4 h-4 mt-0.5 text-danger shrink-0" />
+  const api = useMemo<ToastApi>(
+    () => ({
+      success: (m, a) => push(m, "success", a),
+      error: (m) => push(m, "danger"),
+      info: (m) => push(m, "info"),
+    }),
+    [push]
+  );
+  return (
+    <ToastContext.Provider value={api}>
+      {children}
+      <div className="fixed bottom-5 right-5 z-[70] flex flex-col gap-2 w-[min(420px,calc(100vw-40px))]" aria-live="polite">
+        {items.map((t) => (
+          <div
+            key={t.id}
+            role={t.tone === "danger" ? "alert" : "status"}
+            data-testid={`toast-${t.tone}`}
+            className="flex items-start gap-2.5 bg-surface border border-line shadow-pop rounded-card px-4 py-3 text-[13px] text-ink select-text"
+          >
+            {t.tone === "success" ? (
+              <CheckCircle2 className="w-4 h-4 mt-0.5 text-success shrink-0" />
+            ) : t.tone === "danger" ? (
+              <AlertCircle className="w-4 h-4 mt-0.5 text-danger shrink-0" />
+            ) : (
+              <Info className="w-4 h-4 mt-0.5 text-brand shrink-0" />
+            )}
+            <span className="flex-1 min-w-0 break-words">{t.msg}</span>
+            {t.action && (
+              <button
+                className="text-[12.5px] font-semibold text-brand hover:underline cursor-pointer shrink-0"
+                onClick={() => {
+                  t.action!.onClick();
+                  setItems((list) => list.filter((x) => x.id !== t.id));
+                }}
+              >
+                {t.action.label}
+              </button>
+            )}
+            <button aria-label="Dismiss" className="text-subtle hover:text-ink cursor-pointer" onClick={() => setItems((l) => l.filter((x) => x.id !== t.id))}>
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        ))}
+      </div>
+    </ToastContext.Provider>
+  );
+};
+
+/* -------------------------------------------------------------------------- */
+/* Confirm dialog (app-wide, promise based)                                    */
+/* -------------------------------------------------------------------------- */
+
+interface ConfirmOptions {
+  title: string;
+  message?: React.ReactNode;
+  confirmLabel?: string;
+  cancelLabel?: string;
+  danger?: boolean;
+  /** Optional third choice, e.g. "Don't save". Resolves to "alternate". */
+  alternateLabel?: string;
+}
+type ConfirmResult = boolean | "alternate";
+const ConfirmContext = createContext<(o: ConfirmOptions) => Promise<ConfirmResult>>(async () => false);
+export const useConfirm = () => useContext(ConfirmContext);
+
+export const ConfirmProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const [req, setReq] = useState<(ConfirmOptions & { resolve: (r: ConfirmResult) => void }) | null>(null);
+  const confirm = useCallback((o: ConfirmOptions) => new Promise<ConfirmResult>((resolve) => setReq({ ...o, resolve })), []);
+  const done = (r: ConfirmResult) => {
+    req?.resolve(r);
+    setReq(null);
+  };
+  return (
+    <ConfirmContext.Provider value={confirm}>
+      {children}
+      <Modal
+        open={req !== null}
+        onClose={() => done(false)}
+        size="sm"
+        icon={req?.danger ? AlertCircle : Info}
+        title={req?.title ?? ""}
+        footer={
+          <>
+            {req?.alternateLabel && (
+              <Button variant="danger" className="mr-auto" onClick={() => done("alternate")}>
+                {req.alternateLabel}
+              </Button>
+            )}
+            <Button onClick={() => done(false)}>{req?.cancelLabel ?? "Cancel"}</Button>
+            <Button
+              variant="primary"
+              autoFocus
+              data-testid="confirm-ok"
+              className={req?.danger ? "!bg-danger-fill hover:!bg-danger !border-danger/30" : undefined}
+              onClick={() => done(true)}
+            >
+              {req?.confirmLabel ?? "Confirm"}
+            </Button>
+          </>
+        }
+      >
+        <div className="text-[13px] text-muted leading-relaxed">{req?.message}</div>
+      </Modal>
+    </ConfirmContext.Provider>
+  );
+};
+
+/* -------------------------------------------------------------------------- */
+/* Form fields                                                                  */
+/* -------------------------------------------------------------------------- */
+
+let fieldSeq = 0;
+const useFieldId = (id?: string) => {
+  const ref = useRef<string>(id ?? `f-${++fieldSeq}`);
+  return id ?? ref.current;
+};
+
+export const Field: React.FC<{
+  label: React.ReactNode;
+  hint?: React.ReactNode;
+  error?: React.ReactNode;
+  htmlFor?: string;
+  className?: string;
+  children: React.ReactNode;
+}> = ({ label, hint, error, htmlFor, className, children }) => (
+  <div className={className}>
+    <label className="label" htmlFor={htmlFor}>
+      {label}
+    </label>
+    {children}
+    {error ? <p className="text-[12px] text-danger mt-1">{error}</p> : hint ? <p className="text-[12px] text-faint mt-1">{hint}</p> : null}
+  </div>
+);
+
+export const TextInput: React.FC<React.InputHTMLAttributes<HTMLInputElement> & { label?: React.ReactNode; hint?: React.ReactNode; error?: React.ReactNode }> = ({
+  label,
+  hint,
+  error,
+  id,
+  className,
+  ...rest
+}) => {
+  const fid = useFieldId(id);
+  const input = <input id={fid} {...rest} className={clsx("field", error && "!border-danger", className)} aria-invalid={!!error || undefined} />;
+  return label ? (
+    <Field label={label} hint={hint} error={error} htmlFor={fid}>
+      {input}
+    </Field>
+  ) : (
+    input
+  );
+};
+
+export const TextArea: React.FC<React.TextareaHTMLAttributes<HTMLTextAreaElement> & { label?: React.ReactNode; hint?: React.ReactNode; mono?: boolean }> = ({
+  label,
+  hint,
+  id,
+  className,
+  mono,
+  ...rest
+}) => {
+  const fid = useFieldId(id);
+  const el = (
+    <textarea
+      id={fid}
+      spellCheck={false}
+      {...rest}
+      className={clsx(
+        "w-full p-3 rounded-control border border-line-strong bg-surface text-[13px] text-ink placeholder:text-subtle shadow-card focus:outline-none focus:border-brand focus:ring-4 focus:ring-brand-soft select-text",
+        mono && "font-mono text-[11.5px] leading-relaxed",
+        className
       )}
-      <span>{state.msg}</span>
+    />
+  );
+  return label ? (
+    <Field label={label} hint={hint} htmlFor={fid}>
+      {el}
+    </Field>
+  ) : (
+    el
+  );
+};
+
+export const Select: React.FC<React.SelectHTMLAttributes<HTMLSelectElement> & { label?: React.ReactNode; hint?: React.ReactNode }> = ({
+  label,
+  hint,
+  id,
+  className,
+  children,
+  ...rest
+}) => {
+  const fid = useFieldId(id);
+  const el = (
+    <select id={fid} {...rest} className={clsx("field cursor-pointer", className)}>
+      {children}
+    </select>
+  );
+  return label ? (
+    <Field label={label} hint={hint} htmlFor={fid}>
+      {el}
+    </Field>
+  ) : (
+    el
+  );
+};
+
+export const Checkbox: React.FC<{
+  checked: boolean;
+  onChange: (v: boolean) => void;
+  label: React.ReactNode;
+  hint?: React.ReactNode;
+  disabled?: boolean;
+  id?: string;
+}> = ({ checked, onChange, label, hint, disabled, id }) => {
+  const fid = useFieldId(id);
+  return (
+    <div className={clsx("flex items-start gap-2.5", disabled && "opacity-50")}>
+      <input
+        id={fid}
+        type="checkbox"
+        checked={checked}
+        disabled={disabled}
+        onChange={(e) => onChange(e.target.checked)}
+        className="mt-0.5 w-4 h-4 rounded accent-[var(--color-brand)] cursor-pointer"
+      />
+      <label htmlFor={fid} className="text-[13px] text-ink-2 cursor-pointer select-none">
+        {label}
+        {hint && <span className="block text-[12px] text-faint">{hint}</span>}
+      </label>
     </div>
-  ) : null;
-  return [node, show];
+  );
+};
+
+export const PasswordInput: React.FC<
+  Omit<React.InputHTMLAttributes<HTMLInputElement>, "type" | "onChange" | "value"> & {
+    value: string;
+    onChange: (v: string) => void;
+    label?: React.ReactNode;
+    hint?: React.ReactNode;
+    error?: React.ReactNode;
+  }
+> = ({ value, onChange, label, hint, error, id, ...rest }) => {
+  const [show, setShow] = useState(false);
+  const fid = useFieldId(id);
+  const el = (
+    <div className="relative">
+      <input
+        id={fid}
+        type={show ? "text" : "password"}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        autoComplete="off"
+        spellCheck={false}
+        {...rest}
+        className={clsx("field !pr-9", error && "!border-danger")}
+      />
+      <button
+        type="button"
+        onClick={() => setShow((s) => !s)}
+        aria-label={show ? "Hide password" : "Show password"}
+        title={show ? "Hide" : "Show"}
+        tabIndex={-1}
+        className="absolute right-1.5 top-1/2 -translate-y-1/2 p-1 rounded text-subtle hover:text-ink cursor-pointer"
+      >
+        {show ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+      </button>
+    </div>
+  );
+  return label ? (
+    <Field label={label} hint={hint} error={error} htmlFor={fid}>
+      {el}
+    </Field>
+  ) : (
+    el
+  );
+};
+
+/** Rough password strength (0–4) for hints; never a policy gate on its own. */
+export const passwordStrength = (pw: string): { score: number; label: string } => {
+  let score = 0;
+  if (pw.length >= 8) score++;
+  if (pw.length >= 14) score++;
+  if (/[A-Z]/.test(pw) && /[a-z]/.test(pw)) score++;
+  if (/\d/.test(pw) && /[^A-Za-z0-9]/.test(pw)) score++;
+  return { score, label: ["Very weak", "Weak", "Fair", "Good", "Strong"][score] };
+};
+
+export const Spinner: React.FC<{ className?: string }> = ({ className }) => <Loader2 className={clsx("w-4 h-4 animate-spin", className)} aria-hidden />;
+
+export const Kbd: React.FC<{ children: React.ReactNode }> = ({ children }) => (
+  <kbd className="px-1.5 py-0.5 rounded-[4px] border border-line bg-surface-2 font-mono text-[11px] text-muted">{children}</kbd>
+);
+
+/* -------------------------------------------------------------------------- */
+/* Alerts, code, copy                                                           */
+/* -------------------------------------------------------------------------- */
+
+export const Alert: React.FC<{ tone?: "info" | "success" | "warning" | "danger"; title?: React.ReactNode; children?: React.ReactNode; action?: React.ReactNode; className?: string }> = ({
+  tone = "info",
+  title,
+  children,
+  action,
+  className,
+}) => {
+  const styles = {
+    info: "bg-brand-tint border-brand-soft text-brand-deeper",
+    success: "bg-success-tint border-success/20 text-success",
+    warning: "bg-warning-tint border-warning/25 text-warning",
+    danger: "bg-danger-tint border-danger/20 text-danger",
+  }[tone];
+  const Icon = { info: Info, success: CheckCircle2, warning: AlertTriangle, danger: AlertCircle }[tone];
+  return (
+    <div role={tone === "danger" ? "alert" : undefined} className={clsx("flex items-start gap-2.5 rounded-control border px-3.5 py-3 text-[13px]", styles, className)}>
+      <Icon className="w-4 h-4 mt-0.5 shrink-0" />
+      <div className="flex-1 min-w-0 select-text">
+        {title && <div className="font-semibold">{title}</div>}
+        {children && <div className={clsx(title && "mt-0.5", "text-ink-2 break-words")}>{children}</div>}
+      </div>
+      {action && <div className="shrink-0">{action}</div>}
+    </div>
+  );
+};
+
+export const CopyButton: React.FC<{ value: string; label?: string; className?: string }> = ({ value, label = "Copy", className }) => {
+  const [copied, setCopied] = useState(false);
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      title={label}
+      onClick={(e) => {
+        e.stopPropagation();
+        navigator.clipboard?.writeText(value).then(() => {
+          setCopied(true);
+          window.setTimeout(() => setCopied(false), 1200);
+        });
+      }}
+      className={clsx("w-7 h-7 rounded-control inline-flex items-center justify-center text-subtle hover:text-ink hover:bg-surface-3 cursor-pointer shrink-0", className)}
+    >
+      {copied ? <Check className="w-3.5 h-3.5 text-success" /> : <Copy className="w-3.5 h-3.5" />}
+    </button>
+  );
+};
+
+export const CodeBlock: React.FC<{ label?: React.ReactNode; value: string; maxHeight?: number; actions?: React.ReactNode; wrap?: boolean; testId?: string }> = ({
+  label,
+  value,
+  maxHeight = 260,
+  actions,
+  wrap,
+  testId,
+}) => (
+  <div>
+    {(label || actions) && (
+      <div className="flex items-center justify-between mb-1.5 gap-2">
+        <span className="text-[11.5px] font-semibold uppercase tracking-[0.04em] text-faint">{label}</span>
+        <div className="flex items-center gap-1">
+          {actions}
+          <CopyButton value={value} label="Copy to clipboard" />
+        </div>
+      </div>
+    )}
+    <pre
+      data-testid={testId}
+      style={{ maxHeight }}
+      className={clsx(
+        "bg-term-bg text-term-fg p-3.5 rounded-control font-mono text-[11.5px] leading-relaxed overflow-auto select-text",
+        wrap ? "whitespace-pre-wrap break-all" : "whitespace-pre"
+      )}
+    >
+      {value}
+    </pre>
+  </div>
+);
+
+/* -------------------------------------------------------------------------- */
+/* Dropdown menu                                                                */
+/* -------------------------------------------------------------------------- */
+
+export interface MenuItem {
+  label: React.ReactNode;
+  icon?: React.ElementType;
+  onSelect: () => void;
+  disabled?: boolean;
+  hint?: React.ReactNode;
+  danger?: boolean;
+  divider?: boolean;
+  testId?: string;
+}
+
+export const Menu: React.FC<{
+  trigger: (props: { onClick: (e: React.MouseEvent) => void; "aria-expanded": boolean; "aria-haspopup": "menu" }) => React.ReactNode;
+  items: MenuItem[];
+  align?: "left" | "right";
+  width?: number;
+}> = ({ trigger, items, align = "right", width = 260 }) => {
+  const [open, setOpen] = useState(false);
+  const [pos, setPos] = useState<{ top: number; left: number; maxHeight: number } | null>(null);
+  const anchor = useRef<HTMLDivElement>(null);
+  const panel = useRef<HTMLDivElement>(null);
+
+  // Rendered in a portal with fixed positioning so tables/cards with overflow never clip it;
+  // opens upward when there is not enough room below the trigger.
+  useLayoutEffect(() => {
+    if (!open || !anchor.current) return;
+    const place = () => {
+      const r = anchor.current!.getBoundingClientRect();
+      const h = panel.current?.offsetHeight ?? 0;
+      const margin = 8;
+      const below = window.innerHeight - r.bottom - margin;
+      const above = r.top - margin;
+      const up = h > below && above > below;
+      const maxHeight = Math.max(160, (up ? above : below) - 6);
+      const top = up ? Math.max(margin, r.top - 6 - Math.min(h, maxHeight)) : r.bottom + 6;
+      const rawLeft = align === "right" ? r.right - width : r.left;
+      const left = Math.min(Math.max(margin, rawLeft), window.innerWidth - width - margin);
+      setPos({ top, left, maxHeight });
+    };
+    place();
+    const raf = requestAnimationFrame(place);
+    return () => cancelAnimationFrame(raf);
+  }, [open, align, width, items.length]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDoc = (e: MouseEvent) => {
+      const t = e.target as Node;
+      if (!anchor.current?.contains(t) && !panel.current?.contains(t)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
+    const onScroll = (e: Event) => {
+      if (!panel.current?.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", onDoc);
+    document.addEventListener("keydown", onKey);
+    window.addEventListener("resize", onScroll);
+    document.addEventListener("scroll", onScroll, true);
+    return () => {
+      document.removeEventListener("mousedown", onDoc);
+      document.removeEventListener("keydown", onKey);
+      window.removeEventListener("resize", onScroll);
+      document.removeEventListener("scroll", onScroll, true);
+    };
+  }, [open]);
+
+  return (
+    <div ref={anchor} className="relative inline-block text-left" onClick={(e) => e.stopPropagation()}>
+      {trigger({
+        onClick: (e) => {
+          e.stopPropagation();
+          setPos(null);
+          setOpen((o) => !o);
+        },
+        "aria-expanded": open,
+        "aria-haspopup": "menu",
+      })}
+      {open &&
+        createPortal(
+          <div
+            ref={panel}
+            role="menu"
+            onClick={(e) => e.stopPropagation()}
+            style={{ width, position: "fixed", top: pos?.top ?? -9999, left: pos?.left ?? -9999, maxHeight: pos?.maxHeight, visibility: pos ? "visible" : "hidden" }}
+            className="z-[60] bg-surface rounded-card border border-line shadow-pop p-1.5 overflow-y-auto"
+          >
+            {items.map((item, i) => (
+              <React.Fragment key={i}>
+                {item.divider && i > 0 && <div className="my-1 border-t border-line" />}
+                <button
+                  role="menuitem"
+                  disabled={item.disabled}
+                  data-testid={item.testId}
+                  onClick={() => {
+                    setOpen(false);
+                    item.onSelect();
+                  }}
+                  className={clsx(
+                    "w-full px-2.5 py-2 rounded-control text-left flex items-start gap-2.5 cursor-pointer disabled:opacity-45 disabled:cursor-not-allowed",
+                    item.danger ? "hover:bg-danger-tint text-danger" : "hover:bg-surface-2 text-ink"
+                  )}
+                >
+                  {item.icon && <item.icon className={clsx("w-4 h-4 mt-0.5 shrink-0", item.danger ? "text-danger" : "text-muted")} />}
+                  <span className="min-w-0">
+                    <span className="block text-[13px] font-medium">{item.label}</span>
+                    {item.hint && <span className="block text-[12px] text-faint">{item.hint}</span>}
+                  </span>
+                </button>
+              </React.Fragment>
+            ))}
+          </div>,
+          document.body
+        )}
+    </div>
+  );
 };

@@ -1,402 +1,473 @@
-import { Page, PageHeader, Segmented } from "../components/ui";
-import React, { useEffect, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import React, { useEffect, useMemo, useState } from "react";
+import clsx from "clsx";
+import { Clipboard, FileSearch, FolderOpen, GitCompare, Globe, Plus, Save, Sparkles } from "lucide-react";
+import type { CertificateInfo, DetectionResult, KeystoreEntry, TlsInspectionResult } from "../types/crypto";
+import { api, errorMessage } from "../lib/api";
+import { FILTERS, baseName, pickFile, safeFileStem } from "../lib/files";
+import { cnOf } from "../lib/keystore";
+import { useStore } from "../state/store";
+import { Alert, Badge, Button, Card, CodeBlock, EmptyState, Page, PageHeader, PasswordInput, Segmented, Select, Spinner, TextArea, TextInput, useToast } from "../components/ui";
+import { CertificateDetails, ChainView, TrustBanner, WarningList } from "../components/CertificateView";
 import { TerminalHint } from "../components/Terminal";
-import {
-  Globe,
-  FileSearch,
-  GitCompare,
-  CheckCircle2,
-  Plus,
-  Clipboard,
-  Sparkles,
-} from "lucide-react";
-import {
-  KeystoreFile,
-  KeystoreEntry,
-  CertificateInfo,
-  SslInspectionResult,
-  FileDetectionResult,
-} from "../types/crypto";
+import { useSaveText } from "../components/EntryDialogs";
 
-interface ExamineViewProps {
-  keystores: KeystoreFile[];
-  activeKeystoreId: string;
-  onUpdateKeystore: (updated: KeystoreFile) => void;
-  onRecordOp: (increment?: number, isSig?: boolean) => void;
-  /** Text handed over from another page (e.g. a file dropped on Home); opens in the detect tab. */
-  initialInput?: string | null;
+type Mode = "tls" | "decode" | "compare";
+
+/** "Add to keystore" for certificates found while examining. */
+function useImportCert() {
+  const { activeKeystore, addEntries, setTab } = useStore();
+  const toast = useToast();
+  return {
+    target: activeKeystore && !activeKeystore.sealed ? activeKeystore : null,
+    importCert: async (cert: CertificateInfo) => {
+      if (!activeKeystore || activeKeystore.sealed) {
+        toast.error("Open or create a keystore first.");
+        return;
+      }
+      try {
+        const alias = cnOf(cert.subject).toLowerCase().replace(/[^\w.-]+/g, "-").replace(/^-+|-+$/g, "") || "certificate";
+        const added = await api.importTrustedCertificates(alias, { text: cert.pem }, activeKeystore.entries.map((e) => e.alias));
+        addEntries(activeKeystore.id, added);
+        toast.success(`Added '${added[0].alias}' to ${activeKeystore.name} as a trusted certificate.`, { label: "View", onClick: () => setTab("keystores") });
+      } catch (err) {
+        toast.error(errorMessage(err));
+      }
+    },
+  };
 }
 
-export const ExamineView: React.FC<ExamineViewProps> = ({
-  keystores,
-  activeKeystoreId,
-  onUpdateKeystore,
-  onRecordOp,
-  initialInput,
-}) => {
-  const activeKs = keystores.find((k) => k.id === activeKeystoreId) || keystores[0];
-  const allCertEntries = keystores
-    .flatMap((k) => k.entries)
-    .filter((e) => e.certificate_chain.length > 0);
+// ====================================================================================== TLS
 
-  const [mode, setMode] = useState<"ssl" | "clipboard" | "compare">("ssl");
+const TlsPanel: React.FC = () => {
+  const toast = useToast();
+  const saveText = useSaveText();
+  const { target, importCert } = useImportCert();
+  const [host, setHost] = useState("");
+  const [port, setPort] = useState(443);
   const [busy, setBusy] = useState(false);
-  const [toast, setToast] = useState<string | null>(null);
-
-  // 1. Examine SSL State
-  const [sslHost, setSslHost] = useState("github.com");
-  const [sslPort, setSslPort] = useState(443);
-  const [sslResult, setSslResult] = useState<SslInspectionResult | null>(null);
-
-  // 2. Examine Clipboard / Detect Type State
-  const [rawInput, setRawInput] = useState(
-    "-----BEGIN CERTIFICATE-----\nMIIDXTCCAkWgAwIBAgIJALb1234567890TANBgkqhkiG9w0BAQsFADBv...\n-----END CERTIFICATE-----"
+  const [result, setResult] = useState<TlsInspectionResult | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const run = async (e?: React.FormEvent) => {
+    e?.preventDefault();
+    if (!host.trim()) return;
+    setBusy(true);
+    setError(null);
+    setResult(null);
+    try {
+      setResult(await api.examineTls(host.trim(), Number(port)));
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="space-y-5">
+      <form onSubmit={run} className="flex flex-wrap items-end gap-3">
+        <TextInput label="Host" value={host} onChange={(e) => setHost(e.target.value)} placeholder="example.com or https://example.com:8443" className="min-w-[320px]" autoFocus data-testid="tls-host" />
+        <TextInput label="Port" type="number" min={1} max={65535} value={port} onChange={(e) => setPort(Number(e.target.value))} className="!w-24" data-testid="tls-port" />
+        <Button variant="primary" type="submit" disabled={busy || !host.trim()} data-testid="tls-run">
+          {busy && <Spinner />} {busy ? "Connecting…" : "Inspect"}
+        </Button>
+      </form>
+      <TerminalHint command={`openssl s_client -connect ${host.trim() || "example.com"}:${port} -servername ${host.trim() || "example.com"} -showcerts </dev/null`} label="Run with OpenSSL" />
+      {error && <Alert tone="danger" title="Connection failed">{error}</Alert>}
+      {result && (
+        <div className="space-y-4" data-testid="tls-result">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-[12.5px]">
+            {[
+              ["Endpoint", `${result.host}:${result.port}`],
+              ["Address", result.address],
+              ["Protocol", result.protocol],
+              ["Cipher suite", result.cipher_suite],
+              ["ALPN", result.alpn ?? "—"],
+              ["Handshake", `${result.handshake_ms} ms`],
+              ["Chain length", String(result.certificates.length)],
+              ["Inspected", result.inspected_at],
+            ].map(([k, v]) => (
+              <div key={k} className="rounded-control border border-line bg-surface-2 px-3 py-2">
+                <div className="text-[11.5px] text-faint">{k}</div>
+                <div className="font-medium text-ink break-all">{v}</div>
+              </div>
+            ))}
+          </div>
+          <TrustBanner trusted={result.trusted} error={result.verification_error} />
+          <ChainView
+            certs={result.certificates}
+            actions={(c) => (
+              <>
+                <Button size="sm" icon={Save} onClick={() => saveText(`${safeFileStem(cnOf(c.subject))}.pem`, c.pem, "Certificate")}>
+                  Save
+                </Button>
+                {target && (
+                  <Button size="sm" icon={Plus} onClick={() => importCert(c)}>
+                    Add to {target.name}
+                  </Button>
+                )}
+              </>
+            )}
+          />
+          {result.certificates.length > 1 && (
+            <Button icon={Save} onClick={() => saveText(`${safeFileStem(result.host)}-chain.pem`, result.certificates.map((c) => c.pem).join(""), "Certificate chain")}>
+              Save full chain
+            </Button>
+          )}
+        </div>
+      )}
+    </div>
   );
-  const [detectResult, setDetectResult] = useState<FileDetectionResult | null>(null);
+};
 
-  // 3. Compare Certificates State
-  const [leftEntryId, setLeftEntryId] = useState<string>(allCertEntries[0]?.id || "");
-  const [rightEntryId, setRightEntryId] = useState<string>(
-    allCertEntries[1]?.id || allCertEntries[0]?.id || ""
-  );
+// =================================================================================== decode
 
-  const leftEntry = allCertEntries.find((e) => e.id === leftEntryId) || allCertEntries[0];
-  const rightEntry = allCertEntries.find((e) => e.id === rightEntryId) || allCertEntries[1] || allCertEntries[0];
+const DecodePanel: React.FC = () => {
+  const { examineRequest, openFiles, setTab } = useStore();
+  const toast = useToast();
+  const { target, importCert } = useImportCert();
+  const [text, setText] = useState("");
+  const [path, setPath] = useState<string | null>(null);
+  const [password, setPassword] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<DetectionResult | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const run = async (src?: { path?: string; text?: string }) => {
+    const source = src ?? (path ? { path } : { text });
+    if (!source.path && !source.text?.trim()) return;
+    setBusy(true);
+    setError(null);
+    try {
+      setResult(await api.examineData(source, password || null));
+    } catch (err) {
+      setResult(null);
+      setError(errorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  };
 
   useEffect(() => {
-    if (!initialInput) return;
-    setMode("clipboard");
-    setRawInput(initialInput);
-    invoke<FileDetectionResult>("detect_and_examine", { rawInput: initialInput })
-      .then(setDetectResult)
-      .catch((err) => alert("Detection failed: " + err));
-  }, [initialInput]);
-
-  const handleExamineSsl = async (e?: React.FormEvent, presetHost?: string) => {
-    if (e) e.preventDefault();
-    const targetHost = presetHost || sslHost;
-    if (presetHost) setSslHost(presetHost);
-    setBusy(true);
-    try {
-      const res = await invoke<SslInspectionResult>("examine_ssl", {
-        host: targetHost,
-        port: Number(sslPort),
-      });
-      setSslResult(res);
-      onRecordOp(512, false);
-    } catch (err) {
-      alert("SSL inspection failed: " + err);
-    } finally {
-      setBusy(false);
+    if (!examineRequest) return;
+    if (examineRequest.path) {
+      setPath(examineRequest.path);
+      setText("");
+    } else {
+      setPath(null);
+      setText(examineRequest.text ?? "");
     }
-  };
+    void run(examineRequest.path ? { path: examineRequest.path } : { text: examineRequest.text });
+  }, [examineRequest]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const handleImportSslCert = (cert: CertificateInfo) => {
-    if (!activeKs) return;
-    const alias = `${sslResult?.host || "ssl"}-${cert.is_ca ? "ca" : "leaf"}-${Date.now().toString().slice(-3)}`;
-    const newEntry: KeystoreEntry = {
-      id: "entry-ssl-" + Date.now(),
-      alias,
-      entry_type: "TrustedCertificate",
-      algorithm: cert.public_key_algorithm,
-      key_size: cert.key_size,
-      creation_date: new Date().toISOString().split("T")[0],
-      expiry_date: cert.valid_to.split(" ")[0],
-      last_modified: "Just now",
-      subject: cert.subject,
-      issuer: cert.issuer,
-      serial_number: cert.serial_number,
-      sha256_fingerprint: cert.sha256_fingerprint,
-      sha1_fingerprint: cert.sha1_fingerprint,
-      chain_length: 1,
-      certificate_chain: [cert],
-      locked: false,
-      labels: ["SSL-Imported", sslResult?.host || "Remote"],
-      is_expired: false,
-      is_weak: false,
-      is_post_quantum: false,
-    };
-    onUpdateKeystore({
-      ...activeKs,
-      updated_at: "Just now",
-      entries: [newEntry, ...activeKs.entries],
-    });
-    setToast(`Imported '${alias}' into ${activeKs.name}!`);
-    setTimeout(() => setToast(null), 3500);
-  };
-
-  const handleDetectAndExamine = async () => {
-    setBusy(true);
+  const paste = async () => {
     try {
-      const res = await invoke<FileDetectionResult>("detect_and_examine", {
-        rawInput,
-      });
-      setDetectResult(res);
-      onRecordOp(256, false);
-    } catch (err) {
-      alert("Detection failed: " + err);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const handleReadSystemClipboard = async () => {
-    try {
-      const text = await navigator.clipboard.readText();
-      if (text) {
-        setRawInput(text);
-        const res = await invoke<FileDetectionResult>("detect_and_examine", {
-          rawInput: text,
-        });
-        setDetectResult(res);
-      }
+      const t = await navigator.clipboard.readText();
+      if (!t.trim()) return toast.info("The clipboard is empty.");
+      setPath(null);
+      setText(t);
+      void run({ text: t });
     } catch {
-      handleDetectAndExamine();
+      toast.error("Clipboard access was denied. Paste into the text box with Ctrl+V instead.");
     }
   };
 
   return (
-    <Page>
-      {toast && (
-        <div role="status" className="fixed bottom-6 right-6 z-[60] max-w-md bg-surface border border-line text-ink px-4 py-3 rounded-card shadow-pop flex items-center gap-2.5 text-[13px]">
-          <CheckCircle2 className="w-4 h-4 text-success" />
-          <span>{toast}</span>
+    <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+      <div className="lg:col-span-5 space-y-3">
+        <div className="flex flex-wrap gap-2">
+          <Button
+            icon={FolderOpen}
+            onClick={async () => {
+              const p = await pickFile("Examine a file", [FILTERS.certificates, FILTERS.keys, FILTERS.keystores]).catch(() => null);
+              if (p) {
+                setPath(p);
+                setText("");
+                void run({ path: p });
+              }
+            }}
+          >
+            Open file…
+          </Button>
+          <Button icon={Clipboard} onClick={paste}>
+            Paste clipboard
+          </Button>
+        </div>
+        {path ? (
+          <div className="flex items-center gap-2 rounded-control border border-line bg-surface-2 px-3 h-9 text-[12.5px]">
+            <span className="font-mono truncate flex-1" title={path}>
+              {path}
+            </span>
+            <button className="text-brand font-medium cursor-pointer" onClick={() => setPath(null)}>
+              Clear
+            </button>
+          </div>
+        ) : (
+          <TextArea mono rows={12} placeholder={"Paste a certificate, chain, CSR, CRL, private/public key, PKCS#7, JWT or OpenSSH key…"} value={text} onChange={(e) => setText(e.target.value)} data-testid="decode-input" />
+        )}
+        <PasswordInput label="Password (for encrypted keys or keystores)" value={password} onChange={setPassword} />
+        <Button variant="primary" className="w-full" icon={Sparkles} onClick={() => run()} disabled={busy || (!path && !text.trim())} data-testid="decode-run">
+          {busy ? "Examining…" : "Examine"}
+        </Button>
+      </div>
+      <div className="lg:col-span-7 bg-surface-2 rounded-card p-5 border border-line min-h-[360px] select-text" data-testid="decode-result">
+        {error && <Alert tone="danger">{error}</Alert>}
+        {!result && !error && <div className="h-full min-h-[320px] flex items-center justify-center text-subtle text-[13px] text-center px-8">Drop a file on the window, open one, or paste data to identify and decode it.</div>}
+        {result && (
+          <div className="space-y-4">
+            <div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <h3 className="text-[16px] font-semibold text-ink" data-testid="decode-title">
+                  {result.title}
+                </h3>
+                <Badge tone="brand">{result.format}</Badge>
+                <span className="text-[12px] text-faint">{result.byte_length.toLocaleString()} bytes</span>
+              </div>
+              <p className="text-[13px] text-muted mt-1">{result.summary}</p>
+            </div>
+            <WarningList warnings={result.warnings} />
+            {result.kind === "keystore" && path && (
+              <Button variant="primary" icon={FolderOpen} onClick={() => openFiles([path])}>
+                Open {baseName(path)} as keystore
+              </Button>
+            )}
+            {result.certificates.length > 0 && (
+              <ChainView
+                certs={result.certificates}
+                actions={(c) =>
+                  target ? (
+                    <Button size="sm" icon={Plus} onClick={() => importCert(c)}>
+                      Add to {target.name}
+                    </Button>
+                  ) : null
+                }
+              />
+            )}
+            {result.csr && (
+              <div className="space-y-3">
+                <table className="w-full text-[12.5px] border border-line rounded-card overflow-hidden border-separate border-spacing-0 bg-surface">
+                  <tbody>
+                    {[
+                      ["Subject", result.csr.subject],
+                      ["Public key", `${result.csr.public_key_algorithm} ${result.csr.key_size}-bit${result.csr.curve ? ` (${result.csr.curve})` : ""}`],
+                      ["Signature", `${result.csr.signature_algorithm} — ${result.csr.signature_valid ? "valid" : "INVALID"}`],
+                      ["Requested SANs", result.csr.sans.join(", ") || "—"],
+                      ["Public key SHA-256", result.csr.public_key_sha256],
+                    ].map(([k, v]) => (
+                      <tr key={k}>
+                        <th className="w-[30%] text-left font-medium text-faint bg-surface-2 border-b border-line px-3 py-2">{k}</th>
+                        <td className="border-b border-line px-3 py-2 font-mono text-[11.5px] break-all">{v}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                <Button onClick={() => setTab("ca_signing")}>Sign it in CA & Signing</Button>
+              </div>
+            )}
+            {result.crl && (
+              <div className="space-y-2 text-[12.5px]">
+                <div className="text-muted">
+                  Issuer <span className="font-mono text-ink">{result.crl.issuer}</span> · this update {result.crl.this_update} · next update {result.crl.next_update}
+                  {result.crl.crl_number && ` · CRL #${result.crl.crl_number}`}
+                </div>
+                <ul className="divide-y divide-line border border-line rounded-card bg-surface max-h-64 overflow-y-auto">
+                  {result.crl.revoked_entries.map((r) => (
+                    <li key={r.serial_number} className="px-3 py-2 flex justify-between gap-2">
+                      <span className="font-mono">{r.serial_number}</span>
+                      <span className="text-faint">
+                        {r.reason} · {r.revocation_date}
+                      </span>
+                    </li>
+                  ))}
+                  {result.crl.revoked_entries.length === 0 && <li className="px-3 py-2 text-faint">No revoked certificates</li>}
+                </ul>
+              </div>
+            )}
+            {result.key && (
+              <div className="space-y-3">
+                <table className="w-full text-[12.5px] border border-line rounded-card overflow-hidden border-separate border-spacing-0 bg-surface">
+                  <tbody>
+                    {[
+                      ["Type", `${result.key.kind} key${result.key.encrypted ? " (encrypted)" : ""}`],
+                      ["Algorithm", result.key.algorithm],
+                      ["Size", result.key.key_size ? `${result.key.key_size} bits` : "—"],
+                      ["Curve", result.key.curve ?? "—"],
+                      ["Format", result.key.format],
+                      ["Public key SHA-256", result.key.public_key_sha256 ?? "—"],
+                    ].map(([k, v]) => (
+                      <tr key={k}>
+                        <th className="w-[30%] text-left font-medium text-faint bg-surface-2 border-b border-line px-3 py-2">{k}</th>
+                        <td className="border-b border-line px-3 py-2 font-mono text-[11.5px] break-all">{v}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                {result.key.public_key_pem && <CodeBlock label="Public key" value={result.key.public_key_pem} maxHeight={160} />}
+              </div>
+            )}
+            {result.jwt && (
+              <div className="space-y-3">
+                <div className="text-[12.5px] text-muted">
+                  Issued {result.jwt.issued_at ?? "—"} · expires {result.jwt.expires_at ?? "never"} {result.jwt.expired && <Badge tone="danger">Expired</Badge>}
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <CodeBlock label="Header" value={result.jwt.header_json} maxHeight={200} />
+                  <CodeBlock label="Payload" value={result.jwt.payload_json} maxHeight={200} />
+                </div>
+                <p className="text-[12px] text-faint">Verify the signature in CA & Signing → JWT with the issuer's key.</p>
+              </div>
+            )}
+            <div className="text-[11.5px] text-faint font-mono break-all">SHA-256 of input: {result.sha256}</div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+// ================================================================================== compare
+
+interface Side {
+  source: "entry" | "pem";
+  entryId: string;
+  pem: string;
+  cert: CertificateInfo | null;
+  publicKey?: string | null;
+}
+
+const CompareSide: React.FC<{ label: string; side: Side; set: (s: Side) => void; options: { entry: KeystoreEntry; ks: string }[] }> = ({ label, side, set, options }) => {
+  const toast = useToast();
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between">
+        <span className="label !mb-0">{label}</span>
+        <Segmented label={`${label} source`} value={side.source} onChange={(v) => set({ ...side, source: v })} options={[{ value: "entry", label: "Keystore entry" }, { value: "pem", label: "Paste PEM" }]} />
+      </div>
+      {side.source === "entry" ? (
+        <Select
+          value={side.entryId}
+          onChange={(e) => {
+            const opt = options.find((o) => o.entry.id === e.target.value);
+            set({ ...side, entryId: e.target.value, cert: opt?.entry.certificate_chain[0] ?? null, publicKey: opt?.entry.public_key_pem });
+          }}
+        >
+          <option value="">Choose…</option>
+          {options.map((o) => (
+            <option key={o.entry.id} value={o.entry.id}>
+              {o.entry.alias} — {cnOf(o.entry.subject)} ({o.ks})
+            </option>
+          ))}
+        </Select>
+      ) : (
+        <div className="space-y-2">
+          <TextArea mono rows={4} placeholder="-----BEGIN CERTIFICATE-----" value={side.pem} onChange={(e) => set({ ...side, pem: e.target.value })} />
+          <Button
+            size="sm"
+            onClick={async () => {
+              try {
+                const r = await api.examineData({ text: side.pem });
+                if (!r.certificates.length) throw new Error("No certificate found in the pasted text.");
+                set({ ...side, cert: r.certificates[0], publicKey: null });
+              } catch (err) {
+                toast.error(errorMessage(err));
+              }
+            }}
+          >
+            Parse
+          </Button>
         </div>
       )}
+    </div>
+  );
+};
 
-      <PageHeader
-        title="Examine"
-        description="Inspect a live TLS server, detect and decode pasted PEM / CSR / CRL / JWT data, or compare two certificates."
-      />
+const ComparePanel: React.FC = () => {
+  const { keystores } = useStore();
+  const options = useMemo(() => keystores.flatMap((ks) => ks.entries.filter((e) => e.certificate_chain.length).map((entry) => ({ entry, ks: ks.name }))), [keystores]);
+  const empty: Side = { source: "entry", entryId: "", pem: "", cert: null };
+  const [left, setLeft] = useState<Side>(empty);
+  const [right, setRight] = useState<Side>(empty);
+  const l = left.cert;
+  const r = right.cert;
+  const rows: { label: string; l: string; r: string }[] =
+    l && r
+      ? [
+          { label: "Subject", l: l.subject, r: r.subject },
+          { label: "Issuer", l: l.issuer, r: r.issuer },
+          { label: "Serial", l: l.serial_number, r: r.serial_number },
+          { label: "Valid from", l: l.valid_from, r: r.valid_from },
+          { label: "Valid until", l: l.valid_to, r: r.valid_to },
+          { label: "Public key", l: `${l.public_key_algorithm} ${l.key_size}`, r: `${r.public_key_algorithm} ${r.key_size}` },
+          { label: "Signature", l: l.signature_algorithm, r: r.signature_algorithm },
+          { label: "SANs", l: l.sans.join(", "), r: r.sans.join(", ") },
+          { label: "Key usage", l: l.key_usage.join(", "), r: r.key_usage.join(", ") },
+          { label: "Extended key usage", l: l.extended_key_usage.join(", "), r: r.extended_key_usage.join(", ") },
+          { label: "CA", l: l.is_ca ? "Yes" : "No", r: r.is_ca ? "Yes" : "No" },
+          { label: "Subject key ID", l: l.subject_key_id ?? "—", r: r.subject_key_id ?? "—" },
+          { label: "SHA-256", l: l.sha256_fingerprint, r: r.sha256_fingerprint },
+        ]
+      : [];
+  const sameKey = l && r && l.subject_key_id && l.subject_key_id === r.subject_key_id;
+  return (
+    <div className="space-y-5">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <CompareSide label="Left" side={left} set={setLeft} options={options} />
+        <CompareSide label="Right" side={right} set={setRight} options={options} />
+      </div>
+      {l && r ? (
+        <>
+          <div className="flex flex-wrap gap-2">
+            {l.sha256_fingerprint === r.sha256_fingerprint ? <Badge tone="success">Identical certificates</Badge> : <Badge>Different certificates</Badge>}
+            {sameKey && <Badge tone="brand">Same public key (key identifier)</Badge>}
+            {l.issuer === r.subject && <Badge tone="brand">Left is issued by right</Badge>}
+            {r.issuer === l.subject && <Badge tone="brand">Right is issued by left</Badge>}
+          </div>
+          <div className="border border-line rounded-card overflow-hidden text-[12.5px] select-text">
+            {rows.map((row) => {
+              const diff = row.l !== row.r;
+              return (
+                <div key={row.label} className={clsx("grid grid-cols-12 border-b border-line last:border-0 px-3 py-2.5 items-start", diff ? "bg-warning-tint" : "bg-surface")}>
+                  <div className="col-span-2 font-semibold text-muted">{row.label}</div>
+                  <div className="col-span-5 font-mono text-[11.5px] text-ink pr-3 break-all">{row.l || "—"}</div>
+                  <div className="col-span-5 font-mono text-[11.5px] text-ink pl-3 border-l border-line break-all">{row.r || "—"}</div>
+                </div>
+              );
+            })}
+          </div>
+        </>
+      ) : (
+        <EmptyState icon={GitCompare} title="Choose two certificates" description="Pick entries from your open keystores or paste PEM certificates to compare them field by field." />
+      )}
+    </div>
+  );
+};
 
+export const ExamineView: React.FC = () => {
+  const { examineRequest } = useStore();
+  const [mode, setMode] = useState<Mode>("tls");
+  useEffect(() => {
+    if (examineRequest) setMode("decode");
+  }, [examineRequest]);
+  return (
+    <Page>
+      <PageHeader title="Examine" description="Inspect a live TLS server, decode any certificate, key, CSR, CRL, PKCS#7 or JWT, or compare two certificates." />
       <div className="mb-4">
         <Segmented
           label="Examine mode"
           value={mode}
           onChange={setMode}
           options={[
-            { value: "ssl", label: <><Globe className="w-3.5 h-3.5" /> TLS host</> },
-            { value: "clipboard", label: <><FileSearch className="w-3.5 h-3.5" /> Detect &amp; decode</> },
+            { value: "tls", label: <><Globe className="w-3.5 h-3.5" /> TLS server</> },
+            { value: "decode", label: <><FileSearch className="w-3.5 h-3.5" /> Decode</> },
             { value: "compare", label: <><GitCompare className="w-3.5 h-3.5" /> Compare</> },
           ]}
         />
       </div>
-
-      {/* Main Content Card */}
-      <div className="bg-surface rounded-card border border-line p-6 shadow-card">
-        {mode === "ssl" && (
-          <div className="space-y-5">
-            <form onSubmit={(e) => handleExamineSsl(e)} className="flex flex-wrap items-center gap-3">
-              <div className="flex-1 min-w-[240px] flex items-center bg-surface border border-line-strong rounded-control shadow-card px-3 h-9 focus-within:border-brand focus-within:ring-4 focus-within:ring-brand-soft">
-                <Globe className="w-4 h-4 text-faint mr-2.5" />
-                <input
-                  type="text"
-                  value={sslHost}
-                  onChange={(e) => setSslHost(e.target.value)}
-                  placeholder="Enter hostname (e.g. github.com, google.com, cloudflare.com)"
-                  className="w-full bg-transparent text-[13.5px] focus:outline-none"
-                />
-              </div>
-              <input
-                type="number"
-                value={sslPort}
-                onChange={(e) => setSslPort(Number(e.target.value))}
-                className="field !w-24 text-center"
-              />
-              <button
-                type="submit"
-                disabled={busy}
-                className="h-9 px-4 rounded-control bg-brand hover:bg-brand-deep text-white text-[13px] font-semibold cursor-pointer"
-              >
-                {busy ? "Handshaking..." : "Examine SSL"}
-              </button>
-            </form>
-
-            {/* Quick Presets */}
-            <div className="flex items-center space-x-2 text-[12px]">
-              <span className="text-faint">Quick Inspect:</span>
-              {["github.com", "google.com", "cloudflare.com", "letsencrypt.org"].map((h) => (
-                <button
-                  key={h}
-                  onClick={() => handleExamineSsl(undefined, h)}
-                  className="px-3 py-1 rounded-control bg-surface-3 hover:bg-line text-ink-2 font-medium cursor-pointer"
-                >
-                  {h}:443
-                </button>
-              ))}
-            </div>
-
-            {sslResult && (
-              <div className="space-y-4 pt-2 select-text">
-                <div className="p-4 rounded-card bg-brand-tint border border-brand-soft flex flex-wrap items-center justify-between gap-2 text-[12.5px]">
-                  <div>
-                    <span className="font-semibold text-brand-deep">{sslResult.host}:{sslResult.port}</span>
-                    <span className="mx-2 text-subtle">•</span>
-                    <span className="text-brand-deeper font-medium">{sslResult.protocol}</span>
-                    <span className="mx-2 text-subtle">•</span>
-                    <span className="font-mono text-ink-2">{sslResult.cipher_suite}</span>
-                  </div>
-                  <span className="px-2.5 py-0.5 rounded-control bg-success-tint text-success font-semibold text-[11.5px]">
-                    Peer Chain Verified
-                  </span>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {sslResult.server_certificates.map((cert, i) => (
-                    <div key={i} className="p-4 rounded-card border border-line bg-surface-2 space-y-2.5 text-[12px]">
-                      <div className="flex items-center justify-between">
-                        <span className="px-2.5 py-0.5 rounded-control bg-brand-tint text-brand-deep font-semibold text-[11px]">
-                          {cert.is_ca ? "Intermediate / Root CA" : "Server Leaf Certificate"}
-                        </span>
-                        <button
-                          onClick={() => handleImportSslCert(cert)}
-                          className="px-3 py-1 rounded-control bg-brand-soft hover:bg-brand-soft-hover text-brand-deep font-semibold flex items-center space-x-1 cursor-pointer"
-                        >
-                          <Plus className="w-3.5 h-3.5" />
-                          <span>Import to {activeKs?.name}</span>
-                        </button>
-                      </div>
-                      <div className="font-semibold text-ink">{cert.subject}</div>
-                      <div className="text-faint"><strong>Issuer:</strong> {cert.issuer}</div>
-                      <div className="text-faint">
-                        <strong>Algorithm:</strong> {cert.public_key_algorithm} ({cert.key_size} bits) • {cert.signature_algorithm}
-                      </div>
-                      <div className="font-mono text-[11px] text-ink-2 break-all">
-                        <strong>SHA-256:</strong> {cert.sha256_fingerprint}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-
-        {mode === "clipboard" && (
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-            <div className="lg:col-span-5 space-y-3 text-[12.5px]">
-              <div className="flex items-center justify-between">
-                <span className="font-semibold text-ink">
-                  Paste Certificate, CSR, CRL, Key, or JWT
-                </span>
-                <button
-                  onClick={handleReadSystemClipboard}
-                  className="px-3 py-1 rounded-control bg-surface-3 hover:bg-line text-ink font-medium flex items-center space-x-1 cursor-pointer"
-                >
-                  <Clipboard className="w-3.5 h-3.5" />
-                  <span>Paste Clipboard</span>
-                </button>
-              </div>
-              <TerminalHint command="ls ~/Downloads/*.pem ~/Downloads/*.crt ~/Downloads/*.cer" label="Find files" />
-              <textarea
-                rows={8}
-                value={rawInput}
-                onChange={(e) => setRawInput(e.target.value)}
-                className="w-full p-3 rounded-control border border-line-strong bg-surface shadow-card focus:outline-none focus:border-brand focus:ring-4 focus:ring-brand-soft font-mono text-[11px]"
-              />
-              <button
-                onClick={handleDetectAndExamine}
-                className="w-full h-9 rounded-control bg-brand hover:bg-brand-deep text-white text-[13px] font-semibold shadow-card cursor-pointer disabled:opacity-50 flex items-center justify-center space-x-2"
-              >
-                <Sparkles className="w-4 h-4" />
-                <span>Detect File Type &amp; Inspect ASN.1</span>
-              </button>
-            </div>
-
-            <div className="lg:col-span-7 bg-surface-2 rounded-card p-5 border border-line select-text">
-              {detectResult ? (
-                <div className="space-y-3 text-[12.5px]">
-                  <div className="flex items-center justify-between">
-                    <span className="text-[16px] font-semibold text-brand-deep">
-                      {detectResult.detected_type}
-                    </span>
-                    <span className="px-3 py-1 rounded-control bg-success-tint text-success text-[11.5px] font-semibold">
-                      {detectResult.format}
-                    </span>
-                  </div>
-                  <p className="text-muted">{detectResult.summary}</p>
-                  <pre className="bg-term-bg text-term-fg p-4 rounded-control font-mono text-[11.5px] overflow-x-auto">
-                    {JSON.stringify(detectResult.details, null, 2)}
-                  </pre>
-                </div>
-              ) : (
-                <div className="h-full flex items-center justify-center text-subtle text-[13px]">
-                  Paste any cryptographic artifact and click "Detect File Type &amp; Inspect ASN.1".
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-
-        {mode === "compare" && leftEntry && rightEntry && (
-          <div className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="text-[12px] font-semibold text-faint block mb-1">
-                  Left Certificate Entry
-                </label>
-                <select
-                  value={leftEntry.id}
-                  onChange={(e) => setLeftEntryId(e.target.value)}
-                  className="field"
-                >
-                  {allCertEntries.map((e) => (
-                    <option key={e.id} value={e.id}>
-                      {e.alias} ({e.algorithm} {e.key_size}b)
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="text-[12px] font-semibold text-faint block mb-1">
-                  Right Certificate Entry
-                </label>
-                <select
-                  value={rightEntry.id}
-                  onChange={(e) => setRightEntryId(e.target.value)}
-                  className="field"
-                >
-                  {allCertEntries.map((e) => (
-                    <option key={e.id} value={e.id}>
-                      {e.alias} ({e.algorithm} {e.key_size}b)
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
-
-            <div className="border border-line rounded-card overflow-hidden text-[12.5px] select-text">
-              {[
-                { label: "Alias", l: leftEntry.alias, r: rightEntry.alias },
-                { label: "Entry Type", l: leftEntry.entry_type, r: rightEntry.entry_type },
-                { label: "Algorithm & Size", l: `${leftEntry.algorithm} (${leftEntry.key_size} bits)`, r: `${rightEntry.algorithm} (${rightEntry.key_size} bits)` },
-                { label: "Subject DN", l: leftEntry.subject, r: rightEntry.subject },
-                { label: "Issuer DN", l: leftEntry.issuer, r: rightEntry.issuer },
-                { label: "Serial Number", l: leftEntry.serial_number, r: rightEntry.serial_number },
-                { label: "Expiry Date", l: leftEntry.expiry_date, r: rightEntry.expiry_date },
-                { label: "SHA-256 Fingerprint", l: leftEntry.sha256_fingerprint, r: rightEntry.sha256_fingerprint },
-              ].map((row, idx) => {
-                const diff = row.l !== row.r;
-                return (
-                  <div
-                    key={idx}
-                    className={`grid grid-cols-12 border-b border-surface-3 p-3 items-center ${
-                      diff ? "bg-warning-tint" : "bg-surface"
-                    }`}
-                  >
-                    <div className="col-span-2 font-semibold text-muted">{row.label}</div>
-                    <div className="col-span-5 font-mono text-[11.5px] text-ink pr-3 break-all">{row.l}</div>
-                    <div className="col-span-5 font-mono text-[11.5px] text-ink pl-3 border-l border-line break-all">
-                      {row.r}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        )}
-      </div>
+      <Card className="p-6">
+        {mode === "tls" && <TlsPanel />}
+        {mode === "decode" && <DecodePanel />}
+        {mode === "compare" && <ComparePanel />}
+      </Card>
     </Page>
   );
 };
+
+export { CertificateDetails };

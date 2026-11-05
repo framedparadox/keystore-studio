@@ -1,11 +1,10 @@
 [package]
 name = "xkeystore"
-version = "0.1.0"
-description = "xkeystore — Native keystore and certificate workbench"
-authors = ["you"]
+version = "1.0.0"
+description = "xkeystore — native keystore and X.509 certificate workbench"
+authors = ["xkeystore contributors"]
+license = "MIT"
 edition = "2024"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [lib]
 # The `_lib` suffix may seem redundant but it is necessary
@@ -20,34 +19,64 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 tauri = { version = "2", features = [] }
 tauri-plugin-opener = "2"
+tauri-plugin-dialog = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-rcgen = "0.13"
+
+# Asymmetric keys and signatures
 rsa = "0.9"
-p256 = "0.13"
-ed25519-dalek = { version = "2.1", features = ["rand_core"] }
+p256 = { version = "0.13", features = ["ecdsa", "pkcs8", "pem"] }
+p384 = { version = "0.13", features = ["ecdsa", "pkcs8", "pem"] }
+p521 = { version = "0.13", features = ["ecdsa", "pkcs8", "pem"] }
+ed25519-dalek = { version = "2.1", features = ["rand_core", "pkcs8", "pem"] }
+num-bigint-dig = { version = "0.8", features = ["prime", "rand"] }
 rand = "0.8"
-sha2 = "0.10"
+rand_core = { version = "0.6", features = ["std", "getrandom"] }
+
+# Hashes, MACs, KDFs, ciphers
+sha1 = { version = "0.10", features = ["oid"] }
+sha2 = { version = "0.10", features = ["oid"] }
+md-5 = "0.10"
 hmac = "0.12"
-hex = "0.4"
+pbkdf2 = { version = "0.12", features = ["hmac"] }
+argon2 = "0.5"
+aes = "0.8"
+aes-gcm = "0.10"
+cbc = { version = "0.1", features = ["std"] }
+des = "0.8"
+rc2 = "0.8"
+zeroize = { version = "1", features = ["derive"] }
+
+# ASN.1 / X.509 / encodings
+yasna = "0.5"
+x509-parser = "0.16"
 pem = "3.0"
-byteorder = "1.5"
-crc32fast = "1.5"
-dirs = "7.0"
 base64 = "0.22"
+hex = "0.4"
+byteorder = "1.5"
+
+# TLS inspection
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
+webpki-roots = "0.26"
+rustls-native-certs = "0.8"
+
+# JAR signing
+zip = { version = "2", default-features = false, features = ["deflate"] }
+
+dirs = "6"
 chrono = { version = "0.4", features = ["serde"] }
 uuid = { version = "1", features = ["v4"] }
-argon2 = "0.5"
-aes-gcm = "0.10"
-zeroize = { version = "1", features = ["derive"] }
-rand_core = { version = "0.6", features = ["std", "getrandom"] }
-sha1 = "0.10"
-yasna = "0.5"
-aes = "0.8"
-cbc = { version = "0.1", features = ["std"] }
-pbkdf2 = { version = "0.12", features = ["hmac"] }
 
+[dev-dependencies]
+tempfile = "3"
 
+# Crypto (RSA key generation in particular) is unusably slow without optimisation, so optimise
+# dependencies even in dev/test builds. Our own crate stays at opt-level 0 for fast rebuilds.
+[profile.dev.package."*"]
+opt-level = 3
+
+[profile.test.package."*"]
+opt-level = 3
 
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration
 [profile.release]

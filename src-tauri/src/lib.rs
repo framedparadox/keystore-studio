@@ -1,362 +1,534 @@
-pub mod crypto;
+//! xkeystore: native keystore and X.509 workbench. This module wires the crypto engine to Tauri
+//! commands. Every command runs on a blocking worker thread so key generation, Argon2 and network
+//! I/O never freeze the UI.
+
+pub mod cms;
+pub mod detect;
+pub mod dh;
+pub mod entry;
+pub mod export;
+mod ffdhe;
+pub mod jar;
+pub mod javaser;
 pub mod jks;
+pub mod jwt;
+pub mod keys;
+pub mod keystore;
+pub mod model;
+pub mod oids;
+pub mod ops;
+pub mod pbe;
 pub mod pkcs12;
-pub mod secret_store;
+pub mod terminal;
+pub mod tls;
+pub mod util;
 pub mod vault;
+pub mod x509;
 
-use base64::{engine::general_purpose::STANDARD as B64, Engine};
-use chrono::Utc;
-use crypto::*;
+use model::*;
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::sync::Arc;
 use tauri::State;
-use uuid::Uuid;
-use vault::{VaultState, VaultStatus};
+use util::Res;
+use vault::{SecretSummary, VaultState, VaultStatus};
 
-#[tauri::command]
-fn generate_keypair_entry(
-    input: GenerateKeyPairInput,
-    issuer_dn: Option<String>,
-) -> Result<KeystoreEntry, String> {
-    create_keystore_keypair_entry(&input, issuer_dn)
+const MAX_INPUT_BYTES: u64 = 64 * 1024 * 1024;
+
+async fn blocking<T, F>(f: F) -> Res<T>
+where
+    T: Send + 'static,
+    F: FnOnce() -> Res<T> + Send + 'static,
+{
+    tauri::async_runtime::spawn_blocking(f).await.map_err(|err| format!("background task failed: {err}"))?
+}
+
+/// Input that may come from a file the user picked, pasted text, or base64 bytes.
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct DataSource {
+    pub path: Option<String>,
+    pub text: Option<String>,
+    pub base64: Option<String>,
+}
+
+impl DataSource {
+    pub fn bytes(&self) -> Res<Vec<u8>> {
+        if let Some(path) = self.path.as_deref().filter(|p| !p.is_empty()) {
+            let meta = std::fs::metadata(path).map_err(|err| format!("cannot read {path}: {err}"))?;
+            if meta.len() > MAX_INPUT_BYTES {
+                return Err(format!("{path} is larger than 64 MB"));
+            }
+            return std::fs::read(path).map_err(|err| format!("cannot read {path}: {err}"));
+        }
+        if let Some(b) = self.base64.as_deref().filter(|b| !b.is_empty()) {
+            return util::unb64(b);
+        }
+        if let Some(t) = self.text.as_deref() {
+            return Ok(t.as_bytes().to_vec());
+        }
+        Err("no input provided".into())
+    }
+
+    fn is_empty(&self) -> bool {
+        self.path.as_deref().unwrap_or("").is_empty() && self.text.as_deref().unwrap_or("").trim().is_empty() && self.base64.as_deref().unwrap_or("").is_empty()
+    }
+}
+
+struct AppPaths {
+    data_dir: std::path::PathBuf,
+}
+
+// ------------------------------------------------------------------------------------------------
+// App info & persisted UI state
+// ------------------------------------------------------------------------------------------------
+
+#[derive(Serialize)]
+struct AppInfo {
+    version: String,
+    data_dir: String,
+    platform: String,
+    home_dir: String,
+    /// Set by the end-to-end test harness (XKEYSTORE_E2E=1) to script file dialogs.
+    e2e: bool,
 }
 
 #[tauri::command]
-fn generate_secret_key_entry(input: GenerateSecretKeyInput) -> Result<KeystoreEntry, String> {
-    create_secret_key_entry(&input)
+fn app_info(paths: State<Arc<AppPaths>>) -> AppInfo {
+    AppInfo {
+        version: env!("CARGO_PKG_VERSION").into(),
+        data_dir: paths.data_dir.to_string_lossy().into(),
+        platform: std::env::consts::OS.into(),
+        home_dir: dirs::home_dir().map(|h| h.to_string_lossy().to_string()).unwrap_or_default(),
+        e2e: std::env::var_os("XKEYSTORE_E2E").is_some(),
+    }
 }
 
 #[tauri::command]
-fn generate_csr(entry: KeystoreEntry, format: String) -> Result<CsrResult, String> {
-    generate_csr_for_entry(&entry, &format)
+async fn load_app_state(paths: State<'_, Arc<AppPaths>>) -> Res<serde_json::Value> {
+    let path = paths.data_dir.join("state.json");
+    blocking(move || match std::fs::read_to_string(&path) {
+        Ok(raw) => Ok(serde_json::from_str(&raw).unwrap_or(serde_json::Value::Null)),
+        Err(_) => Ok(serde_json::Value::Null),
+    })
+    .await
 }
 
 #[tauri::command]
-fn sign_csr(input: SignCsrInput, ca_entry: KeystoreEntry) -> Result<CertificateInfo, String> {
-    sign_csr_with_ca(&input, &ca_entry)
+async fn save_app_state(paths: State<'_, Arc<AppPaths>>, state: serde_json::Value) -> Res<()> {
+    let path = paths.data_dir.join("state.json");
+    blocking(move || {
+        let json = serde_json::to_vec_pretty(&state).map_err(util::e)?;
+        if json.len() > 8 * 1024 * 1024 {
+            return Err("application state is unexpectedly large".into());
+        }
+        util::write_atomic(&path, &json)
+    })
+    .await
+}
+
+// ------------------------------------------------------------------------------------------------
+// Keystore files
+// ------------------------------------------------------------------------------------------------
+
+#[tauri::command]
+async fn probe_file(path: String) -> Res<FileProbe> {
+    blocking(move || {
+        let meta = std::fs::metadata(&path).map_err(|err| format!("cannot read {path}: {err}"))?;
+        if meta.is_dir() {
+            return Err(format!("{path} is a folder"));
+        }
+        let mut f = std::fs::File::open(&path).map_err(util::e)?;
+        let mut head = vec![0u8; meta.len().min(1024 * 1024) as usize];
+        std::io::Read::read_exact(&mut f, &mut head).map_err(util::e)?;
+        let name = util::file_name_of(&path);
+        let lower = name.to_ascii_lowercase();
+        let (kind, keystore_format) = if let Some(fmt) = keystore::detect(&head) {
+            ("keystore".to_string(), Some(fmt.name().to_string()))
+        } else if lower.ends_with(".jar") || lower.ends_with(".war") || lower.ends_with(".ear") || lower.ends_with(".apk") {
+            ("jar".to_string(), None)
+        } else if keystore::detect_unsupported(&head).is_some() && (lower.ends_with(".bks") || lower.ends_with(".uber") || lower.ends_with(".bcfks")) {
+            ("unsupported_keystore".to_string(), Some("BKS".to_string()))
+        } else {
+            match detect::examine(&head, None) {
+                Ok(r) => (r.kind, None),
+                Err(_) => ("unknown".to_string(), None),
+            }
+        };
+        Ok(FileProbe { path, name, size: meta.len(), kind, keystore_format })
+    })
+    .await
 }
 
 #[tauri::command]
-fn generate_crl(
-    ca_entry: KeystoreEntry,
-    next_update_days: u32,
-    revoked_entries: Vec<RevokedCertEntry>,
-) -> Result<CrlResult, String> {
-    generate_signed_crl(&ca_entry, next_update_days, revoked_entries)
+async fn open_keystore(path: String, password: String, key_passwords: Option<HashMap<String, String>>) -> Res<KeystoreFile> {
+    blocking(move || keystore::open(&path, &password, &key_passwords.unwrap_or_default())).await
+}
+
+#[derive(Serialize)]
+struct SaveResult {
+    path: String,
+    name: String,
+    format: String,
+    byte_length: usize,
 }
 
 #[tauri::command]
-fn sign_jar(
-    jar_name: String,
-    class_files: Vec<String>,
-    signer_entry: KeystoreEntry,
-    tsa_url: Option<String>,
-) -> Result<JarSignatureResult, String> {
-    sign_jar_archive(&jar_name, class_files, &signer_entry, tsa_url)
+async fn save_keystore(ks: KeystoreFile, path: String, password: String, format: String) -> Res<SaveResult> {
+    blocking(move || {
+        let fmt = keystore::Format::parse(&format)?;
+        let n = keystore::save(&ks, &path, &password, fmt)?;
+        Ok(SaveResult { name: util::file_name_of(&path), path, format: fmt.name().into(), byte_length: n })
+    })
+    .await
 }
 
 #[tauri::command]
-fn sign_cms(
-    payload: String,
-    signer_entry: KeystoreEntry,
-    detached: bool,
-) -> Result<CmsSignResult, String> {
-    sign_cms_payload(&payload, &signer_entry, detached)
+async fn export_keystore_csv(ks: KeystoreFile, path: String) -> Res<ExportResult> {
+    blocking(move || {
+        let csv = export::inventory_csv(&ks);
+        util::write_atomic(std::path::Path::new(&path), csv.as_bytes())?;
+        Ok(ExportResult { path, format: "CSV inventory".into(), byte_length: csv.len(), text: None })
+    })
+    .await
+}
+
+// ------------------------------------------------------------------------------------------------
+// Entries
+// ------------------------------------------------------------------------------------------------
+
+#[tauri::command]
+async fn generate_key_pair(input: GenerateKeyPairInput, issuer: Option<KeystoreEntry>) -> Res<KeystoreEntry> {
+    blocking(move || ops::generate_key_pair(&input, issuer.as_ref())).await
 }
 
 #[tauri::command]
-fn verify_cms(
-    payload: String,
-    signature_hex: String,
-    signer_entry: KeystoreEntry,
-) -> Result<bool, String> {
-    verify_cms_signature(&payload, &signature_hex, &signer_entry)
+async fn generate_secret_key(input: GenerateSecretKeyInput) -> Res<KeystoreEntry> {
+    blocking(move || ops::generate_secret_key(&input)).await
 }
 
 #[tauri::command]
-fn generate_dh_params(bit_size: u32) -> Result<DhParamsResult, String> {
-    generate_dh_parameters(bit_size)
+async fn import_trusted_certificates(alias: String, data: DataSource, existing_aliases: Vec<String>) -> Res<Vec<KeystoreEntry>> {
+    blocking(move || ops::import_trusted_certificates(&alias, &data.bytes()?, &existing_aliases)).await
 }
 
 #[tauri::command]
-fn sign_jwt(
+async fn import_key_pair(alias: String, key: DataSource, key_password: Option<String>, certificates: Option<DataSource>) -> Res<KeystoreEntry> {
+    blocking(move || {
+        let cert_bytes = match &certificates {
+            Some(c) if !c.is_empty() => Some(c.bytes()?),
+            _ => None,
+        };
+        ops::import_key_pair(&alias, &key.bytes()?, key_password.as_deref(), cert_bytes.as_deref())
+    })
+    .await
+}
+
+#[tauri::command]
+async fn generate_csr(entry: KeystoreEntry, options: CsrOptions) -> Res<CsrResult> {
+    blocking(move || ops::generate_csr(&entry, &options)).await
+}
+
+#[tauri::command]
+async fn import_ca_reply(entry: KeystoreEntry, reply: DataSource) -> Res<KeystoreEntry> {
+    blocking(move || ops::import_ca_reply(&entry, &reply.bytes()?)).await
+}
+
+#[tauri::command]
+async fn rotate_key(entry: KeystoreEntry, algorithm: String, key_size: u32, curve: Option<String>, issuer: Option<KeystoreEntry>) -> Res<KeystoreEntry> {
+    blocking(move || ops::rotate_key(&entry, &algorithm, key_size, curve.as_deref(), issuer.as_ref())).await
+}
+
+#[tauri::command]
+async fn refresh_entry(entry: KeystoreEntry) -> Res<KeystoreEntry> {
+    blocking(move || entry::refresh(&entry)).await
+}
+
+#[tauri::command]
+async fn export_entry(entry: KeystoreEntry, target: String, path: String, password: Option<String>) -> Res<ExportResult> {
+    blocking(move || export::export_entry(&entry, &target, &path, password.as_deref())).await
+}
+
+#[tauri::command]
+async fn jwt_algorithms(entry: KeystoreEntry) -> Res<Vec<String>> {
+    Ok(jwt::algorithms_for(&entry).into_iter().map(String::from).collect())
+}
+
+// ------------------------------------------------------------------------------------------------
+// CA & signing
+// ------------------------------------------------------------------------------------------------
+
+#[tauri::command]
+async fn sign_csr(input: SignCsrInput, ca_entry: KeystoreEntry) -> Res<SignedCertificateResult> {
+    blocking(move || ops::sign_csr(&input, &ca_entry)).await
+}
+
+#[tauri::command]
+async fn inspect_csr(data: DataSource) -> Res<CsrInfo> {
+    blocking(move || x509::parse_csr(&x509::csr_der_from_bytes(&data.bytes()?)?)).await
+}
+
+#[tauri::command]
+async fn generate_crl(ca_entry: KeystoreEntry, next_update_days: u32, crl_number: u64, revoked_entries: Vec<RevokedCertEntry>) -> Res<CrlInfo> {
+    blocking(move || ops::generate_crl(&ca_entry, next_update_days, crl_number, &revoked_entries)).await
+}
+
+#[tauri::command]
+async fn cms_sign(content: DataSource, signer_entry: KeystoreEntry, detached: bool) -> Res<CmsSignResult> {
+    blocking(move || {
+        let data = content.bytes()?;
+        let key = entry::private_key(&signer_entry)?;
+        let chain = entry::chain_der(&signer_entry)?;
+        let der = cms::sign(&data, &key, &chain, detached)?;
+        let (_, alg) = cms::cms_algorithms(&key)?;
+        Ok(CmsSignResult {
+            signer_alias: signer_entry.alias.clone(),
+            algorithm: alg.name(),
+            detached,
+            content_sha256: util::upper_hex(&util::sha256(&data)),
+            cms_pem: util::to_pem("PKCS7", &der),
+            byte_length: der.len(),
+            signed_at: util::fmt_ts(util::now_ts()),
+        })
+    })
+    .await
+}
+
+#[tauri::command]
+async fn cms_verify(signature: DataSource, content: Option<DataSource>, entry: Option<KeystoreEntry>) -> Res<CmsVerifyResult> {
+    blocking(move || {
+        let der = cms::cms_der_from_bytes(&signature.bytes()?)?;
+        let content_bytes = match &content {
+            Some(c) if !c.is_empty() => Some(c.bytes()?),
+            _ => None,
+        };
+        let extra = match &entry {
+            Some(e) => entry::chain_der(e)?,
+            None => vec![],
+        };
+        cms::verify(&der, content_bytes.as_deref(), &extra)
+    })
+    .await
+}
+
+#[derive(Deserialize)]
+struct JwtSignInput {
     issuer: String,
     subject: String,
     audience: String,
-    validity_hours: u32,
+    validity_minutes: u32,
     custom_claims_json: String,
-    signer_entry: KeystoreEntry,
-) -> Result<String, String> {
-    sign_jwt_token(
-        &issuer,
-        &subject,
-        &audience,
-        validity_hours,
-        &custom_claims_json,
-        &signer_entry,
-    )
+    algorithm: Option<String>,
 }
 
 #[tauri::command]
-fn examine_ssl(host: String, port: u16) -> Result<SslInspectionResult, String> {
-    examine_ssl_host(&host, port)
-}
-
-#[tauri::command]
-fn detect_and_examine(raw_input: String) -> Result<FileDetectionResult, String> {
-    detect_and_examine_data(&raw_input)
-}
-
-#[tauri::command]
-fn export_entry(entry: KeystoreEntry, export_target: String) -> Result<ExportPayloadResult, String> {
-    export_entry_in_format(&entry, &export_target)
-}
-
-#[tauri::command]
-fn export_keystore_to_csv(ks: KeystoreFile) -> Result<ExportPayloadResult, String> {
-    export_keystore_csv(&ks)
-}
-
-#[tauri::command]
-fn save_keystore_file(ks: KeystoreFile, password: String) -> Result<ExportPayloadResult, String> {
-    let format_upper = ks.format.to_uppercase();
-    let keystore_bytes = match format_upper.as_str() {
-        "JKS" | "JCEKS" => jks::encode_jks(&ks, &password)?,
-        "PKCS12" => pkcs12::encode_pkcs12(&ks, &password)?,
-        // BKS / BCFKS / UBER are out of scope for the real-codec work (confirmed out of
-        // scope with the user); fall back to the old placeholder serializer for now.
-        // TODO: implement real BKS/BCFKS/UBER (BouncyCastle) codecs.
-        _ => serialize_keystore_to_jks_bytes(&ks, &password)?,
-    };
-    let b64_content = B64.encode(&keystore_bytes);
-    let filename = ks.name.clone();
-
-    let mut saved_path = None;
-    if let Some(mut dl_dir) = dirs::download_dir().or_else(dirs::home_dir) {
-        dl_dir.push("xkeystore_Exports");
-        let _ = std::fs::create_dir_all(&dl_dir);
-        dl_dir.push(&filename);
-        if std::fs::write(&dl_dir, &keystore_bytes).is_ok() {
-            saved_path = Some(dl_dir.to_string_lossy().to_string());
-        }
-    }
-
-    Ok(ExportPayloadResult {
-        filename,
-        format: format!("{} Native KeyStore Binary", ks.format),
-        mime_type: "application/octet-stream".to_string(),
-        content: b64_content,
-        saved_path,
-        byte_length: keystore_bytes.len(),
-    })
-}
-
-/// Loads a keystore binary (base64-encoded) and decodes it with the real JKS/PKCS#12 codec
-/// matching `format`, returning the recovered [`KeystoreFile`].
-#[tauri::command]
-fn load_keystore_file(bytes_b64: String, password: String, format: String) -> Result<KeystoreFile, String> {
-    let bytes = B64
-        .decode(bytes_b64.trim())
-        .map_err(|e| format!("invalid base64 keystore payload: {e}"))?;
-    match format.to_uppercase().as_str() {
-        "JKS" | "JCEKS" => jks::decode_jks(&bytes, &password),
-        "PKCS12" | "PFX" | "P12" => pkcs12::decode_pkcs12(&bytes, &password),
-        other => Err(format!("unsupported keystore format for loading: {other}")),
-    }
-}
-
-#[tauri::command]
-fn import_pem_certificate(
-    alias: String,
-    subject_cn: String,
-    issuer_cn: String,
-    pem_data: String,
-    labels: Vec<String>,
-) -> Result<KeystoreEntry, String> {
-    let clean_pem = if pem_data.trim().is_empty() {
-        format!(
-            "-----BEGIN CERTIFICATE-----\n{}\n-----END CERTIFICATE-----\n",
-            B64.encode(format!("X509-TRUSTED-CERT:{}:{}", alias, subject_cn).as_bytes())
+async fn jwt_sign(input: JwtSignInput, signer_entry: KeystoreEntry) -> Res<String> {
+    blocking(move || {
+        jwt::sign(
+            &jwt::JwtClaims {
+                issuer: &input.issuer,
+                subject: &input.subject,
+                audience: &input.audience,
+                validity_minutes: input.validity_minutes,
+                custom_claims_json: &input.custom_claims_json,
+            },
+            &signer_entry,
+            input.algorithm.as_deref(),
         )
-    } else {
-        pem_data.trim().to_string()
-    };
+    })
+    .await
+}
 
-    let sha256_fp = compute_sha256_colon(clean_pem.as_bytes());
-    let sha1_fp = compute_sha1_colon(clean_pem.as_bytes());
-    let md5_fp = compute_md5_colon(clean_pem.as_bytes());
-    let now = Utc::now();
-    let expiry = now + chrono::Duration::days(730);
-    let serial = format!("{:032X}", Uuid::new_v4().as_u128());
+#[tauri::command]
+async fn jwt_verify(token: String, entry: KeystoreEntry) -> Res<JwtVerifyResult> {
+    blocking(move || jwt::verify(&token, &entry)).await
+}
 
-    let cert_info = CertificateInfo {
-        version: 3,
-        serial_number: serial.clone(),
-        signature_algorithm: "SHA256withRSA".to_string(),
-        subject: format!("CN={}, O=Imported Trusted Entity, C=US", subject_cn),
-        issuer: format!("CN={}, O=Trusted Root CA, C=US", issuer_cn),
-        valid_from: now.format("%Y-%m-%d %H:%M:%S UTC").to_string(),
-        valid_to: expiry.format("%Y-%m-%d %H:%M:%S UTC").to_string(),
-        days_remaining: 730,
-        is_ca: true,
-        public_key_algorithm: "RSA".to_string(),
-        key_size: 4096,
-        sans: vec![subject_cn.clone()],
-        key_usage: vec!["Digital Signature".to_string(), "Key Cert Sign".to_string()],
-        extended_key_usage: vec!["TLS Web Server Authentication".to_string()],
-        extensions: vec![X509ExtensionInfo {
-            oid: "2.5.29.19".to_string(),
-            name: "Basic Constraints".to_string(),
-            critical: true,
-            value: "CA:TRUE".to_string(),
-        }],
-        sha256_fingerprint: sha256_fp.clone(),
-        sha1_fingerprint: sha1_fp.clone(),
-        md5_fingerprint: md5_fp,
-        pem: clean_pem.clone(),
-    };
+#[tauri::command]
+async fn dh_params(bits: u32, mode: String) -> Res<DhParamsResult> {
+    blocking(move || if mode == "generate" { dh::generate(bits) } else { dh::ffdhe(bits) }).await
+}
 
-    Ok(KeystoreEntry {
-        id: format!("entry-{}", Uuid::new_v4()),
-        alias: alias.trim().to_lowercase(),
-        entry_type: "TrustedCertificate".to_string(),
-        algorithm: "RSA".to_string(),
-        key_size: 4096,
-        curve: None,
-        creation_date: now.format("%Y-%m-%d").to_string(),
-        expiry_date: expiry.format("%Y-%m-%d").to_string(),
-        last_modified: now.format("%Y-%m-%d").to_string(),
-        subject: cert_info.subject.clone(),
-        issuer: cert_info.issuer.clone(),
-        serial_number: serial,
-        sha256_fingerprint: sha256_fp,
-        sha1_fingerprint: sha1_fp,
-        chain_length: 1,
-        certificate_chain: vec![cert_info],
-        private_key_pem: None,
-        public_key_pem: Some(clean_pem),
-        secret_key_hex: None,
-        locked: false,
-        labels: if labels.is_empty() {
-            vec!["TrustedCert".to_string(), "Imported".to_string()]
+#[tauri::command]
+async fn jar_sign(input_path: String, output_path: String, signer_entry: KeystoreEntry) -> Res<JarSignResult> {
+    blocking(move || jar::sign_jar(&input_path, &output_path, &signer_entry)).await
+}
+
+// ------------------------------------------------------------------------------------------------
+// Examine
+// ------------------------------------------------------------------------------------------------
+
+#[tauri::command]
+async fn examine_tls(host: String, port: u16) -> Res<TlsInspectionResult> {
+    blocking(move || tls::inspect(&host, port, 10)).await
+}
+
+#[tauri::command]
+async fn examine_data(data: DataSource, password: Option<String>) -> Res<DetectionResult> {
+    blocking(move || detect::examine(&data.bytes()?, password.as_deref())).await
+}
+
+// ------------------------------------------------------------------------------------------------
+// Files
+// ------------------------------------------------------------------------------------------------
+
+#[tauri::command]
+async fn write_text_file(path: String, content: String) -> Res<()> {
+    blocking(move || util::write_atomic(std::path::Path::new(&path), content.as_bytes())).await
+}
+
+#[tauri::command]
+async fn read_text_file(path: String) -> Res<String> {
+    blocking(move || {
+        let bytes = DataSource { path: Some(path.clone()), ..Default::default() }.bytes()?;
+        if util::looks_textual(&bytes) {
+            Ok(String::from_utf8_lossy(&bytes).to_string())
         } else {
-            labels
-        },
-        is_expired: false,
-        is_weak: false,
-        is_post_quantum: false,
-    })
-}
-
-#[derive(serde::Serialize)]
-struct TerminalOutput {
-    stdout: String,
-    stderr: String,
-    code: i32,
-    cwd: String,
-}
-
-/// Runs one shell command for the in-app terminal and reports where the shell ended up,
-/// so the frontend can keep a working directory across commands (`cd` is tracked via a trailing pwd marker).
-#[tauri::command]
-fn run_terminal_command(command: String, cwd: Option<String>) -> Result<TerminalOutput, String> {
-    const MARKER: &str = "__XKS_CWD__";
-    let start = cwd
-        .filter(|c| std::path::Path::new(c).is_dir())
-        .or_else(|| dirs::home_dir().map(|h| h.to_string_lossy().to_string()))
-        .unwrap_or_else(|| ".".to_string());
-
-    let script = format!("{command}\n__xks_status=$?\nprintf '\\n{MARKER}%s\\n' \"$PWD\"\nexit $__xks_status");
-    let (shell, flag) = if cfg!(windows) { ("cmd", "/C") } else { ("sh", "-c") };
-    let script = if cfg!(windows) { command.clone() } else { script };
-
-    let out = std::process::Command::new(shell)
-        .arg(flag)
-        .arg(&script)
-        .current_dir(&start)
-        .output()
-        .map_err(|e| format!("Failed to start shell: {e}"))?;
-
-    let mut stdout = String::from_utf8_lossy(&out.stdout).to_string();
-    let mut new_cwd = start;
-    if let Some(idx) = stdout.rfind(MARKER) {
-        new_cwd = stdout[idx + MARKER.len()..].trim().to_string();
-        stdout.truncate(idx);
-        while stdout.ends_with('\n') {
-            stdout.pop();
+            // Binary DER: hand back PEM so it can be shown in a text box.
+            match detect::examine(&bytes, None)?.kind.as_str() {
+                "certificate" | "certificate_chain" => Ok(x509::certificates_from_bytes(&bytes)?.iter().map(|c| util::to_pem("CERTIFICATE", c)).collect()),
+                "csr" => Ok(util::to_pem("CERTIFICATE REQUEST", &bytes)),
+                "crl" => Ok(util::to_pem("X509 CRL", &bytes)),
+                "pkcs7" => Ok(util::to_pem("PKCS7", &bytes)),
+                "private_key" => Ok(util::to_pem("PRIVATE KEY", &bytes)),
+                "public_key" => Ok(util::to_pem("PUBLIC KEY", &bytes)),
+                _ => Err(format!("{path} is a binary file that cannot be shown as text")),
+            }
         }
-    }
-
-    Ok(TerminalOutput {
-        stdout,
-        stderr: String::from_utf8_lossy(&out.stderr).to_string(),
-        code: out.status.code().unwrap_or(-1),
-        cwd: new_cwd,
     })
+    .await
 }
 
-/// Thin wrapper around [`vault::vault_init`]: first-run setup of the master-key-gated vault.
+// ------------------------------------------------------------------------------------------------
+// Vault
+// ------------------------------------------------------------------------------------------------
+
 #[tauri::command]
-fn vault_init(state: State<VaultState>, master_key: String) -> Result<(), String> {
-    vault::vault_init(&state, &master_key)
+async fn vault_status(state: State<'_, Arc<VaultState>>) -> Res<VaultStatus> {
+    let v = state.inner().clone();
+    blocking(move || v.status()).await
 }
 
-/// Thin wrapper around [`vault::vault_unlock`]: unlocks the vault with a candidate master key.
 #[tauri::command]
-fn vault_unlock(state: State<VaultState>, master_key: String) -> Result<(), String> {
-    vault::vault_unlock(&state, &master_key)
+async fn vault_init(state: State<'_, Arc<VaultState>>, master_key: String) -> Res<()> {
+    let v = state.inner().clone();
+    blocking(move || v.init(&master_key)).await
 }
 
-/// Thin wrapper around [`vault::vault_lock`]: zeroes and clears the in-memory vault key.
 #[tauri::command]
-fn vault_lock(state: State<VaultState>) -> Result<(), String> {
-    vault::vault_lock(&state)
+async fn vault_unlock(state: State<'_, Arc<VaultState>>, master_key: String) -> Res<()> {
+    let v = state.inner().clone();
+    blocking(move || {
+        let result = v.unlock(&master_key);
+        if result.is_err() {
+            // Slow down guessing a little beyond Argon2's own cost.
+            std::thread::sleep(std::time::Duration::from_millis(400));
+        }
+        result
+    })
+    .await
 }
 
-/// Thin wrapper around [`vault::vault_status`]: reports whether a vault exists / is unlocked.
 #[tauri::command]
-fn vault_status(state: State<VaultState>) -> Result<VaultStatus, String> {
-    vault::vault_status(&state)
+async fn vault_lock(state: State<'_, Arc<VaultState>>) -> Res<()> {
+    state.lock()
 }
 
-/// Thin wrapper around [`vault::vault_change_master_key`]: rotates the master key.
 #[tauri::command]
-fn vault_change_master_key(
-    state: State<VaultState>,
-    old_master_key: String,
-    new_master_key: String,
-) -> Result<(), String> {
-    vault::vault_change_master_key(&state, &old_master_key, &new_master_key)
+async fn vault_change_master_key(state: State<'_, Arc<VaultState>>, old_master_key: String, new_master_key: String) -> Res<()> {
+    let v = state.inner().clone();
+    blocking(move || v.change_master_key(&old_master_key, &new_master_key)).await
+}
+
+#[tauri::command]
+async fn vault_reset(state: State<'_, Arc<VaultState>>) -> Res<()> {
+    let v = state.inner().clone();
+    blocking(move || v.reset()).await
+}
+
+#[tauri::command]
+async fn vault_store_secret(state: State<'_, Arc<VaultState>>, id: String, label: String, secret: String) -> Res<()> {
+    let v = state.inner().clone();
+    blocking(move || v.store_secret(&id, &label, &secret)).await
+}
+
+#[tauri::command]
+async fn vault_get_secret(state: State<'_, Arc<VaultState>>, id: String) -> Res<Option<String>> {
+    let v = state.inner().clone();
+    blocking(move || v.get_secret(&id)).await
+}
+
+#[tauri::command]
+async fn vault_delete_secret(state: State<'_, Arc<VaultState>>, id: String) -> Res<()> {
+    let v = state.inner().clone();
+    blocking(move || v.delete_secret(&id)).await
+}
+
+#[tauri::command]
+async fn vault_list_secrets(state: State<'_, Arc<VaultState>>) -> Res<Vec<SecretSummary>> {
+    let v = state.inner().clone();
+    blocking(move || v.list_secrets()).await
+}
+
+// ------------------------------------------------------------------------------------------------
+// Terminal
+// ------------------------------------------------------------------------------------------------
+
+#[tauri::command]
+async fn run_terminal_command(command: String, cwd: Option<String>, timeout_secs: Option<u64>) -> Res<terminal::TerminalOutput> {
+    blocking(move || terminal::run(&command, cwd, timeout_secs.unwrap_or(120))).await
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    let data_dir = std::env::var_os("XKEYSTORE_DATA_DIR").map(std::path::PathBuf::from).unwrap_or_else(VaultState::default_dir);
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
-        .manage(VaultState::new())
+        .plugin(tauri_plugin_dialog::init())
+        .manage(Arc::new(VaultState::new(data_dir.clone())))
+        .manage(Arc::new(AppPaths { data_dir }))
         .invoke_handler(tauri::generate_handler![
-            generate_keypair_entry,
-            generate_secret_key_entry,
+            app_info,
+            load_app_state,
+            save_app_state,
+            probe_file,
+            open_keystore,
+            save_keystore,
+            export_keystore_csv,
+            generate_key_pair,
+            generate_secret_key,
+            import_trusted_certificates,
+            import_key_pair,
             generate_csr,
-            sign_csr,
-            generate_crl,
-            sign_jar,
-            sign_cms,
-            verify_cms,
-            generate_dh_params,
-            sign_jwt,
-            examine_ssl,
-            detect_and_examine,
+            import_ca_reply,
+            rotate_key,
+            refresh_entry,
             export_entry,
-            export_keystore_to_csv,
-            save_keystore_file,
-            load_keystore_file,
-            import_pem_certificate,
-            run_terminal_command,
+            jwt_algorithms,
+            sign_csr,
+            inspect_csr,
+            generate_crl,
+            cms_sign,
+            cms_verify,
+            jwt_sign,
+            jwt_verify,
+            dh_params,
+            jar_sign,
+            examine_tls,
+            examine_data,
+            write_text_file,
+            read_text_file,
+            vault_status,
             vault_init,
             vault_unlock,
             vault_lock,
-            vault_status,
-            vault_change_master_key
+            vault_change_master_key,
+            vault_reset,
+            vault_store_secret,
+            vault_get_secret,
+            vault_delete_secret,
+            vault_list_secrets,
+            run_terminal_command,
         ])
         .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .expect("error while running xkeystore");
 }

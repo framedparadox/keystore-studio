@@ -1,6 +1,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
 import { Maximize2, Minimize2, Play, TerminalSquare, X } from "lucide-react";
+import { api, errorMessage, isDesktop } from "../lib/api";
+import { useStore } from "../state/store";
 
 interface TerminalApi {
   /** Open the terminal panel, optionally pre-filling the prompt (never auto-runs). */
@@ -14,13 +15,6 @@ export const useTerminal = () => useContext(TerminalContext);
 interface Line {
   kind: "cmd" | "out" | "err" | "info";
   text: string;
-}
-
-interface TerminalOutput {
-  stdout: string;
-  stderr: string;
-  code: number;
-  cwd: string;
 }
 
 export const TerminalProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -77,8 +71,14 @@ const TerminalPanel: React.FC<{
   prefill: { command: string; nonce: number } | null;
   onClose: () => void;
 }> = ({ isOpen, prefill, onClose }) => {
+  const { settings } = useStore();
   const [lines, setLines] = useState<Line[]>([
-    { kind: "info", text: "xkeystore terminal — commands run in your login shell. Ctrl+` toggles this panel." },
+    {
+      kind: "info",
+      text: isDesktop()
+        ? "xkeystore terminal — one command at a time, no interactive input (pass passwords as arguments, e.g. -storepass). Ctrl+` toggles this panel."
+        : "The terminal needs the xkeystore desktop app.",
+    },
   ]);
   const [input, setInput] = useState("");
   const [cwd, setCwd] = useState<string | undefined>(undefined);
@@ -117,19 +117,17 @@ const TerminalPanel: React.FC<{
     setLines((l) => [...l, { kind: "cmd", text: `${shortPath(cwd)} $ ${command}` }]);
     setBusy(true);
     try {
-      const res = await invoke<TerminalOutput>("run_terminal_command", { command, cwd });
+      const res = await api.runTerminalCommand(command, cwd, settings.terminalTimeoutSecs);
       setCwd(res.cwd);
       setLines((l) => [
         ...l,
         ...(res.stdout ? [{ kind: "out" as const, text: res.stdout }] : []),
         ...(res.stderr ? [{ kind: "err" as const, text: res.stderr.replace(/\n$/, "") }] : []),
+        ...(res.truncated ? [{ kind: "info" as const, text: "[output truncated at 512 KB]" }] : []),
         ...(res.code !== 0 ? [{ kind: "info" as const, text: `exit ${res.code}` }] : []),
       ]);
     } catch (e) {
-      setLines((l) => [
-        ...l,
-        { kind: "err", text: `Terminal needs the desktop app (${e instanceof Error ? e.message : String(e)})` },
-      ]);
+      setLines((l) => [...l, { kind: "err", text: errorMessage(e) }]);
     } finally {
       setBusy(false);
       inputRef.current?.focus();
@@ -165,9 +163,11 @@ const TerminalPanel: React.FC<{
   return (
     <section
       aria-label="Terminal"
-      className={`fixed left-[256px] right-4 bottom-4 z-40 flex flex-col overflow-hidden rounded-panel border border-white/10 bg-term-bg shadow-pop select-text ${
+      style={{ left: "calc(var(--sidebar-w, 240px) + 16px)" }}
+      className={`fixed right-4 bottom-4 z-40 flex flex-col overflow-hidden rounded-panel border border-white/10 bg-term-bg shadow-pop select-text ${
         expanded ? "top-[72px]" : "h-[300px]"
       }`}
+      data-testid="terminal"
     >
       <header className="flex items-center justify-between border-b border-white/10 px-4 py-2 text-term-fg select-none">
         <div className="flex items-center gap-2 text-[12px] font-semibold">

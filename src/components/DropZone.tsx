@@ -1,85 +1,70 @@
-import React, { useCallback, useRef, useState } from "react";
+import React, { useEffect, useState } from "react";
 import clsx from "clsx";
 import { UploadCloud } from "lucide-react";
-import { ACCEPTED_EXTENSIONS } from "../lib/importFile";
+import { isDesktop } from "../lib/api";
 
-/** Drag-and-drop state for any container. Spread `bind` on the element that should accept files. */
-export function useFileDrop(onFiles: (files: File[]) => void) {
+/**
+ * Window-wide file drop. Uses Tauri's native drag-and-drop so dropped files keep their real
+ * paths (a keystore opened this way can be saved back in place).
+ */
+export function useWindowFileDrop(onPaths: (paths: string[]) => void): boolean {
   const [dragging, setDragging] = useState(false);
-  const depth = useRef(0);
-
-  const bind = {
-    onDragEnter: (e: React.DragEvent) => {
-      if (!e.dataTransfer.types.includes("Files")) return;
-      e.preventDefault();
-      depth.current += 1;
-      setDragging(true);
-    },
-    onDragOver: (e: React.DragEvent) => {
-      if (e.dataTransfer.types.includes("Files")) e.preventDefault();
-    },
-    onDragLeave: () => {
-      depth.current = Math.max(0, depth.current - 1);
-      if (depth.current === 0) setDragging(false);
-    },
-    onDrop: (e: React.DragEvent) => {
-      e.preventDefault();
-      depth.current = 0;
-      setDragging(false);
-      const files = Array.from(e.dataTransfer.files);
-      if (files.length) onFiles(files);
-    },
-  };
-  return { dragging, bind };
+  useEffect(() => {
+    if (!isDesktop()) return;
+    let unlisten: (() => void) | undefined;
+    let cancelled = false;
+    (async () => {
+      const { getCurrentWebview } = await import("@tauri-apps/api/webview");
+      const off = await getCurrentWebview().onDragDropEvent((event) => {
+        const p = event.payload;
+        if (p.type === "enter" || p.type === "over") setDragging(true);
+        else if (p.type === "leave") setDragging(false);
+        else if (p.type === "drop") {
+          setDragging(false);
+          if (p.paths.length) onPaths(p.paths);
+        }
+      });
+      if (cancelled) off();
+      else unlisten = off;
+    })();
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, [onPaths]);
+  return dragging;
 }
 
-interface DropZoneProps {
-  dragging: boolean;
-  busy?: boolean;
-  onFiles: (files: File[]) => void;
-}
-
-export const DropZone: React.FC<DropZoneProps & { className?: string }> = ({ dragging, busy, onFiles, className }) => {
-  const input = useRef<HTMLInputElement>(null);
-  const pick = useCallback(() => input.current?.click(), []);
-
-  return (
-    <div
-      role="button"
-      tabIndex={0}
-      onClick={pick}
-      onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && pick()}
-      className={clsx(
-        "rounded-card border border-dashed px-5 py-6 flex flex-col items-center justify-center text-center transition cursor-pointer",
-        dragging ? "border-brand bg-brand-tint" : "border-line-strong bg-surface-2 hover:border-brand hover:bg-brand-tint/60",
-        className
-      )}
-    >
-      <input
-        ref={input}
-        type="file"
-        multiple
-        accept={ACCEPTED_EXTENSIONS}
-        className="hidden"
-        onChange={(e) => {
-          const files = Array.from(e.target.files ?? []);
-          if (files.length) onFiles(files);
-          e.target.value = "";
-        }}
-      />
-      <span className="w-10 h-10 rounded-card border border-line bg-surface shadow-card flex items-center justify-center mb-3">
-        <UploadCloud className={clsx("w-5 h-5", dragging ? "text-brand" : "text-muted")} />
-      </span>
-      <p className="text-[13.5px] font-semibold text-ink">
-        {busy ? "Reading files…" : dragging ? "Drop to open" : (
-          <>
-            <span className="text-brand">Click to upload</span> or drag and drop
-          </>
-        )}
-      </p>
-      <p className="text-[12px] text-faint mt-1 max-w-xs">
-        .jks .p12 .pfx .jceks .bks .pem .crt .cer .der .csr .crl .key
-      </p>
+export const DropOverlay: React.FC<{ visible: boolean }> = ({ visible }) =>
+  visible ? (
+    <div className="pointer-events-none fixed inset-0 z-[80] flex items-center justify-center bg-brand/10 border-4 border-dashed border-brand">
+      <div className="rounded-panel bg-surface shadow-pop px-8 py-6 text-center">
+        <UploadCloud className="w-8 h-8 text-brand mx-auto mb-2" />
+        <div className="text-[15px] font-semibold text-ink">Drop to open</div>
+        <div className="text-[12.5px] text-faint mt-1">Keystores open on the Keystores page; certificates, keys, CSRs and CRLs open in Examine; JARs in CA & Signing.</div>
+      </div>
     </div>
-  );
-};
+  ) : null;
+
+/** Click-to-open target with a drag hint. */
+export const DropZone: React.FC<{ onClick: () => void; className?: string }> = ({ onClick, className }) => (
+  <div
+    role="button"
+    tabIndex={0}
+    onClick={onClick}
+    onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && onClick()}
+    data-testid="dropzone"
+    className={clsx(
+      "rounded-card border border-dashed px-5 py-6 flex flex-col items-center justify-center text-center transition cursor-pointer border-line-strong bg-surface-2 hover:border-brand hover:bg-brand-tint/60",
+      className
+    )}
+  >
+    <span className="w-10 h-10 rounded-card border border-line bg-surface shadow-card flex items-center justify-center mb-3">
+      <UploadCloud className="w-5 h-5 text-muted" />
+    </span>
+    <p className="text-[13.5px] font-semibold text-ink">
+      <span className="text-brand">Click to open</span> or drop files anywhere
+    </p>
+    <p className="text-[12px] text-faint mt-1 max-w-xs">.p12 .pfx .jks .jceks .pem .crt .cer .der .csr .crl .key .p7b .jar</p>
+  </div>
+);
