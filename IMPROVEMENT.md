@@ -16,9 +16,9 @@ does today.
 | 4 | PBMAC1-protected PKCS#12 | **done** — read and write, round-tripped against OpenSSL 4.1 |
 | 5 | Bouncy Castle BKS and BCFKS reading | **partly** — detection fixed; decoder blocked on test fixtures |
 
-Test counts after this work: **49 Rust unit** (was 38), **13 interop** (was 10), **5 robustness**
+Test counts after this work: **52 Rust unit** (was 38), **13 interop** (was 10), **5 robustness**
 (new, thousands of malformed inputs), **10 frontend**. `cargo clippy -D warnings` and
-`cargo deny check` both pass clean.
+`cargo deny check` both pass clean, and the desktop app still builds after the crate split.
 
 ### 1. Timestamping — done
 
@@ -39,11 +39,17 @@ Decisions worth knowing:
   named in it claims this time". `openssl ts -verify` and `jarsigner -verify` do check it, and the
   interop tests use them. Verifying the chain in-app is listed under "Beyond the five items".
 
-### 2. macOS and Windows — in progress
+### 2. macOS and Windows — written, not yet verified
 
 `.github/workflows/ci.yml` now runs the Rust engine and its interop tests on Linux, macOS and
 Windows, builds the installer for each (`.deb`, `.dmg`, `.msi`), and adds a lint job
-(`clippy -D warnings`, `cargo fmt --check`, `cargo-deny`).
+(`clippy -D warnings` and `cargo-deny`).
+
+**This is the one item I could not verify.** The workflow has never executed — GitHub Actions is
+the only thing that can run it, and that needs a push plus a pull request. Everything it runs does
+pass locally on macOS (52 unit tests, 13 interop, 5 robustness, clippy, cargo-deny), so the Rust
+jobs should be sound; the Windows and macOS *installer* steps are the untested part. Expect the
+first run to need a fix or two.
 
 Two things are worth knowing:
 
@@ -58,7 +64,7 @@ The installers are unsigned. macOS Gatekeeper will block an unsigned `.dmg` on a
 machine, so a release needs signing and notarization — listed under "Beyond the five items", since
 it needs secrets rather than code.
 
-### 3. Fuzzing — in progress
+### 3. Fuzzing — done
 
 Two halves, deliberately:
 
