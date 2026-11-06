@@ -45,11 +45,9 @@ fn attribute(arcs: &[u64], value_der: &[u8]) -> Vec<u8> {
 
 /// DER SET OF attributes, sorted as DER requires.
 fn signed_attributes_set(content_digest: &[u8], signing_time: i64) -> Vec<u8> {
-    let mut attrs = vec![
-        attribute(oids::ATTR_CONTENT_TYPE, &yasna::construct_der(|w| w.write_oid(&oid(oids::PKCS7_DATA)))),
+    let mut attrs = [attribute(oids::ATTR_CONTENT_TYPE, &yasna::construct_der(|w| w.write_oid(&oid(oids::PKCS7_DATA)))),
         attribute(oids::ATTR_SIGNING_TIME, &asn1_time_der(signing_time)),
-        attribute(oids::ATTR_MESSAGE_DIGEST, &yasna::construct_der(|w| w.write_bytes(content_digest))),
-    ];
+        attribute(oids::ATTR_MESSAGE_DIGEST, &yasna::construct_der(|w| w.write_bytes(content_digest)))];
     attrs.sort();
     let body: Vec<u8> = attrs.concat();
     let mut out = vec![0x31];
@@ -334,6 +332,7 @@ fn timestamp_of(s: &ParsedSigner) -> Option<crate::model::TimestampInfo> {
 /// signatures; `extra_certs` (e.g. a keystore entry's chain) are used to find signers whose
 /// certificate is not embedded.
 pub fn verify(cms_der: &[u8], detached_content: Option<&[u8]>, extra_certs: &[Vec<u8>]) -> Res<CmsVerifyResult> {
+    check_der_lengths(cms_der)?;
     let parsed = parse_signed_data(cms_der)?;
     let detached = parsed.content.is_none();
     let content = parsed.content.clone().or_else(|| detached_content.map(|c| c.to_vec()));
@@ -494,12 +493,12 @@ mod tests {
             PrivateKey::generate("Ed25519", 0, None).unwrap(),
         ] {
             let cert = self_signed(&key);
-            let attached = sign(b"hello world", &key, &[cert.clone()], false).unwrap();
+            let attached = sign(b"hello world", &key, std::slice::from_ref(&cert), false).unwrap();
             let r = verify(&attached, None, &[]).unwrap();
             assert!(r.valid, "{}", r.message);
             assert_eq!(r.content_text.as_deref(), Some("hello world"));
 
-            let detached = sign(b"payload", &key, &[cert.clone()], true).unwrap();
+            let detached = sign(b"payload", &key, std::slice::from_ref(&cert), true).unwrap();
             assert!(!verify(&detached, None, &[]).unwrap().valid);
             assert!(verify(&detached, Some(b"payload"), &[]).unwrap().valid);
             let tampered = verify(&detached, Some(b"payloaD"), &[]).unwrap();
@@ -511,7 +510,7 @@ mod tests {
     fn certs_only_bundle_round_trips() {
         let key = PrivateKey::generate("ECDSA", 0, Some("P-256")).unwrap();
         let cert = self_signed(&key);
-        let p7 = certs_only(&[cert.clone()]);
+        let p7 = certs_only(std::slice::from_ref(&cert));
         assert_eq!(certificates_from_pkcs7(&p7).unwrap(), vec![cert]);
     }
 }

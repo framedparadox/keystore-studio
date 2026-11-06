@@ -146,7 +146,7 @@ pub fn generate_secret_key(input: &GenerateSecretKeyInput) -> Res<KeystoreEntry>
             hex::decode(&cleaned).map_err(|_| "key material must be hexadecimal".to_string())?
         }
         None => {
-            if input.key_size == 0 || input.key_size % 8 != 0 {
+            if input.key_size == 0 || !input.key_size.is_multiple_of(8) {
                 return Err("key size must be a positive multiple of 8 bits".into());
             }
             random_bytes(input.key_size as usize / 8)

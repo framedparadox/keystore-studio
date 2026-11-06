@@ -936,11 +936,10 @@ pub fn certificates_from_bytes(data: &[u8]) -> Res<Vec<Vec<u8>>> {
         }
         if out.is_empty() {
             // Bare base64 of a DER certificate.
-            if let Ok(der) = unb64(text.trim()) {
-                if X509Certificate::from_der(&der).is_ok() {
+            if let Ok(der) = unb64(text.trim())
+                && X509Certificate::from_der(&der).is_ok() {
                     return Ok(vec![der]);
                 }
-            }
             return Err("no certificate found in the data".into());
         }
         return Ok(out);
@@ -1025,11 +1024,10 @@ pub fn csr_der_from_bytes(data: &[u8]) -> Res<Vec<u8>> {
                 return Ok(block.der);
             }
         }
-        if let Ok(der) = unb64(text.trim()) {
-            if X509CertificationRequest::from_der(&der).is_ok() {
+        if let Ok(der) = unb64(text.trim())
+            && X509CertificationRequest::from_der(&der).is_ok() {
                 return Ok(der);
             }
-        }
         return Err("no PKCS#10 certificate request found (expected -----BEGIN CERTIFICATE REQUEST-----)".into());
     }
     Ok(data.to_vec())
@@ -1143,7 +1141,7 @@ mod tests {
         assert_eq!(leaf.authority_key_id, ca_info.subject_key_id);
         assert!(!leaf.self_signed);
         assert!(verify_certificate_signature(&leaf_der, &ca_spki).unwrap());
-        assert_eq!(build_chain(&leaf_der, &[ca_der.clone()]).len(), 2);
+        assert_eq!(build_chain(&leaf_der, std::slice::from_ref(&ca_der)).len(), 2);
         assert_eq!(order_bundle(&[ca_der.clone(), leaf_der.clone()])[0], leaf_der);
 
         // CSR round trip

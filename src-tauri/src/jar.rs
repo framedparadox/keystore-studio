@@ -101,11 +101,10 @@ pub fn sign_jar_timestamped(input: &str, output: &str, signer: &KeystoreEntry, t
     if chain.is_empty() {
         return Err(format!("'{}' has no certificate", signer.alias));
     }
-    if let Some(leaf) = signer.certificate_chain.first() {
-        if leaf.not_after < now_ts() {
+    if let Some(leaf) = signer.certificate_chain.first()
+        && leaf.not_after < now_ts() {
             return Err(format!("the certificate of '{}' has expired", signer.alias));
         }
-    }
     let file = std::fs::File::open(input).map_err(|err| format!("cannot open {input}: {err}"))?;
     let mut archive = zip::ZipArchive::new(file).map_err(|err| format!("{input} is not a valid JAR/ZIP file: {err}"))?;
 

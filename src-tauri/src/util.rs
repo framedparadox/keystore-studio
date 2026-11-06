@@ -14,6 +14,84 @@ pub fn e<E: std::fmt::Display>(err: E) -> String {
     err.to_string()
 }
 
+/// Rejects DER/BER whose declared lengths cannot fit the data that follows.
+///
+/// This guards a panic in `yasna` 0.5/0.6: when skipping an indefinite-length construction its
+/// reader computes `self.pos + length` *before* the bounds check
+/// (`yasna/src/reader/mod.rs:349`), so a length near `usize::MAX` aborts the process with
+/// "attempt to add with overflow" instead of returning a parse error. Found by the `keys` fuzz
+/// target; upstream fixed the same bug on one line in 0.6.0 but not this one.
+///
+/// Scanning every length header first is cheap — one linear pass, no allocation — and it means a
+/// hostile file is rejected before `yasna` can see it. Call this at the boundary where untrusted
+/// bytes arrive, not at every nested parse.
+pub fn check_der_lengths(data: &[u8]) -> Res<()> {
+    const MALFORMED: &str = "malformed ASN.1: a declared length exceeds the data";
+    // Walks the structure, not the bytes: content of a definite-length *primitive* is skipped
+    // rather than descended into, because a key or ciphertext payload is arbitrary bytes that
+    // would otherwise be misread as tags. Constructed values are descended into, which is where
+    // the nested hostile length actually sits.
+    fn walk(data: &[u8], depth: u32) -> Res<()> {
+        // Bound recursion as well: a chain of constructed headers is otherwise a stack overflow.
+        if depth > 64 {
+            return Ok(());
+        }
+        let mut i = 0usize;
+        while i < data.len() {
+            let tag = data[i];
+            // Tag, including multi-byte (high-tag-number) forms.
+            if tag & 0x1F == 0x1F {
+                i += 1;
+                while i < data.len() && data[i] & 0x80 != 0 {
+                    i += 1;
+                }
+            }
+            i += 1;
+            let Some(&first) = data.get(i) else { return Ok(()) };
+            i += 1;
+            if first == 0x80 {
+                // Indefinite length: the content runs to an end-of-contents marker, so there is
+                // no length to validate here. Keep scanning from just after the header, which is
+                // how the nested hostile header gets reached.
+                continue;
+            }
+            let length = if first < 0x80 {
+                first as usize
+            } else {
+                let count = (first & 0x7F) as usize;
+                // A length field wider than a usize cannot describe anything in memory, and is
+                // exactly what overflows yasna's `self.pos + length`.
+                if count > std::mem::size_of::<usize>() {
+                    return Err(MALFORMED.into());
+                }
+                let Some(bytes) = data.get(i..i + count) else { return Err(MALFORMED.into()) };
+                i += count;
+                let mut length = 0usize;
+                for b in bytes {
+                    length = match length.checked_mul(256).and_then(|l| l.checked_add(*b as usize)) {
+                        Some(l) => l,
+                        None => return Err(MALFORMED.into()),
+                    };
+                }
+                length
+            };
+            // The declared content must fit in what is left; `checked_add` is the actual fix.
+            let end = match i.checked_add(length) {
+                Some(end) if end <= data.len() => end,
+                _ => return Err(MALFORMED.into()),
+            };
+            // 0x20 marks a constructed value, whose content is more TLVs worth checking. A
+            // primitive's content is opaque bytes, so skip over it.
+            if tag & 0x20 != 0 {
+                walk(&data[i..end], depth + 1)?;
+            }
+            i = end;
+        }
+        Ok(())
+    }
+    walk(data, 0)
+}
+
 pub fn b64(data: &[u8]) -> String {
     B64.encode(data)
 }
@@ -223,5 +301,55 @@ mod tests {
     fn known_digests() {
         assert_eq!(upper_hex(&md5(b"")), "D41D8CD98F00B204E9800998ECF8427E");
         assert_eq!(upper_hex(&sha1(b"abc")), "A9993E364706816ABA3E25717850C26C9CD0D89D");
+    }
+
+    #[test]
+    fn der_length_check_accepts_well_formed_structures() {
+        // SEQUENCE { INTEGER 1, OCTET STRING "ab" }
+        let good = yasna::construct_der(|w| {
+            w.write_sequence(|w| {
+                w.next().write_u8(1);
+                w.next().write_bytes(b"ab");
+            })
+        });
+        assert!(check_der_lengths(&good).is_ok());
+        // Empty input and a bare tag are not our problem to reject; the parser reports those.
+        assert!(check_der_lengths(&[]).is_ok());
+        assert!(check_der_lengths(&[0x30]).is_ok());
+        // A primitive's content must not be walked into: random bytes inside an OCTET STRING are
+        // not tags, and treating them as such is what made the first version of this reject
+        // valid keystores.
+        let opaque = yasna::construct_der(|w| w.write_bytes(&[0x30, 0x84, 0xFF, 0xFF, 0xFF, 0xFF]));
+        assert!(check_der_lengths(&opaque).is_ok());
+    }
+
+    #[test]
+    fn der_length_check_rejects_lengths_that_cannot_fit() {
+        // Declared 0x7FFFFFFF inside a 5-byte buffer.
+        assert!(check_der_lengths(&[0x04, 0x84, 0x7F, 0xFF, 0xFF, 0xFF]).is_err());
+        // A length field wider than usize.
+        assert!(check_der_lengths(&[0x04, 0x89, 1, 1, 1, 1, 1, 1, 1, 1, 1]).is_err());
+        // The input that crashed the `keys` fuzz target: an indefinite-length construction whose
+        // nested header declares a length near usize::MAX, which overflowed yasna's
+        // `self.pos + length` before its bounds check.
+        let crash = [
+            0x30, 0x80, 0x30, 0x80, 0x06, 0x08, 0x00, 0x3e, 0x10, 0x00, 0x84, 0x25, 0x02, 0x30, 0x30, 0x88, 0xff, 0xff, 0xff, 0xff, 0xff,
+            0xff, 0xff, 0xff, 0xff, 0xff, 0x3e, 0x00, 0x00, 0x21, 0x0c,
+        ];
+        assert!(check_der_lengths(&crash).is_err());
+    }
+
+    #[test]
+    fn der_length_check_terminates_on_deep_nesting() {
+        // 10 000 nested constructed headers: the walk must bound its own recursion rather than
+        // overflow the stack. Returning Ok is fine — the parser still gets to reject it.
+        let mut nested: Vec<u8> = vec![0x05, 0x00];
+        for _ in 0..10_000 {
+            let len = nested.len();
+            let mut next = vec![0x30, 0x82, (len >> 8) as u8, len as u8];
+            next.extend(nested);
+            nested = next;
+        }
+        let _ = check_der_lengths(&nested);
     }
 }

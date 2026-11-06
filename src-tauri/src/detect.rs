@@ -158,8 +158,8 @@ fn examine_der(bytes: &[u8], password: Option<&str>, format: &str) -> Res<Detect
         r.key = Some(key_info_private(&key, "PKCS#8"));
         return Ok(r);
     }
-    if keys::split_spki(bytes).is_ok() {
-        if let Ok(info) = key_info_public(bytes, "SubjectPublicKeyInfo") {
+    if keys::split_spki(bytes).is_ok()
+        && let Ok(info) = key_info_public(bytes, "SubjectPublicKeyInfo") {
             r.kind = "public_key".into();
             r.title = "Public key".into();
             r.format = format.into();
@@ -167,7 +167,6 @@ fn examine_der(bytes: &[u8], password: Option<&str>, format: &str) -> Res<Detect
             r.key = Some(info);
             return Ok(r);
         }
-    }
     r.kind = "unknown".into();
     r.title = "Unrecognised data".into();
     r.format = "binary".into();
@@ -294,8 +293,8 @@ pub fn examine(bytes: &[u8], password: Option<&str>) -> Res<DetectionResult> {
         return Ok(r);
     }
     // OpenSSH public key line
-    if let Some((kind, rest)) = trimmed.split_once(' ') {
-        if kind.starts_with("ssh-") || kind.starts_with("ecdsa-sha2-") {
+    if let Some((kind, rest)) = trimmed.split_once(' ')
+        && (kind.starts_with("ssh-") || kind.starts_with("ecdsa-sha2-")) {
             let blob = unb64(rest.split_whitespace().next().unwrap_or(""))?;
             let mut r = base(bytes);
             r.kind = "public_key".into();
@@ -306,15 +305,13 @@ pub fn examine(bytes: &[u8], password: Option<&str>) -> Res<DetectionResult> {
             r.key = Some(KeyInfo { kind: "public".into(), algorithm: kind.into(), format: "OpenSSH".into(), public_key_sha256: Some(fp), ..Default::default() });
             return Ok(r);
         }
-    }
     // Bare base64 of DER
-    if let Ok(der) = unb64(trimmed) {
-        if !der.is_empty() {
+    if let Ok(der) = unb64(trimmed)
+        && !der.is_empty() {
             let mut r = examine_der(&der, password, "Base64 (DER)")?;
             r.sha256 = colon_hex(&sha256(&der));
             return Ok(r);
         }
-    }
     let mut r = base(bytes);
     r.kind = "unknown".into();
     r.title = "Unrecognised text".into();

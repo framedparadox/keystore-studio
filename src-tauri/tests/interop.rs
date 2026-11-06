@@ -238,7 +238,7 @@ fn pbmac1_pkcs12_interop_with_openssl() {
     // Ours → theirs. Written with PBMAC1 and read back by OpenSSL, key and certificate intact.
     let p = pki();
     let ours = d.path().join("ours-pbmac1.p12");
-    let bytes = xkeystore_lib::pkcs12::encode_with_mac(&[p.rsa.clone()], "macpass", xkeystore_lib::pkcs12::MacKind::Pbmac1).unwrap();
+    let bytes = xkeystore_lib::pkcs12::encode_with_mac(std::slice::from_ref(&p.rsa), "macpass", xkeystore_lib::pkcs12::MacKind::Pbmac1).unwrap();
     std::fs::write(&ours, &bytes).unwrap();
     let dump = o(&["pkcs12", "-in", "ours-pbmac1.p12", "-passin", "pass:macpass", "-nodes", "-info"]);
     assert!(dump.contains("PBMAC1"), "OpenSSL did not report PBMAC1 protection:\n{dump}");
@@ -709,6 +709,8 @@ fn tls_inspection_against_openssl_server() {
         }
     }
     let _ = server.kill();
+    // Reap it, or the killed server lingers as a zombie for the rest of the test run.
+    let _ = server.wait();
     let r = result.unwrap();
     assert_eq!(r.certificates.len(), 2);
     assert_eq!(r.certificates[0].sha256_fingerprint, p.ec.sha256_fingerprint);

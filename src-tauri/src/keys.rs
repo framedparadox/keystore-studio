@@ -106,7 +106,7 @@ impl PrivateKey {
         let mut rng = rand::rngs::OsRng;
         match algorithm.to_ascii_uppercase().as_str() {
             "RSA" => {
-                if !(1024..=16384).contains(&key_size) || key_size % 8 != 0 {
+                if !(1024..=16384).contains(&key_size) || !key_size.is_multiple_of(8) {
                     return Err("RSA key size must be a multiple of 8 between 1024 and 16384 bits".into());
                 }
                 let key = RsaPrivateKey::new(&mut rng, key_size as usize).map_err(|err| format!("RSA key generation failed: {err}"))?;
@@ -163,8 +163,8 @@ impl PrivateKey {
     /// Parses PEM or DER key material. Handles PKCS#8, encrypted PKCS#8 (requires `password`),
     /// PKCS#1 "RSA PRIVATE KEY" and SEC1 "EC PRIVATE KEY".
     pub fn from_bytes(data: &[u8], password: Option<&str>) -> Res<PrivateKey> {
-        if let Ok(text) = std::str::from_utf8(data) {
-            if text.contains("-----BEGIN") {
+        if let Ok(text) = std::str::from_utf8(data)
+            && text.contains("-----BEGIN") {
                 if text.contains("Proc-Type: 4,ENCRYPTED") {
                     return Err("legacy OpenSSL-encrypted PEM keys are not supported; convert with `openssl pkcs8 -topk8 -in key.pem -out key-pkcs8.pem`".into());
                 }
@@ -185,16 +185,14 @@ impl PrivateKey {
                 }
                 return Err("no private key found in the PEM data".into());
             }
-        }
         // DER: try PKCS#8, then encrypted PKCS#8, PKCS#1 and SEC1.
         if let Ok(k) = Self::from_pkcs8_der(data) {
             return Ok(k);
         }
-        if let Some(pw) = password.filter(|p| !p.is_empty()) {
-            if let Ok(der) = crate::pbe::decrypt_pkcs8(pw, data) {
+        if let Some(pw) = password.filter(|p| !p.is_empty())
+            && let Ok(der) = crate::pbe::decrypt_pkcs8(pw, data) {
                 return Self::from_pkcs8_der(&der);
             }
-        }
         if let Ok(k) = RsaPrivateKey::from_pkcs1_der(data) {
             return Ok(PrivateKey::Rsa(Box::new(k)));
         }
@@ -461,8 +459,12 @@ pub struct PublicKeyInfo {
     pub is_post_quantum: bool,
 }
 
-/// Splits a DER SPKI into (algorithm OID, parameters DER, subjectPublicKey bytes).
-pub fn split_spki(spki: &[u8]) -> Res<(Vec<u64>, Option<Vec<u8>>, Vec<u8>)> {
+/// The three parts of a `SubjectPublicKeyInfo`: the algorithm OID, the algorithm's parameters
+/// (absent for RSA and the Edwards curves, the curve OID for ECDSA), and the key bits.
+pub type SpkiParts = (Vec<u64>, Option<Vec<u8>>, Vec<u8>);
+
+/// Splits a DER SPKI into its algorithm OID, parameters DER and subjectPublicKey bytes.
+pub fn split_spki(spki: &[u8]) -> Res<SpkiParts> {
     yasna::parse_der(spki, |r| {
         r.read_sequence(|r| {
             let alg = crate::pbe::read_algorithm_id(r.next())?;
@@ -525,8 +527,8 @@ pub fn public_key_info(spki: &[u8]) -> Res<PublicKeyInfo> {
 
 /// Normalises a public key given as SPKI PEM/DER or PKCS#1 "RSA PUBLIC KEY" into SPKI DER.
 pub fn public_key_from_bytes(data: &[u8]) -> Res<Vec<u8>> {
-    if let Ok(text) = std::str::from_utf8(data) {
-        if text.contains("-----BEGIN") {
+    if let Ok(text) = std::str::from_utf8(data)
+        && text.contains("-----BEGIN") {
             for block in pem_blocks(text) {
                 match block.tag.as_str() {
                     "PUBLIC KEY" => return Ok(block.der),
@@ -539,7 +541,6 @@ pub fn public_key_from_bytes(data: &[u8]) -> Res<Vec<u8>> {
             }
             return Err("no public key found in the PEM data".into());
         }
-    }
     split_spki(data).map(|_| data.to_vec())
 }
 

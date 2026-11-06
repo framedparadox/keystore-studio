@@ -181,6 +181,7 @@ fn collect_bags(bags: Vec<RawBag>, password: &str, out: &mut Collected, depth: u
 }
 
 pub fn decode(bytes: &[u8], password: &str) -> Res<Vec<KeystoreEntry>> {
+    check_der_lengths(bytes)?;
     struct Mac {
         alg: pbe::AlgorithmId,
         digest: Vec<u8>,

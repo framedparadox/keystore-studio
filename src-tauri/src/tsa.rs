@@ -13,6 +13,17 @@
 //!
 //! This is the only outbound network request the app makes besides the TLS inspector, it only
 //! happens when the user supplies a TSA URL, and it is a single blocking POST.
+//!
+//! # What is and is not checked
+//!
+//! A token read back here is bound to the signature it claims to cover (the message imprint is
+//! recomputed) and, for a fresh request, to the nonce we sent. The TSA's *own* signature over the
+//! token is **not** verified, because doing so means deciding which authorities to trust, and
+//! this app has no TSA trust store. So a reported timestamp means "this token covers this
+//! signature and the authority named in it claims this time", not "a trusted authority vouches
+//! for it". `openssl ts -verify -CAfile …` and `jarsigner -verify` do perform that check, and the
+//! interop tests use them to confirm the tokens we attach are genuinely well-formed and signed.
+//! Verifying the TSA chain in-app is tracked in IMPROVEMENT.md.
 
 use crate::oids::{self, oid};
 use crate::pbe::HashAlg;
@@ -66,6 +77,7 @@ pub fn describe_any_token(token: &[u8]) -> Res<Timestamp> {
 /// certificate chain, so the result says "this token covers this signature and the TSA claims this
 /// time", not "a trusted authority vouches for it".
 pub fn verify_token(token: &[u8], signature: &[u8]) -> Res<Timestamp> {
+    check_der_lengths(token)?;
     // The imprint hash is the TSA's choice, so read the token first and recompute with that hash.
     let described = describe_token(token, None, None)?;
     let hash = [HashAlg::Sha1, HashAlg::Sha224, HashAlg::Sha256, HashAlg::Sha384, HashAlg::Sha512]
@@ -222,14 +234,18 @@ fn describe_token(token: &[u8], expected_digest: Option<&[u8]>, expected_nonce: 
     .map_err(|err| format!("the timestamp token contains a malformed TSTInfo: {err}"))?;
 
     // These checks are what make the token ours rather than a replayed or unrelated one.
-    if let Some(expected) = expected_digest {
-        if digest != expected {
+    if let Some(expected) = expected_digest
+        && digest != expected {
             return Err("the timestamp covers different data than this signature".into());
         }
-    }
-    if let (Some(nonce), Some(expected)) = (&nonce, expected_nonce) {
-        if trim_leading_zeros(nonce) != trim_leading_zeros(expected) {
-            return Err("the timestamp response carries the wrong nonce, so it may be a replayed token".into());
+    // RFC 3161 §2.4.2: when the request carried a nonce the response MUST echo it. A missing
+    // nonce has to be rejected rather than skipped, or a replayed token would pass the check by
+    // simply leaving the field out.
+    if let Some(expected) = expected_nonce {
+        match &nonce {
+            Some(nonce) if trim_leading_zeros(nonce) == trim_leading_zeros(expected) => {}
+            Some(_) => return Err("the timestamp response carries the wrong nonce, so it may be a replayed token".into()),
+            None => return Err("the timestamp response omits the nonce we sent, so it may be a replayed token".into()),
         }
     }
 
@@ -387,6 +403,50 @@ mod tests {
     fn a_granted_response_with_no_token_is_an_error() {
         let resp = yasna::construct_der(|w| w.write_sequence(|w| w.next().write_sequence(|w| w.next().write_u8(0))));
         assert!(parse_response(&resp).unwrap_err().contains("no token"));
+    }
+
+    /// A token that leaves the nonce out must be refused when we sent one, otherwise omitting the
+    /// field would be a way around the replay check.
+    #[test]
+    fn a_token_without_the_nonce_is_refused() {
+        let digest = sha256(b"sig");
+        let tst_info = yasna::construct_der(|w| {
+            w.write_sequence(|w| {
+                w.next().write_u8(1);
+                w.next().write_oid(&oid(&[1, 2, 3, 4, 1]));
+                w.next().write_sequence(|w| {
+                    w.next().write_sequence(|w| {
+                        w.next().write_oid(&oid(oids::SHA256));
+                        w.next().write_null();
+                    });
+                    w.next().write_bytes(&digest);
+                });
+                w.next().write_bigint_bytes(&[1], true);
+                w.next().write_der(&generalized_time_der(now_ts()));
+                // No nonce field at all.
+            })
+        });
+        let token = yasna::construct_der(|w| {
+            w.write_sequence(|w| {
+                w.next().write_oid(&oid(oids::PKCS7_SIGNED_DATA));
+                w.next().write_tagged(Tag::context(0), |w| {
+                    w.write_sequence(|w| {
+                        w.next().write_u8(3);
+                        w.next().write_set(|_| {});
+                        w.next().write_sequence(|w| {
+                            w.next().write_oid(&oid(oids::TST_INFO));
+                            w.next().write_tagged(Tag::context(0), |w| w.write_bytes(&tst_info));
+                        });
+                        w.next().write_set(|_| {}); // signerInfos
+                    })
+                });
+            })
+        });
+        // Read without a nonce expectation: fine, the fields parse.
+        assert!(describe_token(&token, Some(&digest), None).is_ok());
+        // Read as a reply to a request that carried a nonce: refused.
+        let err = describe_token(&token, Some(&digest), Some(&[7, 7, 7])).unwrap_err();
+        assert!(err.contains("omits the nonce"), "{err}");
     }
 
     #[test]

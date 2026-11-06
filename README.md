@@ -11,7 +11,7 @@ your machine except TLS handshakes you start from **Examine**.
 | **Keystores** | Open, create, edit and save **PKCS#12**, **JKS** and **JCEKS** files (keytool/OpenSSL compatible). Convert between formats and change passwords with *Save as…*. Key pairs, trusted certificates and secret keys. Per-key passwords (JKS/JCEKS) are preserved and can be unlocked. Undo/redo, cut/copy/paste between keystores, rename, labels, CSV inventory export. Unsaved-changes tracking with a guard on close/quit. |
 | **Entries** | Generate RSA (2048–4096), ECDSA (P-256/384/521) and Ed25519 key pairs with certificates that are self-signed or issued by any open CA; generate AES/HMAC/3DES secret keys; import trusted certificates (PEM/DER/PKCS#7, bundles), key pairs from PEM/DER (PKCS#8, encrypted PKCS#8, PKCS#1, SEC1) or from another keystore. Generate CSRs, install CA replies. |
 | **Export** | Certificate (PEM/DER), full chain, PKCS#7 (PEM/DER), PkiPath, public key (PEM, OpenSSH, JWK), private key (encrypted or plain PKCS#8, JWK), single-entry PKCS#12, secret key (hex, JWK). |
-| **CA & Signing** | Sign CSRs (with CSR inspection and one-click installation into the matching key pair), issue v2 CRLs, CMS/PKCS#7 sign & verify (attached/detached), JWT sign & verify (RS/ES/EdDSA/HS), JAR signing (jarsigner-verifiable), DH parameters (RFC 7919 groups or freshly generated safe primes). |
+| **CA & Signing** | Sign CSRs (with CSR inspection and one-click installation into the matching key pair), issue v2 CRLs, CMS/PKCS#7 sign & verify (attached/detached), JWT sign & verify (RS/ES/EdDSA/HS), JAR signing (jarsigner-verifiable), **RFC 3161 trusted timestamps** on CMS and JAR signatures, DH parameters (RFC 7919 groups or freshly generated safe primes). |
 | **Examine** | Live TLS inspection (protocol, cipher, ALPN, chain, trust and hostname verdict against the OS trust store), decode anything (certificates, chains, CSRs, CRLs, keys, PKCS#7, JWTs, OpenSSH keys, keystores), compare two certificates. |
 | **Security audit** | Health score and findings (expired/expiring, weak keys and digests, deprecated ciphers, incomplete chains, self-signed servers), key rotation that keeps subject/SANs/usages and is re-issued by the original CA when it is open, same-key renewal, CSV report. |
 | **Workspaces** | Group entries from several keystores by project or audit scope; persisted across sessions. |
@@ -25,9 +25,20 @@ your machine except TLS handshakes you start from **Examine**.
 
 ### Not supported
 
-Bouncy Castle BKS/BCFKS/UBER keystores (xkeystore explains how to convert them), PKCS#11 tokens,
-RFC 3161 timestamping and PBMAC1-protected PKCS#12 files. Post-quantum (ML-DSA/ML-KEM/SLH-DSA) keys
-written by newer JDKs load and save losslessly but cannot be used for signing.
+- **Bouncy Castle BKS, BCFKS and UBER keystores.** xkeystore recognises each one and prints the
+  `keytool -importkeystore` command that converts it, with the correct `-srcstoretype`.
+- **PKCS#11 hardware tokens.** Keys on a token cannot be exported, so signing has to happen on the
+  device through a vendor library; that does not fit the "a keystore is a file" model the app is
+  built on.
+- **Post-quantum keys** (ML-DSA, ML-KEM, SLH-DSA) written by newer JDKs load and save losslessly
+  but cannot be used for signing.
+
+PKCS#12 files are written with the classic MAC for maximum compatibility; PBMAC1 (RFC 9579) is read
+and can be written. Timestamp tokens are bound to the signature they cover, but the timestamp
+authority's own certificate chain is not validated in-app — `openssl ts -verify` and
+`jarsigner -verify` do that.
+
+[IMPROVEMENT.md](IMPROVEMENT.md) explains why each gap exists and what is planned.
 
 ## Development
 
@@ -54,6 +65,10 @@ pnpm test:e2e           # builds the app and drives a full user journey via taur
 - **Interop tests** (`src-tauri/tests/interop.rs`) round-trip keystores, CSRs, CRLs, CMS, JARs, DH
   parameters and exports through the real `keytool`, `jarsigner`, `openssl` and `ssh-keygen`, and
   run a TLS handshake against `openssl s_server`. Each test is skipped if its tool is missing.
+- **Robustness tests** (`src-tauri/tests/robustness.rs`) feed every parser malformed input —
+  truncations, bit flips and forged length headers of real keystores, plus a deep-nesting case —
+  and assert that each returns an error rather than panicking. `XKS_MUTATION_POINTS=2000` runs a
+  deeper sweep. For coverage-guided fuzzing see [src-tauri/fuzz/README.md](src-tauri/fuzz/README.md).
 - **End-to-end** (`e2e/app.e2e.mjs`) needs `tauri-driver` (`cargo install tauri-driver --locked`)
   and WebKitWebDriver (`webkit2gtk-driver` on Debian/Ubuntu); on a headless machine run it with
   `xvfb-run -a`. It creates, saves, edits, signs, audits, restarts and restores a session, and

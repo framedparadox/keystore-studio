@@ -555,6 +555,7 @@ pub fn encrypt_pkcs8(password: &str, pkcs8_der: &[u8], iterations: u64) -> Res<V
 
 /// Parses an `EncryptedPrivateKeyInfo` and decrypts it to the inner PKCS#8 DER.
 pub fn decrypt_pkcs8(password: &str, der: &[u8]) -> Res<Vec<u8>> {
+    crate::util::check_der_lengths(der)?;
     let (alg, data) = yasna::parse_ber(der, |r| {
         r.read_sequence(|r| {
             let alg = read_algorithm_id(r.next())?;

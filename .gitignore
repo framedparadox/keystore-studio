@@ -2,6 +2,13 @@ node_modules/
 dist/
 *.log
 .DS_Store
-target/*
-.gitignore
+
+# Rust build output. `target/` on its own covers the root and any nested crate (src-tauri, fuzz).
+target/
+
+# Fuzzing: crash inputs and the evolved corpus are machine-specific and can be large. A crash
+# worth keeping belongs in tests/robustness.rs as a named corpus entry, not here.
+src-tauri/fuzz/artifacts/
+src-tauri/fuzz/corpus/
+
 .claude_launch_tmp
