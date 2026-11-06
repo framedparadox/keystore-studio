@@ -12,12 +12,13 @@ does today.
 |---|------|-------|
 | 1 | RFC 3161 timestamping for JAR and CMS signatures | **done** — implemented, cross-checked with `openssl ts` and `jarsigner` |
 | 2 | macOS and Windows build and test matrix | **written, unverified** — CI has never run; needs a push to GitHub |
-| 3 | Fuzzing the file parsers | **done** — 5 libFuzzer targets + a stable-Rust robustness suite; no crashes found |
+| 3 | Fuzzing the file parsers | **done** — 5 libFuzzer targets + a stable-Rust robustness suite; **found and fixed a crash on malicious key files** |
 | 4 | PBMAC1-protected PKCS#12 | **done** — read and write, round-tripped against OpenSSL 4.1 |
 | 5 | Bouncy Castle BKS and BCFKS reading | **partly** — detection fixed; decoder blocked on test fixtures |
 
-Test counts after this work: **49 Rust unit** (was 38), **13 interop** (was 10), **4 robustness**
-(new, thousands of malformed inputs), **10 frontend**. `cargo deny check` passes clean.
+Test counts after this work: **49 Rust unit** (was 38), **13 interop** (was 10), **5 robustness**
+(new, thousands of malformed inputs), **10 frontend**. `cargo clippy -D warnings` and
+`cargo deny check` both pass clean.
 
 ### 1. Timestamping — done
 

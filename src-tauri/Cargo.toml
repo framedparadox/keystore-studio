@@ -13,6 +13,12 @@ edition = "2024"
 name = "xkeystore_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
+# The fuzz crate is built only by cargo-fuzz, on nightly, against the engine without default
+# features. Excluding it keeps `cargo build`, `cargo test` and `cargo clippy` here from trying to
+# compile libfuzzer-sys on stable.
+[workspace]
+exclude = ["fuzz"]
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 

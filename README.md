@@ -60,6 +60,10 @@ pnpm typecheck          # TypeScript
 pnpm test               # frontend unit tests (Vitest)
 pnpm test:rust          # Rust unit tests + interop tests against keytool, jarsigner and openssl
 pnpm test:e2e           # builds the app and drives a full user journey via tauri-driver
+
+# What the CI lint job runs:
+cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
+cargo deny --manifest-path src-tauri/Cargo.toml check    # advisories, licences, sources, bans
 ```
 
 - **Interop tests** (`src-tauri/tests/interop.rs`) round-trip keystores, CSRs, CRLs, CMS, JARs, DH
