@@ -32,6 +32,12 @@ Decisions worth knowing:
 - **A TSA failure aborts signing.** Silently writing an unstamped file when the user asked for a
   timestamp is worse than refusing, because they would only find out when a verifier rejects it
   years later.
+- **The test TSA polls rather than blocking.** The interop tests run a local `openssl ts`
+  authority over HTTP. Its first version blocked in `accept()` and relied on a wake-up connection
+  at shutdown; the server then blocked reading an HTTP request that never came, so `join()` hung
+  and took the whole test binary with it — which would have hung CI on every run, with no output
+  to explain it. It now accepts non-blocking with a shutdown flag, and every connection carries a
+  read timeout.
 - **The nonce must come back.** A response that omits the nonce we sent is rejected, not skipped —
   otherwise leaving the field out would be a way around the replay check.
 - **The TSA's own signature is not verified in-app.** That needs a TSA trust store, which the app

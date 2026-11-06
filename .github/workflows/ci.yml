@@ -16,6 +16,7 @@ jobs:
   frontend:
     name: Frontend (types, unit tests, build)
     runs-on: ubuntu-24.04
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -36,6 +37,8 @@ jobs:
     # (including keytool/openssl/jarsigner interop) runs on all three platforms.
     name: Rust engine — ${{ matrix.name }}
     runs-on: ${{ matrix.os }}
+    # A hung test would otherwise burn GitHub's 6-hour default. The suite takes ~3 minutes.
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -85,6 +88,7 @@ jobs:
   lint:
     name: Lint (clippy, licences, advisories)
     runs-on: ubuntu-24.04
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
       - name: System libraries
@@ -130,6 +134,7 @@ jobs:
     # long campaigns are run manually or on a schedule; see IMPROVEMENT.md.
     name: Fuzz parsers (smoke)
     runs-on: ubuntu-24.04
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
       - name: System libraries
@@ -164,6 +169,7 @@ jobs:
     # webviews, so there the build is verified and the journey is Linux-only (see IMPROVEMENT.md).
     name: End-to-end (desktop app under Xvfb)
     runs-on: ubuntu-24.04
+    timeout-minutes: 40
     needs: [frontend, rust]
     steps:
       - uses: actions/checkout@v4
@@ -205,6 +211,7 @@ jobs:
     # bundler misconfiguration.
     name: Installer — ${{ matrix.name }}
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
     needs: [frontend]
     strategy:
       fail-fast: false

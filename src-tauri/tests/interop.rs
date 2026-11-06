@@ -493,8 +493,10 @@ struct TestTsa {
 impl Drop for TestTsa {
     fn drop(&mut self) {
         self.shutdown.store(true, std::sync::atomic::Ordering::Relaxed);
-        // Unblock the accept loop so the thread can notice the flag and exit.
-        let _ = std::net::TcpStream::connect(self.url.trim_start_matches("http://").trim_end_matches("/tsa"));
+        // The listener polls with a timeout rather than blocking forever in accept(), so setting
+        // the flag is enough; no wake-up connection is needed. (An earlier version opened one, and
+        // the server then blocked reading an HTTP request that never arrived, so join() hung and
+        // took the whole test binary with it.)
         if let Some(h) = self.handle.take() {
             let _ = h.join();
         }
@@ -523,15 +525,28 @@ fn start_test_tsa(dir: &Path) -> Option<TestTsa> {
 
     let listener = std::net::TcpListener::bind("127.0.0.1:0").ok()?;
     let port = listener.local_addr().ok()?.port();
+    // Non-blocking accept, so the loop can notice the shutdown flag instead of sitting in
+    // accept() until something connects.
+    listener.set_nonblocking(true).ok()?;
     let dir = dir.to_path_buf();
     let shutdown = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
     let flag = shutdown.clone();
     let handle = std::thread::spawn(move || {
-        for stream in listener.incoming() {
+        loop {
             if flag.load(std::sync::atomic::Ordering::Relaxed) {
                 return;
             }
-            let Ok(mut stream) = stream else { continue };
+            let mut stream = match listener.accept() {
+                Ok((stream, _)) => stream,
+                Err(err) if err.kind() == std::io::ErrorKind::WouldBlock => {
+                    std::thread::sleep(std::time::Duration::from_millis(20));
+                    continue;
+                }
+                Err(_) => return,
+            };
+            // A client that connects and sends nothing must not wedge the server.
+            let _ = stream.set_read_timeout(Some(std::time::Duration::from_secs(10)));
+            let _ = stream.set_nonblocking(false);
             // Read headers, then exactly Content-Length bytes of DER body.
             let mut buf = Vec::new();
             let mut chunk = [0u8; 4096];
