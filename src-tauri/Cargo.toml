@@ -60,6 +60,9 @@ rustls = { version = "0.23", default-features = false, features = ["ring", "std"
 webpki-roots = "0.26"
 rustls-native-certs = "0.8"
 
+# RFC 3161 timestamping (a single blocking HTTP POST; reuses rustls above)
+ureq = { version = "3.5.1", default-features = false, features = ["rustls"] }
+
 # JAR signing
 zip = { version = "2", default-features = false, features = ["deflate"] }
 

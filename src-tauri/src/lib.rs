@@ -21,6 +21,7 @@ pub mod pbe;
 pub mod pkcs12;
 pub mod terminal;
 pub mod tls;
+pub mod tsa;
 pub mod util;
 pub mod vault;
 pub mod x509;
@@ -273,12 +274,12 @@ async fn generate_crl(ca_entry: KeystoreEntry, next_update_days: u32, crl_number
 }
 
 #[tauri::command]
-async fn cms_sign(content: DataSource, signer_entry: KeystoreEntry, detached: bool) -> Res<CmsSignResult> {
+async fn cms_sign(content: DataSource, signer_entry: KeystoreEntry, detached: bool, tsa_url: Option<String>) -> Res<CmsSignResult> {
     blocking(move || {
         let data = content.bytes()?;
         let key = entry::private_key(&signer_entry)?;
         let chain = entry::chain_der(&signer_entry)?;
-        let der = cms::sign(&data, &key, &chain, detached)?;
+        let (der, timestamp) = cms::sign_timestamped(&data, &key, &chain, detached, tsa_url.as_deref())?;
         let (_, alg) = cms::cms_algorithms(&key)?;
         Ok(CmsSignResult {
             signer_alias: signer_entry.alias.clone(),
@@ -288,6 +289,7 @@ async fn cms_sign(content: DataSource, signer_entry: KeystoreEntry, detached: bo
             cms_pem: util::to_pem("PKCS7", &der),
             byte_length: der.len(),
             signed_at: util::fmt_ts(util::now_ts()),
+            timestamp: timestamp.map(|ts| ts.info(true, None)),
         })
     })
     .await
@@ -349,8 +351,8 @@ async fn dh_params(bits: u32, mode: String) -> Res<DhParamsResult> {
 }
 
 #[tauri::command]
-async fn jar_sign(input_path: String, output_path: String, signer_entry: KeystoreEntry) -> Res<JarSignResult> {
-    blocking(move || jar::sign_jar(&input_path, &output_path, &signer_entry)).await
+async fn jar_sign(input_path: String, output_path: String, signer_entry: KeystoreEntry, tsa_url: Option<String>) -> Res<JarSignResult> {
+    blocking(move || jar::sign_jar_timestamped(&input_path, &output_path, &signer_entry, tsa_url.as_deref())).await
 }
 
 // ------------------------------------------------------------------------------------------------

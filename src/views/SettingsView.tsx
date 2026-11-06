@@ -1,5 +1,5 @@
 import React from "react";
-import { CheckCircle2, FolderOpen, Keyboard, RotateCcw, Settings2, ShieldCheck, TerminalSquare, Trash2 } from "lucide-react";
+import { CheckCircle2, Clock, FolderOpen, Keyboard, RotateCcw, Settings2, ShieldCheck, TerminalSquare, Trash2 } from "lucide-react";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import { useStore } from "../state/store";
 import { FORMAT_INFO } from "../lib/keystore";
@@ -66,6 +66,27 @@ export const SettingsView: React.FC = () => {
             ))}
             <option value={0}>Never</option>
           </Select>
+        </Card>
+
+        <Card className="space-y-4">
+          <CardHeader title="Signing" icon={Clock} className="!mb-0" />
+          <p className="text-[13px] text-muted">
+            A trusted timestamp records <em>when</em> you signed, so signatures keep verifying after the signing certificate expires. Without one, verifiers reject
+            an expired signer. This is the only network request signing makes, and only when it is switched on.
+          </p>
+          <TextInput
+            label="Timestamp authority (TSA) URL"
+            value={settings.tsaUrl}
+            onChange={(e) => updateSettings({ tsaUrl: e.target.value })}
+            placeholder="http://timestamp.digicert.com"
+            hint="Your certificate authority usually runs one. Free options include DigiCert and Sectigo."
+          />
+          <Checkbox
+            checked={settings.timestampByDefault}
+            onChange={(v) => updateSettings({ timestampByDefault: v })}
+            label="Timestamp new signatures by default"
+            hint={settings.tsaUrl.trim() ? "Applies to CMS signatures and signed JARs." : "Set a TSA URL first."}
+          />
         </Card>
 
         <Card className="space-y-4">

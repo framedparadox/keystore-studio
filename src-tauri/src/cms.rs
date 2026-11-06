@@ -71,6 +71,21 @@ fn der_length(len: usize) -> Vec<u8> {
 
 /// Creates a CMS SignedData. `signer_chain` is the signer certificate followed by its issuers.
 pub fn sign(content: &[u8], key: &PrivateKey, signer_chain: &[Vec<u8>], detached: bool) -> Res<Vec<u8>> {
+    sign_timestamped(content, key, signer_chain, detached, None).map(|(der, _)| der)
+}
+
+/// Creates a CMS SignedData, optionally timestamped by the TSA at `tsa_url`.
+///
+/// The RFC 3161 token goes into the SignerInfo's *unsigned* attributes, so it covers the signature
+/// without being covered by it. That is what lets the token be fetched after signing, and it is
+/// where `jarsigner -verify` and `openssl ts` look for it.
+pub fn sign_timestamped(
+    content: &[u8],
+    key: &PrivateKey,
+    signer_chain: &[Vec<u8>],
+    detached: bool,
+    tsa_url: Option<&str>,
+) -> Res<(Vec<u8>, Option<crate::tsa::Timestamp>)> {
     let signer_cert = signer_chain.first().ok_or("the signing entry has no certificate")?;
     let summary = x509::cert_summary(signer_cert)?;
     if !keys::key_matches_spki(key, &summary.spki) {
@@ -83,6 +98,21 @@ pub fn sign(content: &[u8], key: &PrivateKey, signer_chain: &[Vec<u8>], detached
     let digest = hash.digest(content);
     let attrs = signed_attributes_set(&digest, now_ts());
     let signature = key.sign(sig_alg, &attrs)?;
+
+    // Fetch the token before building the structure, so a TSA failure aborts signing with a clear
+    // error instead of silently producing an untimestamped file the user believes is timestamped.
+    let timestamp = match tsa_url.map(str::trim).filter(|u| !u.is_empty()) {
+        Some(url) => Some(crate::tsa::request_timestamp(url, &signature, hash)?),
+        None => None,
+    };
+    let unsigned_attrs = timestamp.as_ref().map(|ts| {
+        let mut set = attribute(oids::ATTR_TIMESTAMP_TOKEN, &ts.token);
+        // SET OF for a single attribute: wrap it and retag as [1] IMPLICIT.
+        let mut out = vec![0xA1];
+        out.extend(der_length(set.len()));
+        out.append(&mut set);
+        out
+    });
 
     let signed_data = yasna::construct_der(|w| {
         w.write_sequence(|w| {
@@ -115,11 +145,14 @@ pub fn sign(content: &[u8], key: &PrivateKey, signer_chain: &[Vec<u8>], detached
                     w.next().write_der(&tagged);
                     write_signer_sig_alg(w.next(), sig_alg);
                     w.next().write_bytes(&signature);
+                    if let Some(unsigned) = &unsigned_attrs {
+                        w.next().write_der(unsigned);
+                    }
                 });
             });
         })
     });
-    Ok(content_info(oids::PKCS7_SIGNED_DATA, &signed_data))
+    Ok((content_info(oids::PKCS7_SIGNED_DATA, &signed_data), timestamp))
 }
 
 fn content_info(content_type: &[u64], content: &[u8]) -> Vec<u8> {
@@ -159,6 +192,7 @@ struct ParsedSigner {
     signed_attrs_raw: Option<Vec<u8>>,
     sig_oid: Vec<u64>,
     signature: Vec<u8>,
+    unsigned_attrs_raw: Option<Vec<u8>>,
 }
 
 struct ParsedSignedData {
@@ -218,10 +252,10 @@ fn parse_signed_data(der: &[u8]) -> Res<ParsedSignedData> {
                             let signed_attrs_raw = if r.next().lookahead_tag()? == Tag::context(0) { Some(r.next().read_der()?) } else { None };
                             let sig_oid = read_algorithm_id(r.next())?.oid;
                             let signature = r.next().read_bytes()?;
-                            if r.next().lookahead_tag().ok() == Some(Tag::context(1)) {
-                                r.next().read_der()?;
-                            }
-                            signers.push(ParsedSigner { issuer_raw, serial, ski, digest_oid, signed_attrs_raw, sig_oid, signature });
+                            // [1] IMPLICIT unsignedAttrs, where the RFC 3161 token lives.
+                            let unsigned_attrs_raw =
+                                if r.next().lookahead_tag().ok() == Some(Tag::context(1)) { Some(r.next().read_der()?) } else { None };
+                            signers.push(ParsedSigner { issuer_raw, serial, ski, digest_oid, signed_attrs_raw, sig_oid, signature, unsigned_attrs_raw });
                             Ok(())
                         })
                     })?;
@@ -271,6 +305,31 @@ fn parse_time_der(der: &[u8]) -> Option<String> {
     Some(dt.format("%Y-%m-%d %H:%M:%S UTC").to_string())
 }
 
+/// Reads the RFC 3161 token from a signer's unsigned attributes, if it carries one, and checks it
+/// against that signer's signature.
+fn timestamp_of(s: &ParsedSigner) -> Option<crate::model::TimestampInfo> {
+    let mut set = s.unsigned_attrs_raw.clone()?;
+    set[0] = 0x31; // [1] IMPLICIT -> SET OF, so the generic attribute reader can walk it.
+    let token = find_attr(&set, oids::ATTR_TIMESTAMP_TOKEN)?;
+    match crate::tsa::verify_token(&token, &s.signature) {
+        Ok(ts) => Some(ts.info(true, None)),
+        // A token that does not match is worth reporting, not hiding: it means the file was
+        // assembled from parts, so read what we can and mark it invalid.
+        Err(err) => match crate::tsa::describe_any_token(&token) {
+            Ok(ts) => Some(ts.info(false, Some(err))),
+            Err(_) => Some(crate::model::TimestampInfo {
+                time: String::new(),
+                authority: String::new(),
+                serial_number: String::new(),
+                hash_algorithm: String::new(),
+                policy: None,
+                valid: false,
+                error: Some(err),
+            }),
+        },
+    }
+}
+
 /// Verifies every SignerInfo in `cms_der`. `detached_content` supplies the data for detached
 /// signatures; `extra_certs` (e.g. a keystore entry's chain) are used to find signers whose
 /// certificate is not embedded.
@@ -317,6 +376,7 @@ pub fn verify(cms_der: &[u8], detached_content: Option<&[u8]>, extra_certs: &[Ve
             signing_time: None,
             signature_valid: false,
             content_digest_valid: None,
+            timestamp: timestamp_of(s),
             error: None,
         };
         let Some(cert) = cert else {

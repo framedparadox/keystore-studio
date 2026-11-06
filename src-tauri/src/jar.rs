@@ -82,6 +82,14 @@ fn block_base_name(alias: &str) -> String {
 }
 
 pub fn sign_jar(input: &str, output: &str, signer: &KeystoreEntry) -> Res<JarSignResult> {
+    sign_jar_timestamped(input, output, signer, None)
+}
+
+/// Signs a JAR, optionally adding an RFC 3161 timestamp from `tsa_url`.
+///
+/// Timestamping matters most here: a signed JAR outlives its signing certificate, and without a
+/// timestamp `jarsigner -verify` warns that the signer certificate has expired once it does.
+pub fn sign_jar_timestamped(input: &str, output: &str, signer: &KeystoreEntry, tsa_url: Option<&str>) -> Res<JarSignResult> {
     if signer.entry_type != "KeyPair" {
         return Err("JAR signing needs a key pair entry".into());
     }
@@ -144,7 +152,7 @@ pub fn sign_jar(input: &str, output: &str, signer: &KeystoreEntry) -> Res<JarSig
         sf.push_str(&header("SHA-256-Digest", &B64.encode(sha256(section.as_bytes()))));
         sf.push_str("\r\n");
     }
-    let block = crate::cms::sign(sf.as_bytes(), &key, &chain, true)?;
+    let (block, timestamp) = crate::cms::sign_timestamped(sf.as_bytes(), &key, &chain, true, tsa_url)?;
     let base = block_base_name(&signer.alias);
     let ext = match key.algorithm().as_str() {
         "RSA" => "RSA",
@@ -191,6 +199,7 @@ pub fn sign_jar(input: &str, output: &str, signer: &KeystoreEntry) -> Res<JarSig
         manifest_preview: manifest.chars().take(4000).collect(),
         signature_file_name: sf_name,
         signed_at: fmt_ts(now_ts()),
+        timestamp: timestamp.map(|ts| ts.info(true, None)),
     })
 }
 

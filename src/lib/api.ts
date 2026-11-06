@@ -95,8 +95,8 @@ export const api = {
   inspectCsr: (data: DataSource) => call<CsrInfo>("inspect_csr", { data }),
   generateCrl: (caEntry: KeystoreEntry, nextUpdateDays: number, crlNumber: number, revokedEntries: RevokedCertEntry[]) =>
     call<CrlInfo>("generate_crl", { caEntry, nextUpdateDays, crlNumber, revokedEntries }),
-  cmsSign: (content: DataSource, signerEntry: KeystoreEntry, detached: boolean) =>
-    call<CmsSignResult>("cms_sign", { content, signerEntry, detached }),
+  cmsSign: (content: DataSource, signerEntry: KeystoreEntry, detached: boolean, tsaUrl?: string | null) =>
+    call<CmsSignResult>("cms_sign", { content, signerEntry, detached, tsaUrl: tsaUrl || null }),
   cmsVerify: (signature: DataSource, content: DataSource | null, entry: KeystoreEntry | null) =>
     call<CmsVerifyResult>("cms_verify", { signature, content, entry }),
   jwtSign: (
@@ -105,8 +105,8 @@ export const api = {
   ) => call<string>("jwt_sign", { input, signerEntry }),
   jwtVerify: (token: string, entry: KeystoreEntry) => call<JwtVerifyResult>("jwt_verify", { token, entry }),
   dhParams: (bits: number, mode: "ffdhe" | "generate") => call<DhParamsResult>("dh_params", { bits, mode }),
-  jarSign: (inputPath: string, outputPath: string, signerEntry: KeystoreEntry) =>
-    call<JarSignResult>("jar_sign", { inputPath, outputPath, signerEntry }),
+  jarSign: (inputPath: string, outputPath: string, signerEntry: KeystoreEntry, tsaUrl?: string | null) =>
+    call<JarSignResult>("jar_sign", { inputPath, outputPath, signerEntry, tsaUrl: tsaUrl || null }),
 
   examineTls: (host: string, port: number) => call<TlsInspectionResult>("examine_tls", { host, port }),
   examineData: (data: DataSource, password?: string | null) => call<DetectionResult>("examine_data", { data, password: password ?? null }),

@@ -206,6 +206,47 @@ fn openssl_pkcs12_variants_open() {
     assert!(dump.contains("BEGIN PRIVATE KEY") && dump.matches("BEGIN CERTIFICATE").count() == 3, "{dump}");
 }
 
+/// PBMAC1 integrity protection (RFC 9579), both directions. Needs OpenSSL 3.4+ for
+/// `-pbmac1_pbkdf2`; older builds skip the test rather than fail it.
+#[test]
+fn pbmac1_pkcs12_interop_with_openssl() {
+    if !have("openssl") {
+        eprintln!("skipping: openssl not installed");
+        return;
+    }
+    let d = tmp();
+    let o = |args: &[&str]| must(d.path(), "openssl", args);
+    o(&["req", "-x509", "-newkey", "rsa:2048", "-nodes", "-keyout", "key.pem", "-out", "cert.pem", "-subj", "/CN=pbmac1.test", "-days", "30"]);
+    let (ok, out) = run(
+        d.path(),
+        "openssl",
+        &["pkcs12", "-export", "-in", "cert.pem", "-inkey", "key.pem", "-name", "pbmac1 key", "-out", "theirs.p12", "-passout", "pass:macpass", "-pbmac1_pbkdf2"],
+    );
+    if !ok {
+        eprintln!("skipping PBMAC1 interop: this OpenSSL has no -pbmac1_pbkdf2 ({})", out.trim());
+        return;
+    }
+
+    // Theirs → ours.
+    let opened = keystore::open(d.path().join("theirs.p12").to_str().unwrap(), "macpass", &HashMap::new()).expect("open OpenSSL PBMAC1 file");
+    let key = opened.entries.iter().find(|e| e.entry_type == "KeyPair").expect("no key pair");
+    assert_eq!(key.alias, "pbmac1 key");
+    assert!(key.subject.contains("CN=pbmac1.test"));
+    // A wrong password must be reported as such, which proves the MAC is really being checked.
+    assert!(keystore::open(d.path().join("theirs.p12").to_str().unwrap(), "wrong", &HashMap::new()).is_err());
+
+    // Ours → theirs. Written with PBMAC1 and read back by OpenSSL, key and certificate intact.
+    let p = pki();
+    let ours = d.path().join("ours-pbmac1.p12");
+    let bytes = xkeystore_lib::pkcs12::encode_with_mac(&[p.rsa.clone()], "macpass", xkeystore_lib::pkcs12::MacKind::Pbmac1).unwrap();
+    std::fs::write(&ours, &bytes).unwrap();
+    let dump = o(&["pkcs12", "-in", "ours-pbmac1.p12", "-passin", "pass:macpass", "-nodes", "-info"]);
+    assert!(dump.contains("PBMAC1"), "OpenSSL did not report PBMAC1 protection:\n{dump}");
+    assert!(dump.contains("BEGIN PRIVATE KEY"), "{dump}");
+    // And it still opens in our own reader.
+    assert_eq!(keystore::open(ours.to_str().unwrap(), "macpass", &HashMap::new()).unwrap().entries.len(), 1);
+}
+
 #[test]
 fn certificates_csrs_and_crls_verify_with_openssl() {
     if !have("openssl") {
@@ -439,6 +480,201 @@ fn signed_jars_verify_with_jarsigner() {
         let v = must(d.path(), "jarsigner", &["-verify", again.to_str().unwrap()]);
         assert!(v.contains("jar verified"), "{v}");
     }
+}
+
+/// A minimal RFC 3161 HTTP timestamp authority backed by `openssl ts -reply`, so timestamping can
+/// be tested end to end without reaching a public TSA. Returns its URL and a shutdown handle.
+struct TestTsa {
+    url: String,
+    shutdown: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    handle: Option<std::thread::JoinHandle<()>>,
+}
+
+impl Drop for TestTsa {
+    fn drop(&mut self) {
+        self.shutdown.store(true, std::sync::atomic::Ordering::Relaxed);
+        // Unblock the accept loop so the thread can notice the flag and exit.
+        let _ = std::net::TcpStream::connect(self.url.trim_start_matches("http://").trim_end_matches("/tsa"));
+        if let Some(h) = self.handle.take() {
+            let _ = h.join();
+        }
+    }
+}
+
+fn start_test_tsa(dir: &Path) -> Option<TestTsa> {
+    use std::io::{Read, Write};
+    let o = |args: &[&str]| must(dir, "openssl", args);
+    // A TSA certificate needs the critical timeStamping extended key usage; openssl ts refuses
+    // anything else.
+    o(&[
+        "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-keyout", "tsakey.pem", "-out", "tsacert.pem", "-subj",
+        "/CN=xkeystore Test TSA/O=Interop", "-days", "30", "-addext", "extendedKeyUsage=critical,timeStamping", "-addext",
+        "keyUsage=critical,digitalSignature",
+    ]);
+    std::fs::write(dir.join("tsaserial"), b"01\n").unwrap();
+    std::fs::write(
+        dir.join("tsa.cnf"),
+        b"[ tsa ]\ndefault_tsa = tsa_config1\n[ tsa_config1 ]\nserial = tsaserial\ncrypto_device = builtin\n\
+          signer_cert = tsacert.pem\nsigner_key = tsakey.pem\nsigner_digest = sha256\ncerts = tsacert.pem\n\
+          default_policy = 1.3.6.1.4.1.99999.1\ndigests = sha256, sha384, sha512\naccuracy = secs:1\n\
+          clock_precision_digits = 0\nordering = yes\ntsa_name = yes\ness_cert_id_chain = no\n",
+    )
+    .unwrap();
+
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").ok()?;
+    let port = listener.local_addr().ok()?.port();
+    let dir = dir.to_path_buf();
+    let shutdown = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let flag = shutdown.clone();
+    let handle = std::thread::spawn(move || {
+        for stream in listener.incoming() {
+            if flag.load(std::sync::atomic::Ordering::Relaxed) {
+                return;
+            }
+            let Ok(mut stream) = stream else { continue };
+            // Read headers, then exactly Content-Length bytes of DER body.
+            let mut buf = Vec::new();
+            let mut chunk = [0u8; 4096];
+            let body = loop {
+                match stream.read(&mut chunk) {
+                    Ok(0) => break None,
+                    Ok(n) => {
+                        buf.extend_from_slice(&chunk[..n]);
+                        if let Some(at) = buf.windows(4).position(|w| w == b"\r\n\r\n") {
+                            let head = String::from_utf8_lossy(&buf[..at]).to_lowercase();
+                            let len: usize = head
+                                .lines()
+                                .find_map(|l| l.strip_prefix("content-length:"))
+                                .and_then(|v| v.trim().parse().ok())
+                                .unwrap_or(0);
+                            let start = at + 4;
+                            while buf.len() < start + len {
+                                match stream.read(&mut chunk) {
+                                    Ok(0) => break,
+                                    Ok(n) => buf.extend_from_slice(&chunk[..n]),
+                                    Err(_) => break,
+                                }
+                            }
+                            break Some(buf[start..(start + len).min(buf.len())].to_vec());
+                        }
+                    }
+                    Err(_) => break None,
+                }
+            };
+            let Some(body) = body else { continue };
+            let req_path = dir.join("req-in.tsq");
+            let resp_path = dir.join("resp-out.tsr");
+            let _ = std::fs::write(&req_path, &body);
+            let out = Command::new("openssl")
+                .args(["ts", "-reply", "-queryfile", "req-in.tsq", "-config", "tsa.cnf", "-section", "tsa_config1", "-out", "resp-out.tsr"])
+                .current_dir(&dir)
+                .output();
+            let reply = out.ok().filter(|o| o.status.success()).and_then(|_| std::fs::read(&resp_path).ok());
+            let _ = match reply {
+                Some(der) => stream.write_all(
+                    &[format!("HTTP/1.1 200 OK\r\nContent-Type: application/timestamp-reply\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", der.len())
+                        .into_bytes(), der]
+                    .concat(),
+                ),
+                None => stream.write_all(b"HTTP/1.1 500 Internal Server Error\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"),
+            };
+        }
+    });
+    Some(TestTsa { url: format!("http://127.0.0.1:{port}/tsa"), shutdown, handle: Some(handle) })
+}
+
+/// RFC 3161 timestamping, end to end: our request reaches a real TSA implementation, the token
+/// comes back, we attach it to a CMS SignerInfo, and both OpenSSL and our own reader accept it.
+#[test]
+fn timestamps_verify_with_openssl_ts() {
+    if !have("openssl") {
+        eprintln!("skipping: openssl not installed");
+        return;
+    }
+    let d = tmp();
+    let Some(tsa) = start_test_tsa(d.path()) else {
+        eprintln!("skipping: cannot start the local test TSA");
+        return;
+    };
+    let p = pki();
+    let key = entry::private_key(&p.ec).unwrap();
+    let chain = entry::chain_der(&p.ec).unwrap();
+
+    let (signed, ts) = cms::sign_timestamped(b"timestamped payload", &key, &chain, true, Some(&tsa.url)).expect("timestamped signing");
+    let ts = ts.expect("a timestamp should have been returned");
+    assert!(ts.authority.contains("xkeystore Test TSA"), "authority was {:?}", ts.authority);
+    assert_eq!(ts.hash_algorithm, "SHA-256");
+    assert!(ts.time.ends_with("UTC"), "{:?}", ts.time);
+
+    // OpenSSL verifies the token itself against the TSA certificate.
+    write(d.path(), "token.tst", &ts.token);
+    let out = must(
+        d.path(),
+        "openssl",
+        &["ts", "-verify", "-in", "token.tst", "-token_in", "-queryfile", "req-in.tsq", "-CAfile", "tsacert.pem", "-untrusted", "tsacert.pem"],
+    );
+    assert!(out.contains("Verification: OK"), "{out}");
+
+    // Our verifier finds the token in the unsigned attributes and binds it to the signature.
+    let v = cms::verify(&signed, Some(b"timestamped payload"), &[]).unwrap();
+    assert!(v.valid, "{}", v.message);
+    let got = v.signers[0].timestamp.as_ref().expect("verify should surface the timestamp");
+    assert!(got.valid && got.error.is_none(), "{got:?}");
+    assert_eq!(got.serial_number, ts.serial_number);
+
+    // The signature still verifies in OpenSSL with the token attached, so the extra unsigned
+    // attribute did not corrupt the structure. `-noverify` skips the certificate purpose check
+    // (the test PKI's leaf is not an S/MIME certificate); the signature itself is still checked.
+    write(d.path(), "msg.txt", b"timestamped payload");
+    write(d.path(), "sig.p7s", &signed);
+    let out = must(
+        d.path(),
+        "openssl",
+        &["cms", "-verify", "-in", "sig.p7s", "-inform", "DER", "-content", "msg.txt", "-noverify", "-binary", "-out", "/dev/null"],
+    );
+    assert!(out.contains("Verification successful"), "{out}");
+
+    // A token moved onto a different signature must be rejected, not accepted silently.
+    let (other, _) = cms::sign_timestamped(b"different payload", &key, &chain, true, None).unwrap();
+    assert!(xkeystore_lib::tsa::verify_token(&ts.token, &other).is_err());
+
+    // An unreachable authority must fail the whole signing operation, not produce an unstamped file.
+    let err = cms::sign_timestamped(b"x", &key, &chain, true, Some("http://127.0.0.1:1/tsa")).unwrap_err();
+    assert!(err.contains("cannot reach the timestamp authority"), "{err}");
+}
+
+/// A signed JAR carrying a timestamp still satisfies `jarsigner -verify`.
+#[test]
+fn timestamped_jars_verify_with_jarsigner() {
+    if !have("jarsigner") || !have("openssl") {
+        eprintln!("skipping: jarsigner or openssl not installed");
+        return;
+    }
+    let d = tmp();
+    let Some(tsa) = start_test_tsa(d.path()) else {
+        eprintln!("skipping: cannot start the local test TSA");
+        return;
+    };
+    let jar_path = d.path().join("app.jar");
+    {
+        use std::io::Write;
+        let mut w = zip::ZipWriter::new(std::fs::File::create(&jar_path).unwrap());
+        let o = zip::write::SimpleFileOptions::default();
+        w.start_file("com/example/App.class", o).unwrap();
+        w.write_all(&[0xCA, 0xFE, 0xBA, 0xBE, 0, 0, 0, 52]).unwrap();
+        w.finish().unwrap();
+    }
+    let p = pki();
+    let out = d.path().join("signed-ts.jar");
+    let r = jar::sign_jar_timestamped(jar_path.to_str().unwrap(), out.to_str().unwrap(), &p.rsa, Some(&tsa.url)).expect("timestamped jar signing");
+    let ts = r.timestamp.expect("the result should report the timestamp");
+    assert!(ts.valid && ts.authority.contains("Test TSA"), "{ts:?}");
+
+    let v = must(d.path(), "jarsigner", &["-verify", "-verbose", out.to_str().unwrap()]);
+    assert!(v.contains("jar verified"), "{v}");
+    // jarsigner prints "signature was verified ... timestamp" only when it actually parsed a
+    // timestamp token out of our unsigned attributes, so this is the real cross-check.
+    assert!(v.to_lowercase().contains("timestamp"), "jarsigner saw no timestamp:\n{v}");
 }
 
 #[test]

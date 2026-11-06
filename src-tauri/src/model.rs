@@ -241,6 +241,8 @@ pub struct CmsSignResult {
     pub cms_pem: String,
     pub byte_length: usize,
     pub signed_at: String,
+    /// Set when the signature was timestamped by a TSA.
+    pub timestamp: Option<TimestampInfo>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -253,6 +255,21 @@ pub struct CmsSignerInfo {
     pub signing_time: Option<String>,
     pub signature_valid: bool,
     pub content_digest_valid: Option<bool>,
+    /// RFC 3161 timestamp from the signer's unsigned attributes, when present.
+    pub timestamp: Option<TimestampInfo>,
+    pub error: Option<String>,
+}
+
+/// An RFC 3161 timestamp, as shown after signing or when verifying.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TimestampInfo {
+    pub time: String,
+    pub authority: String,
+    pub serial_number: String,
+    pub hash_algorithm: String,
+    pub policy: Option<String>,
+    /// False when the token is present but does not match this signature.
+    pub valid: bool,
     pub error: Option<String>,
 }
 
@@ -365,6 +382,8 @@ pub struct JarSignResult {
     pub manifest_preview: String,
     pub signature_file_name: String,
     pub signed_at: String,
+    /// Set when the JAR was timestamped by a TSA.
+    pub timestamp: Option<TimestampInfo>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -5,6 +5,7 @@
 //! - PBES2 (PBKDF2 with HMAC-SHA1/224/256/384/512, AES-128/192/256-CBC or DES-EDE3-CBC)
 //! - PKCS#12 PBE: pbeWithSHAAnd3-KeyTripleDES-CBC, 2-KeyTripleDES, 128/40-bit RC2-CBC
 //! - Sun PBEWithMD5AndTripleDES (JCEKS key protection)
+//! - PBMAC1 (RFC 9579) for PKCS#12 integrity protection
 //!
 //! New content is always written with PBES2 / PBKDF2-HMAC-SHA256 / AES-256-CBC.
 
@@ -71,6 +72,27 @@ impl HashAlg {
         }
     }
 
+    /// Name of the HMAC built on this hash, as Java and OpenSSL spell it.
+    pub fn hmac_name(self) -> &'static str {
+        match self {
+            Self::Sha1 => "HMAC-SHA1",
+            Self::Sha224 => "HMAC-SHA224",
+            Self::Sha256 => "HMAC-SHA256",
+            Self::Sha384 => "HMAC-SHA384",
+            Self::Sha512 => "HMAC-SHA512",
+        }
+    }
+
+    pub fn hmac_oid(self) -> &'static [u64] {
+        match self {
+            Self::Sha1 => oids::HMAC_SHA1,
+            Self::Sha224 => oids::HMAC_SHA224,
+            Self::Sha256 => oids::HMAC_SHA256,
+            Self::Sha384 => oids::HMAC_SHA384,
+            Self::Sha512 => oids::HMAC_SHA512,
+        }
+    }
+
     pub fn output_len(self) -> usize {
         match self {
             Self::Sha1 => 20,
@@ -116,7 +138,7 @@ impl HashAlg {
         }
     }
 
-    fn pbkdf2(self, password: &[u8], salt: &[u8], iterations: u32, out: &mut [u8]) {
+    pub fn pbkdf2(self, password: &[u8], salt: &[u8], iterations: u32, out: &mut [u8]) {
         match self {
             Self::Sha1 => pbkdf2::pbkdf2_hmac::<Sha1>(password, salt, iterations, out),
             Self::Sha224 => pbkdf2::pbkdf2_hmac::<Sha224>(password, salt, iterations, out),
@@ -218,6 +240,114 @@ fn des3_cbc_encrypt(key: &[u8], iv: &[u8], data: &[u8]) -> Res<Vec<u8>> {
 fn rc2_cbc_decrypt(key: &[u8], effective_bits: usize, iv: &[u8], data: &[u8]) -> Res<Vec<u8>> {
     let cipher = rc2::Rc2::new_with_eff_key_len(key, effective_bits);
     cbc_decrypt(cipher, iv, data)
+}
+
+// ---------------------------------------------------------------------------------------------
+// PBMAC1 (RFC 9579)
+// ---------------------------------------------------------------------------------------------
+
+/// PBMAC1 parameters: a PBKDF2 key derivation plus the HMAC the derived key is used with.
+///
+/// RFC 9579 replaces the PKCS#12 KDF with PBKDF2 for integrity protection. The `MacData` salt and
+/// iteration count outside these parameters are decorative for PBMAC1 — only the values inside
+/// the PBKDF2 parameters are authoritative, so a file whose outer and inner values disagree still
+/// verifies. `key_length` is mandatory here (it is optional in plain PBES2) because the MAC key
+/// size cannot otherwise be inferred.
+pub struct Pbmac1Params {
+    pub salt: Vec<u8>,
+    pub iterations: u64,
+    pub key_length: usize,
+    pub prf: HashAlg,
+    pub hmac: HashAlg,
+}
+
+/// Parses the parameters of a PBMAC1 `AlgorithmIdentifier`.
+pub fn parse_pbmac1_params(params: &[u8]) -> Res<Pbmac1Params> {
+    let (salt, iterations, key_length, prf, hmac) = yasna::parse_ber(params, |r| {
+        r.read_sequence(|r| {
+            let (salt, iterations, key_length, prf) = r.next().read_sequence(|r| {
+                let kdf = r.next().read_oid()?;
+                if kdf.components().as_slice() != oids::PBKDF2 {
+                    return Err(yasna::ASN1Error::new(yasna::ASN1ErrorKind::Invalid));
+                }
+                r.next().read_sequence(|r| {
+                    let salt = r.next().read_bytes()?;
+                    let iterations = r.next().read_u64()?;
+                    let key_length = r.read_optional(|r| r.read_u64())?;
+                    let prf = r.read_optional(read_algorithm_id)?;
+                    Ok((salt, iterations, key_length, prf))
+                })
+            })?;
+            let hmac = read_algorithm_id(r.next())?;
+            Ok((salt, iterations, key_length, prf, hmac))
+        })
+    })
+    .map_err(|err| format!("malformed PBMAC1 parameters: {err}"))?;
+
+    let hmac = HashAlg::from_hmac_oid(&hmac.oid)
+        .ok_or_else(|| format!("unsupported PBMAC1 message authentication algorithm {}", oids::oid_str(&hmac.oid)))?;
+    // RFC 9579 §3: keyLength MUST be present. Fall back to the HMAC's natural output length so a
+    // technically invalid file from a lenient writer still opens.
+    let key_length = key_length.unwrap_or(hmac.output_len() as u64);
+    let key_length = usize::try_from(key_length).ok().filter(|k| (1..=1024).contains(k)).ok_or("PBMAC1 key length out of range")?;
+    Ok(Pbmac1Params {
+        salt,
+        iterations,
+        key_length,
+        prf: prf.and_then(|p| HashAlg::from_hmac_oid(&p.oid)).unwrap_or(HashAlg::Sha1),
+        hmac,
+    })
+}
+
+impl Pbmac1Params {
+    /// Defaults matching `openssl pkcs12 -export -pbmac1_pbkdf2`: PBKDF2-HMAC-SHA256 and
+    /// HMAC-SHA256 with a 32-byte key.
+    pub fn new(salt: Vec<u8>, iterations: u64) -> Self {
+        Self { salt, iterations, key_length: 32, prf: HashAlg::Sha256, hmac: HashAlg::Sha256 }
+    }
+
+    /// Derives the MAC key and computes the authentication tag over `data`.
+    pub fn mac(&self, password: &str, data: &[u8]) -> Res<Vec<u8>> {
+        let iterations = u32::try_from(self.iterations).map_err(|_| "PBKDF2 iteration count too large".to_string())?;
+        if iterations == 0 {
+            return Err("PBMAC1 iteration count must be at least 1".into());
+        }
+        let mut key = vec![0u8; self.key_length];
+        // RFC 9579 derives from the UTF-8 password, not the PKCS#12 BMPString encoding.
+        self.prf.pbkdf2(password.as_bytes(), &self.salt, iterations, &mut key);
+        Ok(self.hmac.hmac(&key, data))
+    }
+
+    pub fn describe(&self) -> String {
+        format!("PBMAC1 (PBKDF2-{}, {}, {} iterations)", self.prf.name(), self.hmac.hmac_name(), self.iterations)
+    }
+
+    /// DER `AlgorithmIdentifier` for these parameters.
+    pub fn algorithm_id(&self) -> Vec<u8> {
+        yasna::construct_der(|w| {
+            w.write_sequence(|w| {
+                w.next().write_oid(&oid(oids::PBMAC1));
+                w.next().write_sequence(|w| {
+                    w.next().write_sequence(|w| {
+                        w.next().write_oid(&oid(oids::PBKDF2));
+                        w.next().write_sequence(|w| {
+                            w.next().write_bytes(&self.salt);
+                            w.next().write_u64(self.iterations);
+                            w.next().write_u64(self.key_length as u64);
+                            w.next().write_sequence(|w| {
+                                w.next().write_oid(&oid(self.prf.hmac_oid()));
+                                w.next().write_null();
+                            });
+                        });
+                    });
+                    w.next().write_sequence(|w| {
+                        w.next().write_oid(&oid(self.hmac.hmac_oid()));
+                        w.next().write_null();
+                    });
+                });
+            })
+        })
+    }
 }
 
 // ---------------------------------------------------------------------------------------------

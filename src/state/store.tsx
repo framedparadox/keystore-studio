@@ -14,6 +14,9 @@ export interface Settings {
   rememberPasswordsByDefault: boolean;
   terminalTimeoutSecs: number;
   restoreSession: boolean;
+  /** Timestamp authority URL used when signing, empty to sign without a timestamp. */
+  tsaUrl: string;
+  timestampByDefault: boolean;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -24,6 +27,8 @@ export const DEFAULT_SETTINGS: Settings = {
   rememberPasswordsByDefault: false,
   terminalTimeoutSecs: 120,
   restoreSession: true,
+  tsaUrl: "",
+  timestampByDefault: false,
 };
 
 export interface RecentFile {

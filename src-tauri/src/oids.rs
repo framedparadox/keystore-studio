@@ -72,6 +72,8 @@ pub const DES_EDE3_CBC: &[u64] = &[1, 2, 840, 113549, 3, 7];
 // Password-based encryption
 pub const PBES2: &[u64] = &[1, 2, 840, 113549, 1, 5, 13];
 pub const PBKDF2: &[u64] = &[1, 2, 840, 113549, 1, 5, 12];
+/// PBMAC1 (RFC 9579), the modern PKCS#12 integrity protection.
+pub const PBMAC1: &[u64] = &[1, 2, 840, 113549, 1, 5, 14];
 pub const PBE_SHA1_RC4_128: &[u64] = &[1, 2, 840, 113549, 1, 12, 1, 1];
 pub const PBE_SHA1_RC4_40: &[u64] = &[1, 2, 840, 113549, 1, 12, 1, 2];
 pub const PBE_SHA1_3DES: &[u64] = &[1, 2, 840, 113549, 1, 12, 1, 3];
@@ -91,6 +93,10 @@ pub const PKCS7_ENCRYPTED_DATA: &[u64] = &[1, 2, 840, 113549, 1, 7, 6];
 pub const ATTR_CONTENT_TYPE: &[u64] = &[1, 2, 840, 113549, 1, 9, 3];
 pub const ATTR_MESSAGE_DIGEST: &[u64] = &[1, 2, 840, 113549, 1, 9, 4];
 pub const ATTR_SIGNING_TIME: &[u64] = &[1, 2, 840, 113549, 1, 9, 5];
+/// id-aa-timeStampToken: the RFC 3161 timestamp, an *unsigned* attribute of a SignerInfo.
+pub const ATTR_TIMESTAMP_TOKEN: &[u64] = &[1, 2, 840, 113549, 1, 9, 16, 2, 14];
+/// id-ct-TSTInfo, the eContentType of a timestamp token.
+pub const TST_INFO: &[u64] = &[1, 2, 840, 113549, 1, 9, 16, 1, 4];
 
 // PKCS#9 / PKCS#12
 pub const EMAIL_ADDRESS: &[u64] = &[1, 2, 840, 113549, 1, 9, 1];

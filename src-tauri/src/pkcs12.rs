@@ -182,7 +182,7 @@ fn collect_bags(bags: Vec<RawBag>, password: &str, out: &mut Collected, depth: u
 
 pub fn decode(bytes: &[u8], password: &str) -> Res<Vec<KeystoreEntry>> {
     struct Mac {
-        hash_oid: Vec<u64>,
+        alg: pbe::AlgorithmId,
         digest: Vec<u8>,
         salt: Vec<u8>,
         iterations: u64,
@@ -207,7 +207,7 @@ pub fn decode(bytes: &[u8], password: &str) -> Res<Vec<KeystoreEntry>> {
                     })?;
                     let salt = r.next().read_bytes()?;
                     let iterations = r.read_optional(|r| r.read_u64())?.unwrap_or(1);
-                    Ok(Mac { hash_oid: alg.oid, digest, salt, iterations })
+                    Ok(Mac { alg, digest, salt, iterations })
                 })
             })?;
             Ok((content, mac))
@@ -216,12 +216,18 @@ pub fn decode(bytes: &[u8], password: &str) -> Res<Vec<KeystoreEntry>> {
     .map_err(|_| "not a valid PKCS#12 file (public-key-signed PFX files are not supported)".to_string())?;
 
     if let Some(mac) = &mac {
-        if mac.hash_oid == [1, 2, 840, 113549, 1, 5, 14] {
-            return Err("PBMAC1-protected PKCS#12 files (OpenSSL 3.4+ -pbmac1_pbkdf2) are not supported yet".into());
-        }
-        let hash = HashAlg::from_digest_oid(&mac.hash_oid).ok_or_else(|| format!("unsupported PKCS#12 MAC algorithm {}", oids::oid_str(&mac.hash_oid)))?;
-        let key = pbe::pkcs12_kdf(hash, password, &mac.salt, mac.iterations, 3, hash.output_len());
-        if hash.hmac(&key, &auth_safe) != mac.digest {
+        let computed = if mac.alg.oid == oids::PBMAC1 {
+            // RFC 9579: PBKDF2 over the UTF-8 password, with the parameters inside the
+            // AlgorithmIdentifier rather than the surrounding salt and iteration count.
+            let params = mac.alg.params.as_deref().ok_or("PBMAC1 MAC is missing its parameters")?;
+            pbe::parse_pbmac1_params(params)?.mac(password, &auth_safe)?
+        } else {
+            let hash = HashAlg::from_digest_oid(&mac.alg.oid)
+                .ok_or_else(|| format!("unsupported PKCS#12 MAC algorithm {}", oids::oid_str(&mac.alg.oid)))?;
+            let key = pbe::pkcs12_kdf(hash, password, &mac.salt, mac.iterations, 3, hash.output_len());
+            hash.hmac(&key, &auth_safe)
+        };
+        if computed != mac.digest {
             return Err(WRONG_PASSWORD.into());
         }
     }
@@ -418,7 +424,23 @@ fn safe_contents(bags: &[Vec<u8>]) -> Vec<u8> {
     })
 }
 
+/// How the PKCS#12 file's integrity is protected.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum MacKind {
+    /// The RFC 7292 KDF with HMAC-SHA256. Readable by every PKCS#12 implementation, which is why
+    /// it is the default.
+    #[default]
+    Pkcs12,
+    /// PBMAC1 with PBKDF2-HMAC-SHA256 (RFC 9579). Stronger key derivation, but needs OpenSSL 3.4+
+    /// or an equally recent reader.
+    Pbmac1,
+}
+
 pub fn encode(entries: &[KeystoreEntry], password: &str) -> Res<Vec<u8>> {
+    encode_with_mac(entries, password, MacKind::default())
+}
+
+pub fn encode_with_mac(entries: &[KeystoreEntry], password: &str, mac_kind: MacKind) -> Res<Vec<u8>> {
     let iterations = pbe::DEFAULT_ITERATIONS;
     let mut cert_bags = Vec::new();
     let mut key_bags = Vec::new();
@@ -525,8 +547,22 @@ pub fn encode(entries: &[KeystoreEntry], password: &str) -> Res<Vec<u8>> {
         })
     });
     let mac_salt = random_bytes(20);
-    let mac_key = pbe::pkcs12_kdf(HashAlg::Sha256, password, &mac_salt, iterations, 3, 32);
-    let mac = HashAlg::Sha256.hmac(&mac_key, &auth_safe);
+    let (mac_alg, mac) = match mac_kind {
+        MacKind::Pkcs12 => {
+            let mac_key = pbe::pkcs12_kdf(HashAlg::Sha256, password, &mac_salt, iterations, 3, 32);
+            let alg = yasna::construct_der(|w| {
+                w.write_sequence(|w| {
+                    w.next().write_oid(&oid(oids::SHA256));
+                    w.next().write_null();
+                })
+            });
+            (alg, HashAlg::Sha256.hmac(&mac_key, &auth_safe))
+        }
+        MacKind::Pbmac1 => {
+            let params = pbe::Pbmac1Params::new(mac_salt.clone(), iterations);
+            (params.algorithm_id(), params.mac(password, &auth_safe)?)
+        }
+    };
     Ok(yasna::construct_der(|w| {
         w.write_sequence(|w| {
             w.next().write_u8(3);
@@ -536,12 +572,11 @@ pub fn encode(entries: &[KeystoreEntry], password: &str) -> Res<Vec<u8>> {
             });
             w.next().write_sequence(|w| {
                 w.next().write_sequence(|w| {
-                    w.next().write_sequence(|w| {
-                        w.next().write_oid(&oid(oids::SHA256));
-                        w.next().write_null();
-                    });
+                    w.next().write_der(&mac_alg);
                     w.next().write_bytes(&mac);
                 });
+                // For PBMAC1 these repeat the PBKDF2 values; readers must use the ones inside the
+                // algorithm identifier, but OpenSSL writes them too and some readers expect them.
                 w.next().write_bytes(&mac_salt);
                 w.next().write_u64(iterations);
             });
@@ -621,5 +656,58 @@ mod tests {
     fn empty_keystore_round_trips() {
         let bytes = encode(&[], "pw").unwrap();
         assert!(decode(&bytes, "pw").unwrap().is_empty());
+    }
+
+    #[test]
+    fn pbmac1_round_trips_and_detects_tampering() {
+        let entries = vec![key_pair("web", "ECDSA")];
+        let bytes = encode_with_mac(&entries, "s3cret", MacKind::Pbmac1).unwrap();
+        assert!(looks_like_pkcs12(&bytes));
+        // The file must actually use PBMAC1, not silently fall back to the legacy MAC.
+        let pbmac1_oid_der = yasna::construct_der(|w| w.write_oid(&oid(oids::PBMAC1)));
+        assert!(bytes.windows(pbmac1_oid_der.len()).any(|w| w == pbmac1_oid_der.as_slice()));
+        let back = decode(&bytes, "s3cret").unwrap();
+        assert_eq!(back.len(), 1);
+        assert_eq!(back[0].private_key_pem, entries[0].private_key_pem);
+        assert_eq!(decode(&bytes, "wrong").unwrap_err(), WRONG_PASSWORD);
+
+        // Flipping a byte of the authenticated safe must fail the MAC, not parse as valid.
+        let mut tampered = bytes.clone();
+        let at = tampered.len() / 2;
+        tampered[at] ^= 0x01;
+        assert!(decode(&tampered, "s3cret").is_err());
+    }
+
+    /// RFC 9579 says the MacData salt and iteration count are not used by PBMAC1; only the PBKDF2
+    /// parameters are. A file whose outer values disagree must still open.
+    #[test]
+    fn pbmac1_ignores_the_outer_salt_and_iterations() {
+        let bytes = encode_with_mac(&[key_pair("web", "ECDSA")], "pw", MacKind::Pbmac1).unwrap();
+        let (prefix, salt, iterations) = yasna::parse_ber(&bytes, |r| {
+            r.read_sequence(|r| {
+                let _v = r.next().read_u8()?;
+                let prefix = r.next().read_der()?;
+                r.next().read_sequence(|r| {
+                    let digest = r.next().read_der()?;
+                    let salt = r.next().read_bytes()?;
+                    let iterations = r.next().read_u64()?;
+                    Ok((vec![prefix, digest], salt, iterations))
+                })
+            })
+        })
+        .unwrap();
+        assert_eq!(salt.len(), 20);
+        let rebuilt = yasna::construct_der(|w| {
+            w.write_sequence(|w| {
+                w.next().write_u8(3);
+                w.next().write_der(&prefix[0]);
+                w.next().write_sequence(|w| {
+                    w.next().write_der(&prefix[1]);
+                    w.next().write_bytes(&[0xAA; 8]); // wrong salt
+                    w.next().write_u64(iterations + 12_345); // wrong iteration count
+                });
+            })
+        });
+        assert_eq!(decode(&rebuilt, "pw").unwrap().len(), 1);
     }
 }

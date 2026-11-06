@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { CheckCircle2, Cpu, FileArchive, FileCheck2, FileSignature, FolderOpen, KeyRound, Plus, Save, ShieldCheck, Trash2, XCircle } from "lucide-react";
-import type { CertificateInfo, CmsSignResult, CmsVerifyResult, CrlInfo, CsrInfo, DhParamsResult, JarSignResult, JwtVerifyResult, KeystoreEntry, OpenKeystore, RevokedCertEntry, SignedCertificateResult } from "../types/crypto";
+import { CheckCircle2, Clock, Cpu, FileArchive, FileCheck2, FileSignature, FolderOpen, KeyRound, Plus, Save, ShieldCheck, Trash2, XCircle } from "lucide-react";
+import type { CertificateInfo, CmsSignResult, CmsVerifyResult, CrlInfo, CsrInfo, DhParamsResult, JarSignResult, JwtVerifyResult, KeystoreEntry, OpenKeystore, RevokedCertEntry, SignedCertificateResult, TimestampInfo } from "../types/crypto";
 import { api, errorMessage } from "../lib/api";
 import { FILTERS, baseName, pickFile, pickSavePath, safeFileStem } from "../lib/files";
 import { EXTENDED_KEY_USAGES, cnOf, isCaEntry, splitList } from "../lib/keystore";
@@ -23,6 +23,67 @@ function useSigners(filter: (e: KeystoreEntry) => boolean): Candidate[] {
 }
 
 const usableKeyPair = (e: KeystoreEntry) => e.entry_type === "KeyPair" && !e.locked && !!e.private_key_pem && ["RSA", "ECDSA", "Ed25519"].includes(e.algorithm);
+
+/// Shared TSA control. Returns the URL to pass to the signing call, or null to sign without a
+/// timestamp. Defaults come from Settings so the URL is typed once, not per signature.
+function useTimestamping() {
+  const { settings } = useStore();
+  const [enabled, setEnabled] = useState(settings.timestampByDefault && !!settings.tsaUrl.trim());
+  const [url, setUrl] = useState(settings.tsaUrl);
+  // Follow Settings while the user has not overridden anything in this panel.
+  useEffect(() => {
+    setUrl(settings.tsaUrl);
+    setEnabled(settings.timestampByDefault && !!settings.tsaUrl.trim());
+  }, [settings.tsaUrl, settings.timestampByDefault]);
+  const tsaUrl = enabled && url.trim() ? url.trim() : null;
+  const control = (
+    <div className="space-y-2">
+      <Checkbox
+        checked={enabled}
+        onChange={setEnabled}
+        label="Add a trusted timestamp (RFC 3161)"
+        hint="Proves when you signed, so the signature stays verifiable after your certificate expires."
+      />
+      {enabled && (
+        <>
+          <TextInput
+            label="Timestamp authority URL"
+            value={url}
+            onChange={(e) => setUrl(e.target.value)}
+            placeholder="http://timestamp.digicert.com"
+            data-testid="tsa-url"
+          />
+          {!url.trim() && <div className="text-[12px] text-warning">Enter a TSA URL, or clear the checkbox to sign without a timestamp.</div>}
+          <div className="text-[12px] text-faint">This is the only network request signing makes. Set a default in Settings.</div>
+        </>
+      )}
+    </div>
+  );
+  return { tsaUrl, control, enabled };
+}
+
+/// Shows what a TSA returned, or why an attached token does not match.
+const TimestampBadge: React.FC<{ ts?: TimestampInfo | null }> = ({ ts }) => {
+  if (!ts) return null;
+  return (
+    <div className="rounded-control border border-line bg-surface p-2.5 text-[12.5px] space-y-1" data-testid="timestamp-info">
+      <div className="flex items-center gap-2">
+        <Badge tone={ts.valid ? "success" : "danger"} icon={ts.valid ? Clock : XCircle}>
+          {ts.valid ? "Timestamped" : "Timestamp invalid"}
+        </Badge>
+        {ts.time && <span className="text-muted">{ts.time}</span>}
+      </div>
+      {ts.authority && <div className="text-faint truncate">by {ts.authority}</div>}
+      {ts.serial_number && (
+        <div className="text-faint font-mono text-[11.5px] break-all">
+          serial {ts.serial_number}
+          {ts.hash_algorithm ? ` · ${ts.hash_algorithm}` : ""}
+        </div>
+      )}
+      {ts.error && <div className="text-danger">{ts.error}</div>}
+    </div>
+  );
+};
 
 const SignerSelect: React.FC<{ label: string; candidates: Candidate[]; value: string; onChange: (id: string) => void; emptyHint: string; testId?: string }> = ({ label, candidates, value, onChange, emptyHint, testId }) =>
   candidates.length === 0 ? (
@@ -437,12 +498,13 @@ const CmsTool: React.FC = () => {
   const [sigText, setSigText] = useState("");
   const [useEntry, setUseEntry] = useState(false);
   const [verified, setVerified] = useState<CmsVerifyResult | null>(null);
+  const timestamping = useTimestamping();
 
   const sign = async () => {
     if (!signer) return;
     setBusy(true);
     try {
-      setSigned(await api.cmsSign(path ? { path } : { text }, signer.entry, detached));
+      setSigned(await api.cmsSign(path ? { path } : { text }, signer.entry, detached, timestamping.tsaUrl));
     } catch (err) {
       toast.error(errorMessage(err));
     } finally {
@@ -469,6 +531,7 @@ const CmsTool: React.FC = () => {
             <SignerSelect label="Signer" candidates={signers} value={signerId} onChange={setSignerId} emptyHint="Open a keystore with an RSA, ECDSA or Ed25519 key pair." testId="cms-signer" />
             <FileOrPaste label="Content to sign" path={path} setPath={setPath} text={text} setText={setText} placeholder="Text to sign, or choose any file" filters={[FILTERS.any]} testId="cms-content" />
             <Checkbox checked={detached} onChange={setDetached} label="Detached signature" hint="The signature file does not contain the content (like openssl cms -sign without -nodetach)." />
+            {timestamping.control}
             <Button variant="primary" className="w-full" onClick={sign} disabled={busy || !signer || (!path && !text)} data-testid="cms-sign">
               {busy && <Spinner />} Sign
             </Button>
@@ -498,6 +561,7 @@ const CmsTool: React.FC = () => {
               </span>
             </div>
             <div className="text-[12px] text-faint font-mono break-all">Content SHA-256: {signed.content_sha256}</div>
+            <TimestampBadge ts={signed.timestamp} />
             <CodeBlock label="Signature (PEM)" value={signed.cms_pem} testId="cms-output" actions={<Button size="sm" icon={Save} onClick={() => saveText(path ? `${baseName(path)}.p7s` : "signature.p7s", signed.cms_pem, "Signature")}>Save .p7s</Button>} />
           </div>
         )}
@@ -517,6 +581,7 @@ const CmsTool: React.FC = () => {
                   <Badge tone={s.signature_valid ? "success" : "danger"}>{s.signature_valid ? "Signature OK" : "Signature bad"}</Badge>
                   {s.content_digest_valid != null && <Badge tone={s.content_digest_valid ? "success" : "danger"}>{s.content_digest_valid ? "Content intact" : "Content modified"}</Badge>}
                 </div>
+                <TimestampBadge ts={s.timestamp} />
                 {s.error && <div className="text-danger">{s.error}</div>}
               </div>
             ))}
@@ -630,6 +695,7 @@ const JarTool: React.FC = () => {
   const [input, setInput] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<JarSignResult | null>(null);
+  const timestamping = useTimestamping();
   useEffect(() => {
     if (jarRequest) setInput(jarRequest.path);
   }, [jarRequest]);
@@ -639,7 +705,7 @@ const JarTool: React.FC = () => {
       const out = await pickSavePath("Save signed JAR as", baseName(input).replace(/(\.\w+)$/, "-signed$1"), [FILTERS.jar]);
       if (!out) return;
       setBusy(true);
-      const res = await api.jarSign(input, out, signer.entry);
+      const res = await api.jarSign(input, out, signer.entry, timestamping.tsaUrl);
       setResult(res);
       savedToast(`Signed ${res.entries_signed} entries; written to ${res.output_path}.`, res.output_path);
     } catch (err) {
@@ -667,7 +733,8 @@ const JarTool: React.FC = () => {
             {input && <span className="font-mono text-[12px] text-muted truncate">{input}</span>}
           </div>
         </div>
-        <Alert tone="info">The original archive is never modified; you choose where to write the signed copy. Existing signatures are replaced. Timestamping (TSA) is not applied.</Alert>
+        <Alert tone="info">The original archive is never modified; you choose where to write the signed copy. Existing signatures are replaced.</Alert>
+        {timestamping.control}
         <Button variant="primary" className="w-full" onClick={sign} disabled={busy || !signer || !input} data-testid="jar-sign">
           {busy && <Spinner />} Sign archive…
         </Button>
@@ -679,6 +746,7 @@ const JarTool: React.FC = () => {
             <Alert tone="success" title="Archive signed">
               {result.entries_signed} entries · {result.signature_algorithm} · {result.signature_file_name}
             </Alert>
+            <TimestampBadge ts={result.timestamp} />
             <CodeBlock label="META-INF/MANIFEST.MF" value={result.manifest_preview} maxHeight={260} />
           </div>
         )}

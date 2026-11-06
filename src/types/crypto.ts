@@ -207,6 +207,17 @@ export interface CrlInfo {
   signature_valid?: boolean | null;
 }
 
+/** An RFC 3161 trusted timestamp. */
+export interface TimestampInfo {
+  time: string;
+  authority: string;
+  serial_number: string;
+  hash_algorithm: string;
+  policy?: string | null;
+  valid: boolean;
+  error?: string | null;
+}
+
 export interface CmsSignResult {
   signer_alias: string;
   algorithm: string;
@@ -215,6 +226,7 @@ export interface CmsSignResult {
   cms_pem: string;
   byte_length: number;
   signed_at: string;
+  timestamp?: TimestampInfo | null;
 }
 
 export interface CmsSignerInfo {
@@ -226,6 +238,7 @@ export interface CmsSignerInfo {
   signing_time?: string | null;
   signature_valid: boolean;
   content_digest_valid?: boolean | null;
+  timestamp?: TimestampInfo | null;
   error?: string | null;
 }
 
@@ -338,6 +351,7 @@ export interface JarSignResult {
   manifest_preview: string;
   signature_file_name: string;
   signed_at: string;
+  timestamp?: TimestampInfo | null;
 }
 
 export interface FileProbe {
