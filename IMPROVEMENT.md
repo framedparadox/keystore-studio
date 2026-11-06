@@ -75,8 +75,9 @@ Two halves, deliberately:
   keystores. Valid files reach much deeper into a decoder than random bytes do, which is where
   length arithmetic actually goes wrong. `XKS_MUTATION_POINTS=2000` runs a deeper local sweep.
 - **`src-tauri/fuzz/`** holds five libFuzzer targets (`examine`, `keystore`, `x509`, `cms`,
-  `keys`), run briefly in CI and for longer campaigns by hand. These explore far more inputs via
-  coverage feedback but need nightly Rust.
+  `keys`), run briefly in CI (`fuzz/run-all.sh`) and for longer campaigns by hand. These explore
+  far more inputs via coverage feedback but need nightly Rust. All five currently exit clean;
+  after the fix, the target that found the crash replays the offending input in 7 ms.
 
 Any crash found by the fuzzer should be added to the corpus in `robustness.rs`, so the stable
 suite keeps it fixed.

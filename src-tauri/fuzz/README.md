@@ -61,6 +61,18 @@ Each target feeds a password (`"fuzz"`) where one is accepted, so the decryption
 reachable. It is almost never the right password, which is the interesting case: wrong-password
 handling must reject cleanly rather than panic.
 
+Throughput differs a lot between targets, and that is expected: `examine` and `x509` manage
+80k–285k inputs a minute, while `keystore`, `cms` and `keys` run far fewer because reaching a
+decryption path means a 10 000-iteration PBKDF2 per input. Low counts there are the fuzzer doing
+the expensive work, not stalling.
+
+### What it has found
+
+One crash so far, on the first run of `keys`: a 31-byte input aborted the process with "attempt to
+add with overflow" inside `yasna`, reachable from `pbe::decrypt_pkcs8`. Fixed by
+`util::check_der_lengths`; the input is now a named case in `tests/robustness.rs`. See
+[IMPROVEMENT.md](../../IMPROVEMENT.md) for the full account.
+
 ## Why this links the engine without Tauri
 
 The targets depend on the library with `default-features = false`, which drops the
