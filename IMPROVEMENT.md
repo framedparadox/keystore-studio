@@ -255,6 +255,10 @@ Recorded here so the reasoning is not lost, roughly in order of value.
 
 **Quality**
 - More frontend tests. Ten unit tests is thin, and the end-to-end suite runs on Linux only.
+- Speed up `keytool_keystores_open_in_xkeystore`. It takes ~110 seconds on its own because it has
+  `keytool` generate a keystore per algorithm and cipher variant, each spawning a JVM. Generating
+  the fixtures once into a shared directory, or committing them, would cut most of it; today it is
+  the single slowest test and most of the Rust suite's runtime.
 - A scheduled long fuzzing campaign (hours, not the 60-second CI smoke run) with a corpus kept
   between runs, so coverage accumulates instead of restarting from scratch each time.
 - A log file and a "copy diagnostics" button, so a bug report carries the failing file's structure
