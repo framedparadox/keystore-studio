@@ -188,13 +188,17 @@ fn the_unmutated_files_still_open() {
 }
 
 fn sample_entry() -> xkeystore_lib::model::KeystoreEntry {
+    sample_entry_named("corpus")
+}
+
+fn sample_entry_named(alias: &str) -> xkeystore_lib::model::KeystoreEntry {
     let input = xkeystore_lib::model::GenerateKeyPairInput {
-        alias: "corpus".into(),
+        alias: alias.into(),
         algorithm: "ECDSA".into(),
         key_size: 2048,
         curve: Some("P-256".into()),
         signature_hash: None,
-        subject_dn: "CN=corpus.example, O=Robustness".into(),
+        subject_dn: format!("CN={alias}.example, O=Robustness"),
         common_name: String::new(),
         organization: String::new(),
         organizational_unit: String::new(),
@@ -227,4 +231,21 @@ fn fuzz_crash_keys_indefinite_length_does_not_panic() {
     let _ = pbe::decrypt_pkcs8("pw", &data);
     let _ = keys::PrivateKey::from_bytes(&data, Some("pw"));
     parse_everything(&data);
+}
+
+/// The length guard must not reject large but valid files. A keystore with many entries is the
+/// realistic case: `check_der_lengths` walks every nested structure, and an off-by-one in its
+/// bounds check would show up as a big keystore that suddenly will not open.
+#[test]
+fn large_valid_keystores_still_open() {
+    // Six entries is enough to nest the structures deeply while keeping key generation quick;
+    // the point is the walk over many siblings, not the entry count.
+    let entries: Vec<_> = (0..6).map(|i| sample_entry_named(&format!("entry-{i}"))).collect();
+    let empty = HashMap::new();
+    for format in [keystore::Format::Pkcs12, keystore::Format::Jks, keystore::Format::Jceks] {
+        let bytes = keystore::encode(&entries, "corpus-pw", format).unwrap();
+        assert!(bytes.len() > 3_000, "{} should be a substantial file, was {}", format.name(), bytes.len());
+        let (_, back) = keystore::decode(&bytes, "corpus-pw", &empty).unwrap_or_else(|e| panic!("{}: {e}", format.name()));
+        assert_eq!(back.len(), entries.len(), "{}", format.name());
+    }
 }

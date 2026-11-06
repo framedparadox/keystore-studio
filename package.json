@@ -13,7 +13,7 @@
     "test:rust": "cargo test --manifest-path src-tauri/Cargo.toml",
     "test:e2e": "tauri build --debug --no-bundle && node e2e/app.e2e.mjs",
     "lint": "cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings",
-    "fuzz": "cd src-tauri && for t in examine keystore x509 cms keys; do cargo +nightly fuzz run $t -- -max_total_time=60 -rss_limit_mb=4096 || exit 1; done",
+    "fuzz": "./src-tauri/fuzz/run-all.sh",
     "test:all": "pnpm typecheck && pnpm test && pnpm lint && pnpm test:rust"
   },
   "dependencies": {

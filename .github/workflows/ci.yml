@@ -151,13 +151,7 @@ jobs:
       - run: pnpm install --frozen-lockfile && pnpm build
       - run: cargo install cargo-fuzz --locked
       - name: Fuzz each target briefly
-        working-directory: src-tauri
-        run: |
-          for target in examine keystore x509 cms keys; do
-            echo "::group::$target"
-            cargo +nightly fuzz run "$target" -- -max_total_time=60 -rss_limit_mb=4096
-            echo "::endgroup::"
-          done
+        run: ./src-tauri/fuzz/run-all.sh 60
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
