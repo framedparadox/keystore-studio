@@ -98,6 +98,7 @@ async function step(name, fn) {
   } catch (err) {
     results.push({ name, ok: false, err: String(err?.message ?? err) });
     log(`FAIL ${name}: ${err?.message ?? err}`);
+    try { log("page text at failure:\n" + (await driver.findElement(By.tagName("body")).getText()).slice(0, 1500)); } catch { /* page gone */ }
     throw err;
   }
 }
@@ -194,6 +195,61 @@ async function run() {
     await click("build-p12-submit");
     await waitText("matches the private key", 20000);
     if (fs.existsSync(path.join(WORK, "never.pfx"))) throw new Error("a file was written for a mismatched pair");
+  });
+
+  // ---- Keystore dialogs added with the PKCS#12 builder: key password and compare ----
+  const JKS = path.join(WORK, "kp.jks");
+  const JKS_OUT = path.join(WORK, "kp-out.jks");
+  const STORE_PW = "storepw1";
+  const rowMenu = async (alias, item) => {
+    await click(`row-menu-${alias}`);
+    await click(item);
+  };
+
+  await step("a key with its own password opens locked and unlocks through the UI", async () => {
+    sh("keytool", ["-genkeypair", "-alias", "sep", "-keyalg", "EC", "-dname", "CN=sep", "-storetype", "JKS", "-keystore", JKS, "-storepass", STORE_PW, "-keypass", "keypass1"]);
+    await driver.actions().sendKeys("\uE00C").perform(); // Escape closes the PKCS#12 dialog
+    await click("nav-keystores");
+    await driver.executeScript(`window.__xksStub.open.push(${JSON.stringify(JKS)});`);
+    await click("empty-open");
+    await setField("open-password", STORE_PW);
+    await click("open-submit");
+    await waitText("sep");
+    await rowMenu("sep", "menu-unlock");
+    await setField("unlock-key-password", "wrong-key-pw");
+    await click("unlock-key-submit");
+    await waitText("password", 10000);
+    await setField("unlock-key-password", "keypass1");
+    await click("unlock-key-submit");
+    await driver.wait(async () => (await driver.findElements(byTest("unlock-key-submit"))).length === 0, 10000, "unlock dialog never closed");
+  });
+
+  await step("change key password in the UI, save, and keytool accepts only the new one", async () => {
+    await rowMenu("sep", "menu-keypw");
+    await setField("keypw-new", "newkey99");
+    await setField("keypw-confirm", "newkey99");
+    await click("keypw-submit");
+    await driver.executeScript(`window.__xksStub.save.push(${JSON.stringify(JKS_OUT)});`);
+    await click("ks-more");
+    await click("ks-save-as");
+    // Distinct key passwords are a JKS/JCEKS feature (keytool -keypasswd); Java's PKCS12 ignores them.
+    const fmt = await driver.wait(until.elementLocated(byTest("save-format")), 10000);
+    await driver.executeScript(
+      `Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value").set.call(arguments[0], "JKS");
+       arguments[0].dispatchEvent(new Event("change", { bubbles: true }));`, fmt);
+    await click("save-choose-location");
+    await driver.wait(async () => fs.existsSync(JKS_OUT), 20000, "saved keystore never appeared");
+    sh("keytool", ["-certreq", "-alias", "sep", "-keystore", JKS_OUT, "-storepass", STORE_PW, "-keypass", "newkey99", "-file", path.join(WORK, "kp.csr")]);
+    const old = spawnSync("keytool", ["-certreq", "-alias", "sep", "-keystore", JKS_OUT, "-storepass", STORE_PW, "-keypass", "keypass1", "-file", path.join(WORK, "kp2.csr")], { encoding: "utf8", env: { ...process.env, JAVA_TOOL_OPTIONS: "" } });
+    if (old.status === 0) throw new Error("the old key password still works after the change");
+  });
+
+  await step("compare against the file on disk reports an entry added on disk", async () => {
+    sh("keytool", ["-genkeypair", "-alias", "extra", "-keyalg", "EC", "-dname", "CN=extra", "-storetype", "JKS", "-keystore", JKS_OUT, "-storepass", STORE_PW, "-keypass", STORE_PW]);
+    await click("ks-more");
+    await click("ks-compare");
+    await click("diff-disk");
+    await waitText("Added: extra", 15000);
   });
 }
 

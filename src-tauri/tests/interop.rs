@@ -506,11 +506,7 @@ fn built_pkcs12_opens_in_openssl_and_keytool() {
         }
 
         if have("keytool") {
-            let list = must(
-                d.path(),
-                "keytool",
-                &["-list", "-v", "-keystore", &out, "-storetype", "PKCS12", "-storepass", "pfxpw"],
-            );
+            let list = must(d.path(), "keytool", &["-list", "-v", "-keystore", &out, "-storetype", "PKCS12", "-storepass", "pfxpw"]);
             assert!(list.contains("PrivateKeyEntry"), "keytool does not see a private key in {out}:\n{list}");
             assert!(list.to_lowercase().contains(name), "alias missing from keytool output:\n{list}");
         }

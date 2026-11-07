@@ -59,6 +59,46 @@ fn handle(cmd: &str, args: &serde_json::Value) -> Result<serde_json::Value, Stri
                 "text": serde_json::Value::Null,
             }))
         }
+        // The three commands the keystore screens need: sniff a file, open it, save it.
+        "probe_file" => {
+            let path = s("path");
+            let head = std::fs::read(&path).map_err(|e| format!("cannot read {path}: {e}"))?;
+            let fmt = xkeystore_lib::keystore::detect(&head).map(|f| f.name().to_string());
+            let probe = xkeystore_lib::model::FileProbe {
+                name: xkeystore_lib::util::file_name_of(&path),
+                size: head.len() as u64,
+                kind: if fmt.is_some() { "keystore".into() } else { "unknown".into() },
+                keystore_format: fmt,
+                path,
+            };
+            serde_json::to_value(probe).map_err(|e| e.to_string())
+        }
+        "open_keystore" => {
+            let key_passwords: std::collections::HashMap<String, String> = match args.get("keyPasswords") {
+                Some(v) if !v.is_null() => serde_json::from_value(v.clone()).map_err(|e| e.to_string())?,
+                _ => Default::default(),
+            };
+            let ks = xkeystore_lib::keystore::open(&s("path"), &s("password"), &key_passwords)?;
+            serde_json::to_value(ks).map_err(|e| e.to_string())
+        }
+        "save_keystore" => {
+            let ks: xkeystore_lib::model::KeystoreFile = serde_json::from_value(args.get("ks").cloned().unwrap_or_default()).map_err(|e| e.to_string())?;
+            let fmt = xkeystore_lib::keystore::Format::parse(&s("format"))?;
+            let mac = match args.get("mac").and_then(|v| v.as_str()) {
+                Some("pbmac1") => xkeystore_lib::pkcs12::MacKind::Pbmac1,
+                _ => xkeystore_lib::pkcs12::MacKind::Pkcs12,
+            };
+            let force = args.get("force").and_then(|v| v.as_bool()).unwrap_or(false);
+            let path = s("path");
+            let n = xkeystore_lib::keystore::save_with(&ks, &path, &s("password"), fmt, xkeystore_lib::keystore::SavePolicy { mac, force })?;
+            Ok(serde_json::json!({
+                "name": xkeystore_lib::util::file_name_of(&path),
+                "path": path,
+                "format": fmt.name(),
+                "byte_length": n,
+                "mtime_ms": xkeystore_lib::keystore::mtime_ms(std::path::Path::new(&path)),
+            }))
+        }
         other => Err(format!("ui_bridge does not implement '{other}'")),
     }
 }

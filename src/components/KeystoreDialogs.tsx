@@ -426,6 +426,7 @@ export const KeyPasswordDialog: React.FC<{
           <Button
             variant="primary"
             disabled={busy || !pw}
+            data-testid="unlock-key-submit"
             onClick={async () => {
               setBusy(true);
               setError(await onSubmit(pw));
@@ -437,7 +438,7 @@ export const KeyPasswordDialog: React.FC<{
         </>
       }
     >
-      <PasswordInput label="Key password" value={pw} onChange={setPw} error={error ?? undefined} autoFocus />
+      <PasswordInput label="Key password" value={pw} onChange={setPw} error={error ?? undefined} autoFocus data-testid="unlock-key-password" />
       <p className="text-[12px] text-faint mt-3">After unlocking, saving preserves this key's separate password.</p>
     </Modal>
   );

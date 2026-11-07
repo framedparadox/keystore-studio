@@ -125,10 +125,10 @@ const ChangeKeyPasswordDialog: React.FC<{ entry: KeystoreEntry; onClose: () => v
   const [pw2, setPw2] = useState("");
   const error = pw && pw.length < 6 ? "At least 6 characters" : pw2 && pw !== pw2 ? "Passwords do not match" : undefined;
   return (
-    <Modal open onClose={onClose} icon={KeySquare} size="sm" title={`Key password for ${entry.alias}`} footer={<><Button onClick={onClose}>Cancel</Button><Button variant="primary" disabled={!pw || !!error} onClick={() => onSave(pw)}>Save on next write</Button></>}>
+    <Modal open onClose={onClose} icon={KeySquare} size="sm" title={`Key password for ${entry.alias}`} footer={<><Button onClick={onClose}>Cancel</Button><Button variant="primary" disabled={!pw || !!error} onClick={() => onSave(pw)} data-testid="keypw-submit">Save on next write</Button></>}>
       <div className="space-y-3">
-        <PasswordInput label="New key password" value={pw} onChange={setPw} />
-        <PasswordInput label="Confirm" value={pw2} onChange={setPw2} error={error} />
+        <PasswordInput label="New key password" value={pw} onChange={setPw} data-testid="keypw-new" />
+        <PasswordInput label="Confirm" value={pw2} onChange={setPw2} error={error} data-testid="keypw-confirm" />
         <p className="text-[12px] text-faint">The store password still opens the file. This password wraps only this key, the way keytool -keypasswd does.</p>
       </div>
     </Modal>
@@ -139,10 +139,10 @@ const DiffDialog: React.FC<{ keystore: OpenKeystore; others: OpenKeystore[]; tex
   <Modal open onClose={onClose} icon={FileText} title={`Compare ${keystore.name}`} size="md" footer={<Button onClick={onClose}>Close</Button>}>
     <div className="space-y-3">
       <div className="flex flex-wrap gap-2">
-        {keystore.path && <Button size="sm" onClick={() => onPick("disk")}>File on disk</Button>}
+        {keystore.path && <Button size="sm" onClick={() => onPick("disk")} data-testid="diff-disk">File on disk</Button>}
         {others.map((o) => <Button key={o.id} size="sm" onClick={() => onPick(o)}>{o.name}</Button>)}
       </div>
-      {text && <pre className="text-[12.5px] whitespace-pre-wrap font-mono">{text}</pre>}
+      {text && <pre className="text-[12.5px] whitespace-pre-wrap font-mono" data-testid="diff-result">{text}</pre>}
     </div>
   </Modal>
 );
@@ -282,12 +282,12 @@ export const KeystoresView: React.FC = () => {
           { label: "Import CA reply…", icon: Reply, onSelect: () => setDialog({ kind: "reply", entry }), testId: "menu-reply" },
         ]
       : []),
-    ...(entry.locked ? [{ label: "Unlock key…", icon: Unlock, onSelect: () => setDialog({ kind: "unlock", entry }) }] : []),
+    ...(entry.locked ? [{ label: "Unlock key…", icon: Unlock, onSelect: () => setDialog({ kind: "unlock", entry }), testId: "menu-unlock" }] : []),
     { label: "Rename…", icon: Edit3, onSelect: () => setDialog({ kind: "rename", entry }), divider: true, testId: "menu-rename" },
     { label: "Labels…", icon: Tag, onSelect: () => setDialog({ kind: "labels", entry }) },
     { label: "Workspaces…", icon: Layers, onSelect: () => setDialog({ kind: "workspaces", entry }) },
     { label: "Clone", icon: Copy, onSelect: () => { addEntries(ks.id, [entry]); toast.success(`Cloned '${entry.alias}'.`); } },
-    { label: "Change key password…", icon: KeySquare, onSelect: () => setDialog({ kind: "keypw", entry }), disabled: entry.locked || entry.entry_type === "TrustedCertificate" },
+    { label: "Change key password…", icon: KeySquare, onSelect: () => setDialog({ kind: "keypw", entry }), testId: "menu-keypw", disabled: entry.locked || entry.entry_type === "TrustedCertificate" },
     { label: "Copy", icon: Copy, onSelect: () => copyEntries([entry], "copy"), divider: true },
     { label: "Cut", icon: Scissors, onSelect: () => copyEntries([entry], "cut") },
     { label: "Delete", icon: Trash2, onSelect: () => deleteWithConfirm([entry]), danger: true, divider: true, testId: "menu-delete" },
@@ -366,7 +366,7 @@ export const KeystoresView: React.FC = () => {
         }
       },
     },
-    { label: "Compare…", hint: "Against another open keystore or the file on disk", icon: FileText, onSelect: () => setDiffOpen(true) },
+    { label: "Compare…", hint: "Against another open keystore or the file on disk", icon: FileText, onSelect: () => setDiffOpen(true), testId: "ks-compare" },
     { label: "Change password…", icon: KeySquare, onSelect: () => setDialog({ kind: "password" }) },
     { label: "Export inventory (CSV)…", icon: FileText, onSelect: exportCsv, testId: "ks-export-csv" },
     ...(ks.path ? [{ label: "Show in folder", icon: FolderOpen, onSelect: () => void revealItemInDir(ks.path).catch(() => undefined) }] : []),

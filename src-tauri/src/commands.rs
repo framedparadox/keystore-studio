@@ -263,14 +263,7 @@ async fn build_pkcs12(
             Some(c) if !c.is_empty() => Some(c.bytes()?),
             _ => None,
         };
-        let input = BuildPkcs12Input {
-            alias: alias.unwrap_or_default(),
-            key: key.bytes()?,
-            certificate: cert_bytes,
-            key_password,
-            passphrase,
-            mac,
-        };
+        let input = BuildPkcs12Input { alias: alias.unwrap_or_default(), key: key.bytes()?, certificate: cert_bytes, key_password, passphrase, mac };
         let der = ops::build_pkcs12(&input)?;
         util::write_atomic(std::path::Path::new(&path), &der)?;
         Ok(ExportResult { path, format: "PKCS#12 (certificate and private key)".into(), byte_length: der.len(), text: None })
