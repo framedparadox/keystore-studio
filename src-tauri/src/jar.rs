@@ -4,14 +4,13 @@
 use crate::entry;
 use crate::model::{JarSignResult, KeystoreEntry};
 use crate::util::*;
-use base64::{engine::general_purpose::STANDARD as B64, Engine};
+use base64::{Engine, engine::general_purpose::STANDARD as B64};
 use std::io::{Read, Write};
 
 fn is_signature_file(name: &str) -> bool {
     let upper = name.to_ascii_uppercase();
     let Some(rest) = upper.strip_prefix("META-INF/") else { return false };
-    !rest.contains('/')
-        && (rest.ends_with(".SF") || rest.ends_with(".RSA") || rest.ends_with(".DSA") || rest.ends_with(".EC") || rest.starts_with("SIG-"))
+    !rest.contains('/') && (rest.ends_with(".SF") || rest.ends_with(".RSA") || rest.ends_with(".DSA") || rest.ends_with(".EC") || rest.starts_with("SIG-"))
 }
 
 /// One manifest header, wrapped at 72 bytes with single-space continuation lines.
@@ -69,12 +68,7 @@ fn main_section(existing: Option<&str>) -> String {
 }
 
 fn block_base_name(alias: &str) -> String {
-    let mut name: String = alias
-        .to_ascii_uppercase()
-        .chars()
-        .map(|c| if c.is_ascii_alphanumeric() || c == '_' || c == '-' { c } else { '_' })
-        .take(8)
-        .collect();
+    let mut name: String = alias.to_ascii_uppercase().chars().map(|c| if c.is_ascii_alphanumeric() || c == '_' || c == '-' { c } else { '_' }).take(8).collect();
     if name.is_empty() {
         name = "SIGNER".into();
     }
@@ -90,6 +84,10 @@ pub fn sign_jar(input: &str, output: &str, signer: &KeystoreEntry) -> Res<JarSig
 /// Timestamping matters most here: a signed JAR outlives its signing certificate, and without a
 /// timestamp `jarsigner -verify` warns that the signer certificate has expired once it does.
 pub fn sign_jar_timestamped(input: &str, output: &str, signer: &KeystoreEntry, tsa_url: Option<&str>) -> Res<JarSignResult> {
+    sign_jar_with_trust(input, output, signer, tsa_url, None)
+}
+
+pub fn sign_jar_with_trust(input: &str, output: &str, signer: &KeystoreEntry, tsa_url: Option<&str>, tsa_trust_pem: Option<&str>) -> Res<JarSignResult> {
     if signer.entry_type != "KeyPair" {
         return Err("JAR signing needs a key pair entry".into());
     }
@@ -102,9 +100,10 @@ pub fn sign_jar_timestamped(input: &str, output: &str, signer: &KeystoreEntry, t
         return Err(format!("'{}' has no certificate", signer.alias));
     }
     if let Some(leaf) = signer.certificate_chain.first()
-        && leaf.not_after < now_ts() {
-            return Err(format!("the certificate of '{}' has expired", signer.alias));
-        }
+        && leaf.not_after < now_ts()
+    {
+        return Err(format!("the certificate of '{}' has expired", signer.alias));
+    }
     let file = std::fs::File::open(input).map_err(|err| format!("cannot open {input}: {err}"))?;
     let mut archive = zip::ZipArchive::new(file).map_err(|err| format!("{input} is not a valid JAR/ZIP file: {err}"))?;
 
@@ -198,7 +197,13 @@ pub fn sign_jar_timestamped(input: &str, output: &str, signer: &KeystoreEntry, t
         manifest_preview: manifest.chars().take(4000).collect(),
         signature_file_name: sf_name,
         signed_at: fmt_ts(now_ts()),
-        timestamp: timestamp.map(|ts| ts.info(true, None)),
+        timestamp: timestamp.map(|ts| {
+            let mut info = ts.info(true, None);
+            if let Some(pem) = tsa_trust_pem {
+                info.chain_trusted = crate::tsa::chain_trusted(&ts, pem);
+            }
+            info
+        }),
     })
 }
 

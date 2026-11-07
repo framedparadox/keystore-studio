@@ -46,6 +46,11 @@ fn kp_input(alias: &str, alg: &str, curve: &str, is_ca: bool) -> GenerateKeyPair
         key_usage: vec![],
         extended_key_usage: vec![],
         labels: vec![],
+        not_before: String::new(),
+        not_after: String::new(),
+        crl_distribution_points: vec![],
+        ocsp_urls: vec![],
+        ca_issuer_urls: vec![],
     }
 }
 
@@ -121,39 +126,64 @@ fn keytool_keystores_open_in_xkeystore() {
         return;
     }
     let d = tmp();
-    let k = |args: &[&str]| must(d.path(), "keytool", args);
-    for (t, f) in [("PKCS12", "k.p12"), ("JKS", "k.jks"), ("JCEKS", "k.jceks")] {
-        k(&["-genkeypair", "-alias", "rsa", "-keyalg", "RSA", "-keysize", "2048", "-dname", "CN=rsa, O=keytool", "-storetype", t, "-keystore", f, "-storepass", "changeit", "-keypass", "changeit"]);
-        k(&["-genkeypair", "-alias", "ec", "-keyalg", "EC", "-groupname", "secp384r1", "-dname", "CN=ec", "-storetype", t, "-keystore", f, "-storepass", "changeit", "-keypass", "changeit"]);
-        k(&["-exportcert", "-alias", "rsa", "-keystore", f, "-storepass", "changeit", "-file", &format!("{f}.cer")]);
-        k(&["-importcert", "-noprompt", "-alias", "trusted", "-file", &format!("{f}.cer"), "-keystore", f, "-storepass", "changeit"]);
-        if t != "JKS" {
-            k(&["-genseckey", "-alias", "aes", "-keyalg", "AES", "-keysize", "256", "-storetype", t, "-keystore", f, "-storepass", "changeit", "-keypass", "changeit"]);
-        }
-        let opened = keystore::open(d.path().join(f).to_str().unwrap(), "changeit", &HashMap::new()).unwrap();
-        assert_eq!(opened.format, t);
-        let by = |a: &str| opened.entries.iter().find(|e| e.alias == a).unwrap_or_else(|| panic!("{f}: missing {a}"));
-        assert_eq!(by("rsa").entry_type, "KeyPair");
-        assert!(by("rsa").private_key_pem.is_some());
-        assert_eq!(by("ec").curve.as_deref(), Some("P-384"));
-        assert_eq!(by("trusted").entry_type, "TrustedCertificate");
-        assert_eq!(by("trusted").sha256_fingerprint, by("rsa").sha256_fingerprint);
-        if t != "JKS" {
-            assert_eq!(by("aes").entry_type, "SecretKey");
-            assert_eq!(by("aes").algorithm, "AES");
-            assert_eq!(by("aes").key_size, 256);
-        }
-        assert!(keystore::open(d.path().join(f).to_str().unwrap(), "bad", &HashMap::new()).is_err());
+    std::thread::scope(|s| {
+        for (t, f) in [("PKCS12", "k.p12"), ("JKS", "k.jks"), ("JCEKS", "k.jceks")] {
+            let sub = d.path().join(t);
+            std::fs::create_dir_all(&sub).unwrap();
+            s.spawn(move || {
+                let k = |args: &[&str]| must(&sub, "keytool", args);
+                k(&[
+                    "-genkeypair",
+                    "-alias",
+                    "rsa",
+                    "-keyalg",
+                    "RSA",
+                    "-keysize",
+                    "2048",
+                    "-dname",
+                    "CN=rsa, O=keytool",
+                    "-storetype",
+                    t,
+                    "-keystore",
+                    f,
+                    "-storepass",
+                    "changeit",
+                    "-keypass",
+                    "changeit",
+                ]);
+                k(&["-genkeypair", "-alias", "ec", "-keyalg", "EC", "-groupname", "secp384r1", "-dname", "CN=ec", "-storetype", t, "-keystore", f, "-storepass", "changeit", "-keypass", "changeit"]);
+                k(&["-exportcert", "-alias", "rsa", "-keystore", f, "-storepass", "changeit", "-file", &format!("{f}.cer")]);
+                k(&["-importcert", "-noprompt", "-alias", "trusted", "-file", &format!("{f}.cer"), "-keystore", f, "-storepass", "changeit"]);
+                if t != "JKS" {
+                    k(&["-genseckey", "-alias", "aes", "-keyalg", "AES", "-keysize", "256", "-storetype", t, "-keystore", f, "-storepass", "changeit", "-keypass", "changeit"]);
+                }
+                let opened = keystore::open(sub.join(f).to_str().unwrap(), "changeit", &HashMap::new()).unwrap();
+                assert_eq!(opened.format, t);
+                let by = |a: &str| opened.entries.iter().find(|e| e.alias == a).unwrap_or_else(|| panic!("{f}: missing {a}"));
+                assert_eq!(by("rsa").entry_type, "KeyPair");
+                assert!(by("rsa").private_key_pem.is_some());
+                assert_eq!(by("ec").curve.as_deref(), Some("P-384"));
+                assert_eq!(by("trusted").entry_type, "TrustedCertificate");
+                assert_eq!(by("trusted").sha256_fingerprint, by("rsa").sha256_fingerprint);
+                if t != "JKS" {
+                    assert_eq!(by("aes").entry_type, "SecretKey");
+                    assert_eq!(by("aes").algorithm, "AES");
+                    assert_eq!(by("aes").key_size, 256);
+                }
+                assert!(keystore::open(sub.join(f).to_str().unwrap(), "bad", &HashMap::new()).is_err());
 
-        // Round trip through our writer and back into keytool.
-        let out = format!("re-{f}");
-        keystore::save(&opened, d.path().join(&out).to_str().unwrap(), "newpass", keystore::Format::parse(t).unwrap()).unwrap();
-        let listing = must(d.path(), "keytool", &["-list", "-keystore", &out, "-storepass", "newpass"]);
-        assert!(listing.contains(&format!("contains {} entr", opened.entries.len())), "{listing}");
-    }
+                // Round trip through our writer and back into keytool.
+                let out = format!("re-{f}");
+                keystore::save(&opened, sub.join(&out).to_str().unwrap(), "newpass", keystore::Format::parse(t).unwrap()).unwrap();
+                let listing = must(&sub, "keytool", &["-list", "-keystore", &out, "-storepass", "newpass"]);
+                assert!(listing.contains(&format!("contains {} entr", opened.entries.len())), "{listing}");
+            });
+        }
+    });
 
     // Separate key password in JKS: entry loads locked, unlocks with the key password, and
     // survives a re-save untouched.
+    let k = |args: &[&str]| must(d.path(), "keytool", args);
     k(&["-genkeypair", "-alias", "sep", "-keyalg", "EC", "-dname", "CN=sep", "-storetype", "JKS", "-keystore", "sep.jks", "-storepass", "storepw", "-keypass", "keypass99"]);
     let locked = keystore::open(d.path().join("sep.jks").to_str().unwrap(), "storepw", &HashMap::new()).unwrap();
     assert!(locked.entries[0].locked);
@@ -217,11 +247,7 @@ fn pbmac1_pkcs12_interop_with_openssl() {
     let d = tmp();
     let o = |args: &[&str]| must(d.path(), "openssl", args);
     o(&["req", "-x509", "-newkey", "rsa:2048", "-nodes", "-keyout", "key.pem", "-out", "cert.pem", "-subj", "/CN=pbmac1.test", "-days", "30"]);
-    let (ok, out) = run(
-        d.path(),
-        "openssl",
-        &["pkcs12", "-export", "-in", "cert.pem", "-inkey", "key.pem", "-name", "pbmac1 key", "-out", "theirs.p12", "-passout", "pass:macpass", "-pbmac1_pbkdf2"],
-    );
+    let (ok, out) = run(d.path(), "openssl", &["pkcs12", "-export", "-in", "cert.pem", "-inkey", "key.pem", "-name", "pbmac1 key", "-out", "theirs.p12", "-passout", "pass:macpass", "-pbmac1_pbkdf2"]);
     if !ok {
         eprintln!("skipping PBMAC1 interop: this OpenSSL has no -pbmac1_pbkdf2 ({})", out.trim());
         return;
@@ -280,7 +306,11 @@ fn certificates_csrs_and_crls_verify_with_openssl() {
     }
 
     // An OpenSSL CSR signed by our CA verifies with OpenSSL.
-    must(d.path(), "openssl", &["req", "-new", "-newkey", "rsa:2048", "-nodes", "-keyout", "req.key", "-out", "req.csr", "-subj", "/CN=from-openssl.test/O=Req", "-addext", "subjectAltName=DNS:from-openssl.test"]);
+    must(
+        d.path(),
+        "openssl",
+        &["req", "-new", "-newkey", "rsa:2048", "-nodes", "-keyout", "req.key", "-out", "req.csr", "-subj", "/CN=from-openssl.test/O=Req", "-addext", "subjectAltName=DNS:from-openssl.test"],
+    );
     let signed = ops::sign_csr(
         &SignCsrInput {
             csr_pem: std::fs::read_to_string(d.path().join("req.csr")).unwrap(),
@@ -292,6 +322,12 @@ fn certificates_csrs_and_crls_verify_with_openssl() {
             key_usage: vec![],
             extended_key_usage: vec![],
             copy_requested_sans: Some(true),
+            copy_requested_usages: None,
+            not_before: String::new(),
+            not_after: String::new(),
+            crl_distribution_points: vec![],
+            ocsp_urls: vec![],
+            ca_issuer_urls: vec![],
         },
         &p.inter,
     )
@@ -339,6 +375,12 @@ fn keytool_ca_workflow_with_xkeystore_ca() {
             key_usage: vec![],
             extended_key_usage: vec![],
             copy_requested_sans: Some(true),
+            copy_requested_usages: None,
+            not_before: String::new(),
+            not_after: String::new(),
+            crl_distribution_points: vec![],
+            ocsp_urls: vec![],
+            ca_issuer_urls: vec![],
         },
         &p.inter,
     )
@@ -427,6 +469,85 @@ fn exports_are_readable_by_openssl() {
     assert!(out.contains("Verified OK"));
 }
 
+/// The headline flow: a user has `cert.pem` + `key.pem` and a passphrase, and wants a .pfx/.p12.
+/// Whatever we produce has to be readable by the tools they will actually hand it to.
+#[test]
+fn built_pkcs12_opens_in_openssl_and_keytool() {
+    let d = tmp();
+    let p = pki();
+
+    for (name, src) in [("rsa", &p.rsa), ("ec", &p.ec)] {
+        // Write out the inputs the way a user would have them on disk.
+        let chain: String = entry::chain_der(src).unwrap().iter().map(|c| xkeystore_lib::util::to_pem("CERTIFICATE", c)).collect();
+        write(d.path(), "cert.pem", chain.as_bytes());
+        write(d.path(), "key.pem", src.private_key_pem.as_ref().unwrap().as_bytes());
+
+        let der = ops::build_pkcs12(&BuildPkcs12Input {
+            alias: name.into(),
+            key: std::fs::read(d.path().join("key.pem")).unwrap(),
+            certificate: Some(std::fs::read(d.path().join("cert.pem")).unwrap()),
+            key_password: None,
+            passphrase: "pfxpw".into(),
+            mac: None,
+        })
+        .unwrap();
+        let out = format!("{name}.pfx");
+        write(d.path(), &out, &der);
+
+        if have("openssl") {
+            // The key and the certificate must both come back, and the key must match the cert.
+            let dump = must(d.path(), "openssl", &["pkcs12", "-in", &out, "-passin", "pass:pfxpw", "-nodes"]);
+            assert!(dump.contains("BEGIN PRIVATE KEY") || dump.contains("BEGIN EC PRIVATE KEY"), "no private key in {out}:\n{dump}");
+            assert!(dump.contains("BEGIN CERTIFICATE"), "no certificate in {out}:\n{dump}");
+            assert!(dump.contains(&format!("friendlyName: {name}")), "alias missing from {out}:\n{dump}");
+            // The wrong passphrase must fail.
+            let (ok, _) = run(d.path(), "openssl", &["pkcs12", "-in", &out, "-passin", "pass:wrong", "-nodes", "-noout"]);
+            assert!(!ok, "{out} opened with the wrong passphrase");
+        }
+
+        if have("keytool") {
+            let list = must(
+                d.path(),
+                "keytool",
+                &["-list", "-v", "-keystore", &out, "-storetype", "PKCS12", "-storepass", "pfxpw"],
+            );
+            assert!(list.contains("PrivateKeyEntry"), "keytool does not see a private key in {out}:\n{list}");
+            assert!(list.to_lowercase().contains(name), "alias missing from keytool output:\n{list}");
+        }
+    }
+
+    // The same thing again, but driven the way the command layer drives it: inputs read from the
+    // paths the user picked, and the result written to disk with the same atomic writer.
+    {
+        let cert_path = d.path().join("cert.pem");
+        let key_path = d.path().join("key.pem");
+        let out_path = d.path().join("from-paths.pfx");
+        let der = ops::build_pkcs12(&BuildPkcs12Input {
+            alias: "from-paths".into(),
+            key: std::fs::read(&key_path).unwrap(),
+            certificate: Some(std::fs::read(&cert_path).unwrap()),
+            key_password: None,
+            passphrase: "pathpw".into(),
+            mac: None,
+        })
+        .unwrap();
+        xkeystore_lib::util::write_atomic(&out_path, &der).unwrap();
+        assert_eq!(std::fs::read(&out_path).unwrap(), der, "the written file must match what we built");
+        let back = keystore::open(&out_path.to_string_lossy(), "pathpw", &HashMap::new()).unwrap();
+        assert_eq!(back.entries.iter().filter(|e| e.entry_type == "KeyPair").count(), 1);
+    }
+
+    // Round-trip through our own reader as well: same key, same certificate.
+    let reopened = keystore::open(&d.path().join("rsa.pfx").to_string_lossy(), "pfxpw", &HashMap::new()).unwrap();
+    let kp = reopened.entries.iter().find(|e| e.entry_type == "KeyPair").unwrap();
+    assert_eq!(kp.sha256_fingerprint, p.rsa.sha256_fingerprint);
+    assert!(kp.private_key_pem.is_some());
+
+    if !have("openssl") && !have("keytool") {
+        eprintln!("note: neither openssl nor keytool installed; only the internal round trip ran");
+    }
+}
+
 #[test]
 fn dh_parameters_pass_openssl_check() {
     if !have("openssl") {
@@ -509,8 +630,22 @@ fn start_test_tsa(dir: &Path) -> Option<TestTsa> {
     // A TSA certificate needs the critical timeStamping extended key usage; openssl ts refuses
     // anything else.
     o(&[
-        "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-keyout", "tsakey.pem", "-out", "tsacert.pem", "-subj",
-        "/CN=xkeystore Test TSA/O=Interop", "-days", "30", "-addext", "extendedKeyUsage=critical,timeStamping", "-addext",
+        "req",
+        "-x509",
+        "-newkey",
+        "rsa:2048",
+        "-nodes",
+        "-keyout",
+        "tsakey.pem",
+        "-out",
+        "tsacert.pem",
+        "-subj",
+        "/CN=xkeystore Test TSA/O=Interop",
+        "-days",
+        "30",
+        "-addext",
+        "extendedKeyUsage=critical,timeStamping",
+        "-addext",
         "keyUsage=critical,digitalSignature",
     ]);
     std::fs::write(dir.join("tsaserial"), b"01\n").unwrap();
@@ -557,11 +692,7 @@ fn start_test_tsa(dir: &Path) -> Option<TestTsa> {
                         buf.extend_from_slice(&chunk[..n]);
                         if let Some(at) = buf.windows(4).position(|w| w == b"\r\n\r\n") {
                             let head = String::from_utf8_lossy(&buf[..at]).to_lowercase();
-                            let len: usize = head
-                                .lines()
-                                .find_map(|l| l.strip_prefix("content-length:"))
-                                .and_then(|v| v.trim().parse().ok())
-                                .unwrap_or(0);
+                            let len: usize = head.lines().find_map(|l| l.strip_prefix("content-length:")).and_then(|v| v.trim().parse().ok()).unwrap_or(0);
                             let start = at + 4;
                             while buf.len() < start + len {
                                 match stream.read(&mut chunk) {
@@ -580,17 +711,11 @@ fn start_test_tsa(dir: &Path) -> Option<TestTsa> {
             let req_path = dir.join("req-in.tsq");
             let resp_path = dir.join("resp-out.tsr");
             let _ = std::fs::write(&req_path, &body);
-            let out = Command::new("openssl")
-                .args(["ts", "-reply", "-queryfile", "req-in.tsq", "-config", "tsa.cnf", "-section", "tsa_config1", "-out", "resp-out.tsr"])
-                .current_dir(&dir)
-                .output();
+            let out = Command::new("openssl").args(["ts", "-reply", "-queryfile", "req-in.tsq", "-config", "tsa.cnf", "-section", "tsa_config1", "-out", "resp-out.tsr"]).current_dir(&dir).output();
             let reply = out.ok().filter(|o| o.status.success()).and_then(|_| std::fs::read(&resp_path).ok());
             let _ = match reply {
-                Some(der) => stream.write_all(
-                    &[format!("HTTP/1.1 200 OK\r\nContent-Type: application/timestamp-reply\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", der.len())
-                        .into_bytes(), der]
-                    .concat(),
-                ),
+                Some(der) => stream
+                    .write_all(&[format!("HTTP/1.1 200 OK\r\nContent-Type: application/timestamp-reply\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", der.len()).into_bytes(), der].concat()),
                 None => stream.write_all(b"HTTP/1.1 500 Internal Server Error\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"),
             };
         }
@@ -623,11 +748,7 @@ fn timestamps_verify_with_openssl_ts() {
 
     // OpenSSL verifies the token itself against the TSA certificate.
     write(d.path(), "token.tst", &ts.token);
-    let out = must(
-        d.path(),
-        "openssl",
-        &["ts", "-verify", "-in", "token.tst", "-token_in", "-queryfile", "req-in.tsq", "-CAfile", "tsacert.pem", "-untrusted", "tsacert.pem"],
-    );
+    let out = must(d.path(), "openssl", &["ts", "-verify", "-in", "token.tst", "-token_in", "-queryfile", "req-in.tsq", "-CAfile", "tsacert.pem", "-untrusted", "tsacert.pem"]);
     assert!(out.contains("Verification: OK"), "{out}");
 
     // Our verifier finds the token in the unsigned attributes and binds it to the signature.
@@ -642,11 +763,7 @@ fn timestamps_verify_with_openssl_ts() {
     // (the test PKI's leaf is not an S/MIME certificate); the signature itself is still checked.
     write(d.path(), "msg.txt", b"timestamped payload");
     write(d.path(), "sig.p7s", &signed);
-    let out = must(
-        d.path(),
-        "openssl",
-        &["cms", "-verify", "-in", "sig.p7s", "-inform", "DER", "-content", "msg.txt", "-noverify", "-binary", "-out", "/dev/null"],
-    );
+    let out = must(d.path(), "openssl", &["cms", "-verify", "-in", "sig.p7s", "-inform", "DER", "-content", "msg.txt", "-noverify", "-binary", "-out", "/dev/null"]);
     assert!(out.contains("Verification successful"), "{out}");
 
     // A token moved onto a different signature must be rejected, not accepted silently.
@@ -734,4 +851,75 @@ fn tls_inspection_against_openssl_server() {
     assert!(r.protocol.starts_with("TLS 1."));
     // Nothing is listening on a closed port.
     assert!(tls::inspect("127.0.0.1", port, 2).is_err());
+}
+
+#[test]
+fn keytool_keypasswd_round_trips() {
+    if !have("keytool") {
+        eprintln!("skipping: keytool not installed");
+        return;
+    }
+    let d = tmp();
+    must(d.path(), "keytool", &["-genkeypair", "-alias", "sep", "-keyalg", "EC", "-dname", "CN=sep", "-storetype", "JKS", "-keystore", "a.jks", "-storepass", "storepw", "-keypass", "storepw"]);
+    must(d.path(), "keytool", &["-keypasswd", "-alias", "sep", "-keystore", "a.jks", "-storetype", "JKS", "-storepass", "storepw", "-keypass", "storepw", "-new", "keypass99"]);
+    let mut kp = HashMap::new();
+    kp.insert("sep".into(), "keypass99".into());
+    let opened = keystore::open(d.path().join("a.jks").to_str().unwrap(), "storepw", &kp).unwrap();
+    assert_eq!(opened.entries[0].key_password.as_deref(), Some("keypass99"));
+    keystore::save(&opened, d.path().join("b.jks").to_str().unwrap(), "storepw", keystore::Format::Jks).unwrap();
+    must(d.path(), "keytool", &["-certreq", "-alias", "sep", "-keystore", "b.jks", "-storepass", "storepw", "-keypass", "keypass99", "-file", "sep.csr"]);
+    let (ok, _) = run(d.path(), "keytool", &["-certreq", "-alias", "sep", "-keystore", "b.jks", "-storepass", "storepw", "-keypass", "storepw", "-file", "no.csr"]);
+    assert!(!ok);
+}
+
+#[test]
+fn ec_server_extensions_match_openssl_text() {
+    if !have("openssl") {
+        eprintln!("skipping: openssl not installed");
+        return;
+    }
+    let d = tmp();
+    let mut input = kp_input("web-ec", "ECDSA", "P-256", false);
+    input.key_usage = vec!["digitalSignature".into()];
+    input.extended_key_usage = vec!["serverAuth".into()];
+    let entry = ops::generate_key_pair(&input, None).unwrap();
+    write(d.path(), "web.pem", entry.certificate_chain[0].pem.as_bytes());
+    let text = must(d.path(), "openssl", &["x509", "-in", "web.pem", "-noout", "-text"]);
+    assert!(text.contains("Digital Signature"), "{text}");
+    assert!(!text.contains("Key Encipherment"), "{text}");
+    assert!(text.contains("TLS Web Server Authentication"), "{text}");
+    assert!(!text.contains("TLS Web Client Authentication"), "{text}");
+}
+
+#[test]
+fn jceks_alias_case_matches_keytool() {
+    if !have("keytool") {
+        eprintln!("skipping: keytool not installed");
+        return;
+    }
+    let d = tmp();
+    let mut input = kp_input("API", "ECDSA", "P-256", false);
+    input.alias = "API".into();
+    let entry = ops::generate_key_pair(&input, None).unwrap();
+    assert_eq!(entry.alias, "API");
+    keystore::save(&ks(vec![entry]), d.path().join("mixed.jceks").to_str().unwrap(), "pw", keystore::Format::Jceks).unwrap();
+    let listing = must(d.path(), "keytool", &["-list", "-v", "-keystore", "mixed.jceks", "-storepass", "pw"]);
+    assert!(listing.contains("Alias name: api"), "{listing}");
+    assert!(!listing.contains("Alias name: API"), "{listing}");
+    let opened = keystore::open(d.path().join("mixed.jceks").to_str().unwrap(), "pw", &HashMap::new()).unwrap();
+    assert_eq!(opened.entries[0].alias, "api");
+}
+
+#[test]
+fn openssl_pkcs12_keeps_mixed_case_alias() {
+    if !have("openssl") {
+        eprintln!("skipping: openssl not installed");
+        return;
+    }
+    let d = tmp();
+    must(d.path(), "openssl", &["req", "-x509", "-newkey", "ec", "-pkeyopt", "ec_paramgen_curve:P-256", "-nodes", "-keyout", "k.pem", "-out", "c.pem", "-subj", "/CN=case.test", "-days", "30"]);
+    must(d.path(), "openssl", &["pkcs12", "-export", "-in", "c.pem", "-inkey", "k.pem", "-name", "API", "-out", "case.p12", "-passout", "pass:pw"]);
+    let opened = keystore::open(d.path().join("case.p12").to_str().unwrap(), "pw", &HashMap::new()).unwrap();
+    let key = opened.entries.iter().find(|e| e.entry_type == "KeyPair").unwrap();
+    assert_eq!(key.alias, "API");
 }

@@ -13,6 +13,7 @@ import type {
   DhParamsResult,
   ExportResult,
   FileProbe,
+  GeneratedKeyPair,
   GenerateKeyPairInput,
   GenerateSecretKeyInput,
   JarSignResult,
@@ -34,8 +35,22 @@ import type {
 export const isDesktop = (): boolean => typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
 /** Normalises any rejection from a command into a readable message. */
+const ERROR_KINDS = ["wrong-password", "unrecognized", "unrecognised", "unsupported", "invalid", "changed-on-disk", "apk"] as const;
+
+/** Splits an engine error into a stable kind and a sentence for the dialog. */
+export function classifyError(err: unknown): { kind: string; message: string } {
+  const raw = typeof err === "string" ? err : err instanceof Error ? err.message : "";
+  const match = new RegExp(`^(${ERROR_KINDS.join("|")}):\\s*`, "i").exec(raw);
+  if (!match) return { kind: "other", message: errorMessage(err) };
+  const rest = raw.slice(match[0].length);
+  return { kind: match[1].toLowerCase().replace("unrecognised", "unrecognized"), message: rest ? rest.charAt(0).toUpperCase() + rest.slice(1) : errorMessage(err) };
+}
+
 export function errorMessage(err: unknown): string {
-  if (typeof err === "string") return err.charAt(0).toUpperCase() + err.slice(1);
+  const raw = typeof err === "string" ? err : err instanceof Error ? err.message : "";
+  const match = new RegExp(`^(${ERROR_KINDS.join("|")}):\\s*`, "i").exec(raw);
+  const text = match ? raw.slice(match[0].length) : raw;
+  if (typeof err === "string" || err instanceof Error) return text ? text.charAt(0).toUpperCase() + text.slice(1) : "Something went wrong.";
   if (err instanceof Error) return err.message;
   try {
     return JSON.stringify(err);
@@ -61,6 +76,7 @@ const wire = (ks: KeystoreFile): KeystoreFile => ({
   password_protected: ks.password_protected,
   created_at: ks.created_at,
   updated_at: ks.updated_at,
+  source_mtime_ms: ks.source_mtime_ms ?? null,
   entries: ks.entries,
 });
 
@@ -72,17 +88,27 @@ export const api = {
   probeFile: (path: string) => call<FileProbe>("probe_file", { path }),
   openKeystore: (path: string, password: string, keyPasswords?: Record<string, string>) =>
     call<KeystoreFile>("open_keystore", { path, password, keyPasswords: keyPasswords ?? null }),
-  saveKeystore: (ks: KeystoreFile, path: string, password: string, format: KeystoreFormat) =>
-    call<SaveResult>("save_keystore", { ks: wire(ks), path, password, format }),
+  saveKeystore: (ks: KeystoreFile, path: string, password: string, format: KeystoreFormat, mac?: "pkcs12" | "pbmac1" | null, force?: boolean) =>
+    call<SaveResult>("save_keystore", { ks: wire(ks), path, password, format, mac: mac ?? null, force: force ?? false }),
   exportKeystoreCsv: (ks: KeystoreFile, path: string) => call<ExportResult>("export_keystore_csv", { ks: wire(ks), path }),
 
   generateKeyPair: (input: GenerateKeyPairInput, issuer?: KeystoreEntry | null) =>
-    call<KeystoreEntry>("generate_key_pair", { input, issuer: issuer ?? null }),
+    call<GeneratedKeyPair>("generate_key_pair", { input, issuer: issuer ?? null }),
   generateSecretKey: (input: GenerateSecretKeyInput) => call<KeystoreEntry>("generate_secret_key", { input }),
   importTrustedCertificates: (alias: string, data: DataSource, existingAliases: string[]) =>
     call<KeystoreEntry[]>("import_trusted_certificates", { alias, data, existingAliases }),
   importKeyPair: (alias: string, key: DataSource, keyPassword: string | null, certificates: DataSource | null) =>
     call<KeystoreEntry>("import_key_pair", { alias, key, keyPassword, certificates }),
+  buildPkcs12: (args: { path: string; key: DataSource; certificate: DataSource | null; keyPassword: string | null; passphrase: string; alias: string | null; mac?: "pkcs12" | "pbmac1" | null }) =>
+    call<ExportResult>("build_pkcs12", {
+      path: args.path,
+      key: args.key,
+      certificate: args.certificate,
+      keyPassword: args.keyPassword,
+      passphrase: args.passphrase,
+      alias: args.alias,
+      mac: args.mac ?? null,
+    }),
   generateCsr: (entry: KeystoreEntry, options: CsrOptions) => call<CsrResult>("generate_csr", { entry, options }),
   importCaReply: (entry: KeystoreEntry, reply: DataSource) => call<KeystoreEntry>("import_ca_reply", { entry, reply }),
   rotateKey: (entry: KeystoreEntry, algorithm: string, keySize: number, curve: string | null, issuer: KeystoreEntry | null) =>
@@ -95,18 +121,24 @@ export const api = {
   inspectCsr: (data: DataSource) => call<CsrInfo>("inspect_csr", { data }),
   generateCrl: (caEntry: KeystoreEntry, nextUpdateDays: number, crlNumber: number, revokedEntries: RevokedCertEntry[]) =>
     call<CrlInfo>("generate_crl", { caEntry, nextUpdateDays, crlNumber, revokedEntries }),
-  cmsSign: (content: DataSource, signerEntry: KeystoreEntry, detached: boolean, tsaUrl?: string | null) =>
-    call<CmsSignResult>("cms_sign", { content, signerEntry, detached, tsaUrl: tsaUrl || null }),
-  cmsVerify: (signature: DataSource, content: DataSource | null, entry: KeystoreEntry | null) =>
-    call<CmsVerifyResult>("cms_verify", { signature, content, entry }),
+  caNextCrlNumber: (caSki: string) => call<number>("ca_next_crl_number", { caSki }),
+  readCrl: (data: DataSource) => call<CrlInfo>("read_crl", { data }),
+  ledgerSearch: (query: string) => call<{ serial: string; subject: string; ski: string; not_after: string; profile: string; issuer_ski: string }[]>("ledger_search", { query }),
+  ledgerDelete: (serial: string) => call<void>("ledger_delete", { serial }),
+  validateChain: (leafPem: string, intermediatesPem: string, anchorsPem: string, hostname?: string | null) =>
+    call<string[]>("validate_chain", { leafPem, intermediatesPem, anchorsPem, hostname: hostname ?? null }),
+  cmsSign: (content: DataSource, signerEntry: KeystoreEntry, detached: boolean, tsaUrl?: string | null, tsaTrustPem?: string | null) =>
+    call<CmsSignResult>("cms_sign", { content, signerEntry, detached, tsaUrl: tsaUrl || null, tsaTrustPem: tsaTrustPem || null }),
+  cmsVerify: (signature: DataSource, content: DataSource | null, entry: KeystoreEntry | null, tsaTrustPem?: string | null) =>
+    call<CmsVerifyResult>("cms_verify", { signature, content, entry, tsaTrustPem: tsaTrustPem || null }),
   jwtSign: (
     input: { issuer: string; subject: string; audience: string; validity_minutes: number; custom_claims_json: string; algorithm?: string | null },
     signerEntry: KeystoreEntry
   ) => call<string>("jwt_sign", { input, signerEntry }),
   jwtVerify: (token: string, entry: KeystoreEntry) => call<JwtVerifyResult>("jwt_verify", { token, entry }),
   dhParams: (bits: number, mode: "ffdhe" | "generate") => call<DhParamsResult>("dh_params", { bits, mode }),
-  jarSign: (inputPath: string, outputPath: string, signerEntry: KeystoreEntry, tsaUrl?: string | null) =>
-    call<JarSignResult>("jar_sign", { inputPath, outputPath, signerEntry, tsaUrl: tsaUrl || null }),
+  jarSign: (inputPath: string, outputPath: string, signerEntry: KeystoreEntry, tsaUrl?: string | null, tsaTrustPem?: string | null) =>
+    call<JarSignResult>("jar_sign", { inputPath, outputPath, signerEntry, tsaUrl: tsaUrl || null, tsaTrustPem: tsaTrustPem || null }),
 
   examineTls: (host: string, port: number) => call<TlsInspectionResult>("examine_tls", { host, port }),
   examineData: (data: DataSource, password?: string | null) => call<DetectionResult>("examine_data", { data, password: password ?? null }),

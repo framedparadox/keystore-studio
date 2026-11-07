@@ -7,11 +7,11 @@
 //! - `vault_secrets.json`: `{ id: { label, nonce, ciphertext, updated_at } }`, each secret sealed
 //!   with AES-256-GCM under the vault key using a fresh random nonce.
 
-use crate::util::{random_bytes, write_atomic, Res};
+use crate::util::{Res, random_bytes, write_atomic};
 use aes_gcm::aead::{Aead, KeyInit, Payload};
 use aes_gcm::{Aes256Gcm, Key, Nonce};
 use argon2::{Algorithm, Argon2, Params, Version};
-use base64::{engine::general_purpose::STANDARD as B64, Engine};
+use base64::{Engine, engine::general_purpose::STANDARD as B64};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -218,20 +218,14 @@ impl VaultState {
     }
 
     pub fn list_secrets(&self) -> Res<Vec<SecretSummary>> {
-        Ok(self
-            .read_secrets()?
-            .into_iter()
-            .map(|(id, s)| SecretSummary { id, label: s.label, updated_at: s.updated_at })
-            .collect())
+        Ok(self.read_secrets()?.into_iter().map(|(id, s)| SecretSummary { id, label: s.label, updated_at: s.updated_at }).collect())
     }
 }
 
 fn derive_key(master_key: &str, salt: &[u8], p: &Argon2ParamsRecord) -> Res<[u8; 32]> {
     let params = Params::new(p.m_cost, p.t_cost, p.p_cost, Some(32)).map_err(|err| format!("invalid Argon2 parameters: {err}"))?;
     let mut key = [0u8; 32];
-    Argon2::new(Algorithm::Argon2id, Version::V0x13, params)
-        .hash_password_into(master_key.as_bytes(), salt, &mut key)
-        .map_err(|err| format!("key derivation failed: {err}"))?;
+    Argon2::new(Algorithm::Argon2id, Version::V0x13, params).hash_password_into(master_key.as_bytes(), salt, &mut key).map_err(|err| format!("key derivation failed: {err}"))?;
     Ok(key)
 }
 
@@ -240,9 +234,7 @@ fn new_vault_file(master_key: &str) -> Res<(VaultFile, [u8; 32])> {
     let params = Argon2ParamsRecord::default();
     let key = derive_key(master_key, &salt, &params)?;
     let nonce = random_bytes(12);
-    let ct = Aes256Gcm::new(Key::<Aes256Gcm>::from_slice(&key))
-        .encrypt(Nonce::from_slice(&nonce), CHECK_VALUE)
-        .map_err(|_| "failed to encrypt the vault check value".to_string())?;
+    let ct = Aes256Gcm::new(Key::<Aes256Gcm>::from_slice(&key)).encrypt(Nonce::from_slice(&nonce), CHECK_VALUE).map_err(|_| "failed to encrypt the vault check value".to_string())?;
     Ok((VaultFile { salt: B64.encode(salt), argon2_params: params, check_nonce: B64.encode(nonce), check_ciphertext: B64.encode(ct) }, key))
 }
 
@@ -251,11 +243,7 @@ fn derive_and_check(master_key: &str, file: &VaultFile) -> Res<[u8; 32]> {
     let mut key = derive_key(master_key, &salt, &file.argon2_params)?;
     let nonce = B64.decode(&file.check_nonce).map_err(|_| "the vault file is corrupted".to_string())?;
     let ct = B64.decode(&file.check_ciphertext).map_err(|_| "the vault file is corrupted".to_string())?;
-    let ok = nonce.len() == 12
-        && Aes256Gcm::new(Key::<Aes256Gcm>::from_slice(&key))
-            .decrypt(Nonce::from_slice(&nonce), ct.as_slice())
-            .map(|pt| pt == CHECK_VALUE)
-            .unwrap_or(false);
+    let ok = nonce.len() == 12 && Aes256Gcm::new(Key::<Aes256Gcm>::from_slice(&key)).decrypt(Nonce::from_slice(&nonce), ct.as_slice()).map(|pt| pt == CHECK_VALUE).unwrap_or(false);
     if !ok {
         key.zeroize();
         return Err("incorrect master key".into());
@@ -267,15 +255,8 @@ fn derive_and_check(master_key: &str, file: &VaultFile) -> Res<[u8; 32]> {
 /// between entries.
 fn seal(key: &[u8; 32], id: &str, label: &str, plain: &[u8]) -> Res<SealedSecret> {
     let nonce = random_bytes(12);
-    let ct = Aes256Gcm::new(Key::<Aes256Gcm>::from_slice(key))
-        .encrypt(Nonce::from_slice(&nonce), Payload { msg: plain, aad: id.as_bytes() })
-        .map_err(|_| "failed to encrypt secret".to_string())?;
-    Ok(SealedSecret {
-        label: label.to_string(),
-        nonce: B64.encode(nonce),
-        ciphertext: B64.encode(ct),
-        updated_at: chrono::Utc::now().format("%Y-%m-%d %H:%M").to_string(),
-    })
+    let ct = Aes256Gcm::new(Key::<Aes256Gcm>::from_slice(key)).encrypt(Nonce::from_slice(&nonce), Payload { msg: plain, aad: id.as_bytes() }).map_err(|_| "failed to encrypt secret".to_string())?;
+    Ok(SealedSecret { label: label.to_string(), nonce: B64.encode(nonce), ciphertext: B64.encode(ct), updated_at: chrono::Utc::now().format("%Y-%m-%d %H:%M").to_string() })
 }
 
 fn open(key: &[u8; 32], id: &str, sealed: &SealedSecret) -> Res<Vec<u8>> {

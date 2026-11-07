@@ -27,6 +27,9 @@ tauri-build = { version = "2", features = [] }
 # the engine alone, without the GUI toolchain (used by fuzz/).
 default = ["tauri-app"]
 tauri-app = ["dep:tauri", "dep:tauri-plugin-opener", "dep:tauri-plugin-dialog"]
+# `tauri build` enables this so the window serves the embedded frontend. Without it the binary
+# loads devUrl (the Vite server) and the window stays blank when that server is not running.
+custom-protocol = ["tauri/custom-protocol"]
 
 [dependencies]
 tauri = { version = "2", features = [], optional = true }

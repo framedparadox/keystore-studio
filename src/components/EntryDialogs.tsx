@@ -5,7 +5,7 @@ import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import type { KeystoreEntry, OpenKeystore } from "../types/crypto";
 import { api, errorMessage } from "../lib/api";
 import { FILTERS, pickFile, pickSavePath, safeFileStem } from "../lib/files";
-import { EXPORT_TARGETS, aliasTaken, cnOf, ENTRY_TYPE_LABEL, splitList } from "../lib/keystore";
+import { EXPORT_TARGETS, aliasTaken, canonicalAlias, cnOf, ENTRY_TYPE_LABEL, splitList } from "../lib/keystore";
 import { findingsFor } from "../lib/metrics";
 import { useStore, uid } from "../state/store";
 import { Alert, Badge, Button, CodeBlock, Modal, PasswordInput, Segmented, Select, Spinner, TextArea, TextInput, useConfirm, useToast } from "./ui";
@@ -280,12 +280,13 @@ export const RenameDialog: React.FC<{ keystore: OpenKeystore; entry: KeystoreEnt
   useEffect(() => setAlias(entry?.alias ?? ""), [entry?.id]); // eslint-disable-line react-hooks/exhaustive-deps
   if (!entry) return null;
   const trimmed = alias.trim();
-  const error = !trimmed ? "Alias must not be empty" : trimmed !== entry.alias && aliasTaken(keystore, trimmed, entry.id) ? "Another entry already uses this alias" : null;
+  const stored = trimmed ? canonicalAlias(keystore.format, trimmed) : "";
+  const error = !stored ? "Alias must not be empty" : stored !== entry.alias && aliasTaken(keystore, stored, entry.id) ? "Another entry already uses this alias" : null;
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (error || trimmed === entry.alias) return onClose();
-    renameEntry(keystore.id, entry.id, keystore.format === "JKS" ? trimmed.toLowerCase() : trimmed);
-    toast.success(`Renamed '${entry.alias}' to '${trimmed}'.`);
+    if (error || stored === entry.alias) return onClose();
+    renameEntry(keystore.id, entry.id, stored);
+    toast.success(`Renamed '${entry.alias}' to '${stored}'.`);
     onClose();
   };
   return (
@@ -306,7 +307,7 @@ export const RenameDialog: React.FC<{ keystore: OpenKeystore; entry: KeystoreEnt
       }
     >
       <form id="rename-form" onSubmit={submit}>
-        <TextInput label="Alias" value={alias} onChange={(e) => setAlias(e.target.value)} error={error ?? undefined} hint={keystore.format === "JKS" ? "JKS stores aliases in lower case." : undefined} data-testid="rename-input" />
+        <TextInput label="Alias" value={alias} onChange={(e) => setAlias(e.target.value)} error={error ?? undefined} hint={keystore.format === "PKCS12" ? undefined : "JKS and JCEKS store aliases in lower case."} data-testid="rename-input" />
       </form>
     </Modal>
   );

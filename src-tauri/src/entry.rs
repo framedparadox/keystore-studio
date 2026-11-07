@@ -15,9 +15,7 @@ fn assess_certificate_entry(entry: &KeystoreEntry) -> Vec<String> {
     let mut reasons = Vec::new();
     let alg = entry.algorithm.as_str();
     match alg {
-        "RSA" | "RSASSA-PSS" if entry.key_size > 0 && entry.key_size < 2048 => {
-            reasons.push(format!("RSA key is only {} bits (minimum 2048)", entry.key_size))
-        }
+        "RSA" | "RSASSA-PSS" if entry.key_size > 0 && entry.key_size < 2048 => reasons.push(format!("RSA key is only {} bits (minimum 2048)", entry.key_size)),
         "ECDSA" if entry.key_size > 0 && entry.key_size < 256 => reasons.push(format!("EC key is only {} bits", entry.key_size)),
         "DSA" => reasons.push("DSA is deprecated (FIPS 186-5)".into()),
         _ => {}
@@ -34,9 +32,13 @@ fn assess_certificate_entry(entry: &KeystoreEntry) -> Vec<String> {
 
 fn assess_secret(algorithm: &str, bits: u32) -> Vec<String> {
     let mut reasons = Vec::new();
-    let upper = algorithm.to_ascii_uppercase();
-    if upper.starts_with("DES") || upper == "TRIPLEDES" || upper == "RC2" || upper == "RC4" || upper == "ARCFOUR" {
+    let upper = algorithm.to_ascii_uppercase().replace('-', "");
+    if upper.starts_with("DES") || upper == "TRIPLEDES" || upper == "RC2" || upper == "RC4" || upper == "ARCFOUR" || upper == "BLOWFISH" {
         reasons.push(format!("{algorithm} is a deprecated cipher"));
+    } else if upper == "HMACSHA1" {
+        reasons.push(format!("{algorithm} is a deprecated MAC"));
+    } else if !matches!(upper.as_str(), "AES" | "HMACSHA256" | "HMACSHA384" | "HMACSHA512" | "CHACHA20") {
+        reasons.push(format!("{algorithm} is not a recommended secret-key algorithm"));
     } else if bits < 128 {
         reasons.push(format!("secret key is only {bits} bits (minimum 128)"));
     }
@@ -44,11 +46,7 @@ fn assess_secret(algorithm: &str, bits: u32) -> Vec<String> {
 }
 
 fn finalize(mut entry: KeystoreEntry) -> KeystoreEntry {
-    let reasons = if entry.entry_type == "SecretKey" {
-        assess_secret(&entry.algorithm, entry.key_size)
-    } else {
-        assess_certificate_entry(&entry)
-    };
+    let reasons = if entry.entry_type == "SecretKey" { assess_secret(&entry.algorithm, entry.key_size) } else { assess_certificate_entry(&entry) };
     entry.is_weak = !reasons.is_empty();
     entry.weak_reasons = reasons;
     entry.is_expired = entry.certificate_chain.first().is_some_and(|c| c.not_after < now_ts());
@@ -178,7 +176,6 @@ pub fn secret_key_entry(alias: &str, algorithm: &str, key: &[u8], creation_ts: O
         sha256_fingerprint: colon_hex(&sha256(key)),
         sha1_fingerprint: colon_hex(&sha1(key)),
         secret_key_hex: Some(upper_hex(key)),
-        is_post_quantum: bits >= 256 && !algorithm.starts_with("DES"),
         algorithm,
         ..Default::default()
     };
@@ -202,21 +199,14 @@ pub fn locked_secret_entry(alias: &str, sealed: &[u8], creation_ts: Option<i64>)
 
 /// DER of every certificate in the entry's chain.
 pub fn chain_der(entry: &KeystoreEntry) -> Res<Vec<Vec<u8>>> {
-    entry
-        .certificate_chain
-        .iter()
-        .map(|c| pem::parse(c.pem.as_bytes()).map(|p| p.contents().to_vec()).map_err(|err| format!("entry '{}': invalid certificate PEM: {err}", entry.alias)))
-        .collect()
+    entry.certificate_chain.iter().map(|c| pem::parse(c.pem.as_bytes()).map(|p| p.contents().to_vec()).map_err(|err| format!("entry '{}': invalid certificate PEM: {err}", entry.alias))).collect()
 }
 
 pub fn private_key_der(entry: &KeystoreEntry) -> Res<Vec<u8>> {
-    let pem_text = entry.private_key_pem.as_deref().ok_or_else(|| {
-        if entry.locked {
-            format!("the private key of '{}' is locked by a separate key password", entry.alias)
-        } else {
-            format!("'{}' has no private key", entry.alias)
-        }
-    })?;
+    let pem_text = entry
+        .private_key_pem
+        .as_deref()
+        .ok_or_else(|| if entry.locked { format!("the private key of '{}' is locked by a separate key password", entry.alias) } else { format!("'{}' has no private key", entry.alias) })?;
     let parsed = pem::parse(pem_text.as_bytes()).map_err(|err| format!("entry '{}': invalid private key PEM: {err}", entry.alias))?;
     Ok(parsed.contents().to_vec())
 }
@@ -243,5 +233,6 @@ pub fn refresh(entry: &KeystoreEntry) -> Res<KeystoreEntry> {
     fresh.id = entry.id.clone();
     fresh.labels = entry.labels.clone();
     fresh.creation_date = entry.creation_date.clone();
+    fresh.key_password = entry.key_password.clone();
     Ok(fresh)
 }

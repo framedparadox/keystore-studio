@@ -27,19 +27,12 @@ pub fn ffdhe(bits: u32) -> Res<DhParamsResult> {
         _ => return Err("RFC 7919 groups exist for 2048, 3072, 4096, 6144 and 8192 bits".into()),
     };
     let p = BigUint::parse_bytes(hex.as_bytes(), 16).ok_or("corrupt FFDHE constant")?;
-    Ok(DhParamsResult {
-        bit_size: bits,
-        group: format!("ffdhe{bits}"),
-        prime_hex: colon_hex(&p.to_bytes_be()),
-        generator: 2,
-        pem: params_pem(&p, 2),
-        generated_at: fmt_ts(now_ts()),
-    })
+    Ok(DhParamsResult { bit_size: bits, group: format!("ffdhe{bits}"), prime_hex: colon_hex(&p.to_bytes_be()), generator: 2, pem: params_pem(&p, 2), generated_at: fmt_ts(now_ts()) })
 }
 
 const SMALL_PRIMES: [u32; 54] = [
-    3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47, 53, 59, 61, 67, 71, 73, 79, 83, 89, 97, 101, 103, 107, 109, 113, 127, 131, 137, 139,
-    149, 151, 157, 163, 167, 173, 179, 181, 191, 193, 197, 199, 211, 223, 227, 229, 233, 239, 241, 251, 257,
+    3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47, 53, 59, 61, 67, 71, 73, 79, 83, 89, 97, 101, 103, 107, 109, 113, 127, 131, 137, 139, 149, 151, 157, 163, 167, 173, 179, 181, 191, 193, 197,
+    199, 211, 223, 227, 229, 233, 239, 241, 251, 257,
 ];
 
 /// Generates a `bits`-bit safe prime. Expect seconds for 1024 bits and up to a few minutes for
@@ -65,14 +58,7 @@ pub fn generate(bits: u32) -> Res<DhParamsResult> {
             continue;
         }
         if probably_prime(&q, 2) && probably_prime(&p, 20) && probably_prime(&q, 20) {
-            return Ok(DhParamsResult {
-                bit_size: bits,
-                group: "custom".into(),
-                prime_hex: colon_hex(&p.to_bytes_be()),
-                generator: 2,
-                pem: params_pem(&p, 2),
-                generated_at: fmt_ts(now_ts()),
-            });
+            return Ok(DhParamsResult { bit_size: bits, group: "custom".into(), prime_hex: colon_hex(&p.to_bytes_be()), generator: 2, pem: params_pem(&p, 2), generated_at: fmt_ts(now_ts()) });
         }
     }
 }

@@ -38,6 +38,15 @@ pub struct CertificateInfo {
     pub sha256_fingerprint: String,
     pub sha1_fingerprint: String,
     pub md5_fingerprint: String,
+    /// SHA-256 of the subjectPublicKeyInfo. This is the value operators pin.
+    #[serde(default)]
+    pub spki_sha256: String,
+    #[serde(default)]
+    pub crl_distribution_points: Vec<String>,
+    #[serde(default)]
+    pub ocsp_urls: Vec<String>,
+    #[serde(default)]
+    pub ca_issuer_urls: Vec<String>,
     pub pem: String,
 }
 
@@ -70,6 +79,9 @@ pub struct KeystoreEntry {
     /// same format can write it back untouched.
     pub locked: bool,
     pub protected_key: Option<String>,
+    /// When set, save re-wraps this key with this password instead of the store password.
+    #[serde(default)]
+    pub key_password: Option<String>,
     pub labels: Vec<String>,
     pub is_expired: bool,
     pub is_weak: bool,
@@ -89,7 +101,31 @@ pub struct KeystoreFile {
     pub password_protected: bool,
     pub created_at: String,
     pub updated_at: String,
+    /// File mtime in unix milliseconds, captured at open. Save refuses a newer file unless forced.
+    #[serde(default)]
+    pub source_mtime_ms: Option<i64>,
     pub entries: Vec<KeystoreEntry>,
+}
+
+/// Inputs for building a PKCS#12 (.p12/.pfx) straight from a certificate and its private key.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct BuildPkcs12Input {
+    /// Friendly name stored in the file. Defaults to "1" when blank.
+    #[serde(default)]
+    pub alias: String,
+    /// The private key: PKCS#8, PKCS#1 or SEC1, PEM or DER, optionally encrypted.
+    pub key: Vec<u8>,
+    /// The certificate, or a chain. When omitted, certificates found in `key` are used.
+    #[serde(default)]
+    pub certificate: Option<Vec<u8>>,
+    /// Password that decrypts `key` when it arrives encrypted.
+    #[serde(default)]
+    pub key_password: Option<String>,
+    /// Passphrase protecting the produced file. Required.
+    pub passphrase: String,
+    /// Integrity MAC: "pkcs12" (default, compatible) or "pbmac1".
+    #[serde(default)]
+    pub mac: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -136,6 +172,18 @@ pub struct GenerateKeyPairInput {
     pub extended_key_usage: Vec<String>,
     #[serde(default)]
     pub labels: Vec<String>,
+    /// YYYY-MM-DD. Empty means "now".
+    #[serde(default)]
+    pub not_before: String,
+    /// YYYY-MM-DD. Empty means not_before plus `validity_days`.
+    #[serde(default)]
+    pub not_after: String,
+    #[serde(default)]
+    pub crl_distribution_points: Vec<String>,
+    #[serde(default)]
+    pub ocsp_urls: Vec<String>,
+    #[serde(default)]
+    pub ca_issuer_urls: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -167,6 +215,12 @@ pub struct CsrInfo {
     pub signature_algorithm: String,
     pub signature_valid: bool,
     pub sans: Vec<String>,
+    /// Builder ids requested by the CSR (`digitalSignature`, …). Empty when the CSR has no key usage.
+    #[serde(default)]
+    pub key_usage: Vec<String>,
+    /// Builder ids requested by the CSR (`serverAuth`, `codeSigning`, …).
+    #[serde(default)]
+    pub extended_key_usage: Vec<String>,
     pub extensions: Vec<X509ExtensionInfo>,
     pub public_key_sha256: String,
     pub pem: String,
@@ -198,6 +252,20 @@ pub struct SignCsrInput {
     pub extended_key_usage: Vec<String>,
     /// Copy the SANs requested in the CSR (default true).
     pub copy_requested_sans: Option<bool>,
+    /// Copy key usage and extended key usage from the CSR when it requests them (default true).
+    /// When false, `key_usage` and `extended_key_usage` are written as given, including when empty.
+    #[serde(default)]
+    pub copy_requested_usages: Option<bool>,
+    #[serde(default)]
+    pub not_before: String,
+    #[serde(default)]
+    pub not_after: String,
+    #[serde(default)]
+    pub crl_distribution_points: Vec<String>,
+    #[serde(default)]
+    pub ocsp_urls: Vec<String>,
+    #[serde(default)]
+    pub ca_issuer_urls: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -205,6 +273,9 @@ pub struct SignedCertificateResult {
     pub certificate: CertificateInfo,
     /// Leaf first, followed by the issuing CA's chain.
     pub chain_pem: String,
+    /// Set when the requested lifetime was shortened to the CA certificate's expiry.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub validity_note: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -271,6 +342,9 @@ pub struct TimestampInfo {
     /// False when the token is present but does not match this signature.
     pub valid: bool,
     pub error: Option<String>,
+    /// Some when a TSA trust bundle was supplied. True only when the token's certificates chain to it.
+    #[serde(default)]
+    pub chain_trusted: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -123,15 +123,7 @@ pub fn parse_dn(input: &str) -> Res<Dn> {
 /// Builds a DN from the classic form fields, skipping empty ones.
 pub fn dn_from_fields(cn: &str, ou: &str, o: &str, l: &str, st: &str, c: &str, email: &str) -> Res<Dn> {
     let mut dn: Dn = Vec::new();
-    for (arcs, v) in [
-        (oids::AT_CN, cn),
-        (oids::EMAIL_ADDRESS, email),
-        (oids::AT_OU, ou),
-        (oids::AT_O, o),
-        (oids::AT_L, l),
-        (oids::AT_ST, st),
-        (oids::AT_C, c),
-    ] {
+    for (arcs, v) in [(oids::AT_CN, cn), (oids::EMAIL_ADDRESS, email), (oids::AT_OU, ou), (oids::AT_O, o), (oids::AT_L, l), (oids::AT_ST, st), (oids::AT_C, c)] {
         let v = v.trim();
         if !v.is_empty() {
             if arcs == oids::AT_C && (v.len() != 2 || !v.chars().all(|c| c.is_ascii_alphabetic())) {
@@ -254,13 +246,7 @@ pub fn parse_san(input: &str) -> Res<San> {
     if value.is_empty() {
         return Err("empty subject alternative name".into());
     }
-    let check_ascii = |v: &str| -> Res<String> {
-        if v.is_ascii() {
-            Ok(v.to_string())
-        } else {
-            Err(format!("'{v}' contains non-ASCII characters; use its punycode (xn--) form"))
-        }
-    };
+    let check_ascii = |v: &str| -> Res<String> { if v.is_ascii() { Ok(v.to_string()) } else { Err(format!("'{v}' contains non-ASCII characters; use its punycode (xn--) form")) } };
     match kind.as_str() {
         "ip" => value.parse().map(San::Ip).map_err(|_| format!("'{value}' is not a valid IP address")),
         "email" | "rfc822" => Ok(San::Email(check_ascii(value)?)),
@@ -284,15 +270,8 @@ fn validate_dns(v: &str) -> Res<String> {
     let ok = v.is_ascii()
         && !v.is_empty()
         && v.len() <= 253
-        && v.split('.').enumerate().all(|(i, label)| {
-            (label == "*" && i == 0)
-                || (!label.is_empty() && label.len() <= 63 && label.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_'))
-        });
-    if ok {
-        Ok(v.to_ascii_lowercase())
-    } else {
-        Err(format!("'{v}' is not a valid DNS name"))
-    }
+        && v.split('.').enumerate().all(|(i, label)| (label == "*" && i == 0) || (!label.is_empty() && label.len() <= 63 && label.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')));
+    if ok { Ok(v.to_ascii_lowercase()) } else { Err(format!("'{v}' is not a valid DNS name")) }
 }
 
 pub fn san_to_string(san: &San) -> String {
@@ -351,10 +330,7 @@ pub fn ext_key_usage(usages: &[String]) -> Res<Option<Extension>> {
     let mut bits = [0u8; 2];
     let mut highest = None;
     for u in usages {
-        let (_, bit) = KEY_USAGE_BITS
-            .iter()
-            .find(|(n, _)| n.eq_ignore_ascii_case(u.trim()))
-            .ok_or_else(|| format!("unknown key usage '{u}'"))?;
+        let (_, bit) = KEY_USAGE_BITS.iter().find(|(n, _)| n.eq_ignore_ascii_case(u.trim())).ok_or_else(|| format!("unknown key usage '{u}'"))?;
         bits[bit / 8] |= 0x80 >> (bit % 8);
         highest = Some(highest.map_or(*bit, |h: usize| h.max(*bit)));
     }
@@ -370,10 +346,7 @@ pub fn ext_extended_key_usage(ids: &[String]) -> Res<Option<Extension>> {
     }
     let mut arcs_list = Vec::new();
     for id in ids {
-        let arcs = oids::eku_from_id(id)
-            .map(|a| a.to_vec())
-            .or_else(|| oids::parse_oid_str(id))
-            .ok_or_else(|| format!("unknown extended key usage '{id}'"))?;
+        let arcs = oids::eku_from_id(id).map(|a| a.to_vec()).or_else(|| oids::parse_oid_str(id)).ok_or_else(|| format!("unknown extended key usage '{id}'"))?;
         if !arcs_list.contains(&arcs) {
             arcs_list.push(arcs);
         }
@@ -423,10 +396,55 @@ pub fn ext_subject_key_id(ski: &[u8]) -> Extension {
     Extension::new(oids::EXT_SUBJECT_KEY_ID, false, yasna::construct_der(|w| w.write_bytes(ski)))
 }
 
-pub fn ext_authority_key_id(keyid: &[u8]) -> Extension {
+pub fn ext_crl_distribution_points(urls: &[String]) -> Option<Extension> {
+    let urls: Vec<&str> = urls.iter().map(|s| s.trim()).filter(|s| !s.is_empty()).collect();
+    if urls.is_empty() {
+        return None;
+    }
     let value = yasna::construct_der(|w| {
-        w.write_sequence(|w| w.next().write_tagged_implicit(Tag::context(0), |w| w.write_bytes(keyid)))
+        w.write_sequence(|w| {
+            for url in &urls {
+                w.next().write_sequence(|w| {
+                    w.next().write_tagged(Tag::context(0), |w| {
+                        w.write_tagged_implicit(Tag::context(0), |w| {
+                            w.write_sequence(|w| {
+                                w.next().write_tagged_implicit(Tag::context(6), |w| w.write_ia5_string(url));
+                            });
+                        });
+                    });
+                });
+            }
+        });
     });
+    Some(Extension::new(oids::EXT_CRL_DISTRIBUTION_POINTS, false, value))
+}
+
+pub fn ext_authority_info_access(ocsp: &[String], ca_issuers: &[String]) -> Option<Extension> {
+    let rows: Vec<(&[u64], &str)> = ocsp
+        .iter()
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+        .map(|s| (oids::AD_OCSP, s))
+        .chain(ca_issuers.iter().map(|s| s.trim()).filter(|s| !s.is_empty()).map(|s| (oids::AD_CA_ISSUERS, s)))
+        .collect();
+    if rows.is_empty() {
+        return None;
+    }
+    let value = yasna::construct_der(|w| {
+        w.write_sequence(|w| {
+            for (method, url) in &rows {
+                w.next().write_sequence(|w| {
+                    w.next().write_oid(&oid(method));
+                    w.next().write_tagged_implicit(Tag::context(6), |w| w.write_ia5_string(url));
+                });
+            }
+        });
+    });
+    Some(Extension::new(oids::EXT_AUTHORITY_INFO_ACCESS, false, value))
+}
+
+pub fn ext_authority_key_id(keyid: &[u8]) -> Extension {
+    let value = yasna::construct_der(|w| w.write_sequence(|w| w.next().write_tagged_implicit(Tag::context(0), |w| w.write_bytes(keyid))));
     Extension::new(oids::EXT_AUTHORITY_KEY_ID, false, value)
 }
 
@@ -551,14 +569,15 @@ pub fn build_csr(subject_der: &[u8], key: &PrivateKey, sig_alg: SigAlg, extensio
 fn reason_code(reason: &str) -> Res<Option<i64>> {
     Ok(match reason.trim() {
         "" | "unspecified" => None,
-        "keyCompromise" => Some(1),
-        "cACompromise" => Some(2),
-        "affiliationChanged" => Some(3),
+        "keyCompromise" | "keycompromise" => Some(1),
+        "cACompromise" | "cacompromise" => Some(2),
+        "affiliationChanged" | "affiliationchanged" => Some(3),
         "superseded" => Some(4),
-        "cessationOfOperation" => Some(5),
-        "certificateHold" => Some(6),
-        "privilegeWithdrawn" => Some(9),
-        "aACompromise" => Some(10),
+        "cessationOfOperation" | "cessationofoperation" => Some(5),
+        "certificateHold" | "certificatehold" => Some(6),
+        "removeFromCRL" | "removefromcrl" => Some(8),
+        "privilegeWithdrawn" | "privilegewithdrawn" => Some(9),
+        "aACompromise" | "aacompromise" => Some(10),
         other => return Err(format!("unknown revocation reason '{other}'")),
     })
 }
@@ -578,9 +597,24 @@ fn reason_name(code: u8) -> &'static str {
     }
 }
 
-fn parse_day(date: &str) -> Res<i64> {
-    let d = chrono::NaiveDate::parse_from_str(date.trim(), "%Y-%m-%d").map_err(|_| format!("'{date}' is not a YYYY-MM-DD date"))?;
-    Ok(d.and_hms_opt(0, 0, 0).unwrap().and_utc().timestamp())
+/// A calendar date or a UTC timestamp. Empty input is "not set".
+pub fn parse_instant(date: &str) -> Res<Option<i64>> {
+    let t = date.trim();
+    if t.is_empty() {
+        return Ok(None);
+    }
+    if let Ok(d) = chrono::NaiveDate::parse_from_str(t, "%Y-%m-%d") {
+        return Ok(Some(d.and_hms_opt(0, 0, 0).unwrap().and_utc().timestamp()));
+    }
+    if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(t) {
+        return Ok(Some(dt.timestamp()));
+    }
+    for fmt in ["%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M", "%Y-%m-%d %H:%M:%S"] {
+        if let Ok(dt) = chrono::NaiveDateTime::parse_from_str(t, fmt) {
+            return Ok(Some(dt.and_utc().timestamp()));
+        }
+    }
+    Err(format!("'{date}' is not a YYYY-MM-DD date or a UTC timestamp"))
 }
 
 /// Builds and signs an X.509 v2 CRL with CRL Number and Authority Key Identifier extensions.
@@ -591,7 +625,7 @@ pub fn build_crl(signer: &Signer, this_update: i64, next_update: i64, crl_number
     let mut entries = Vec::new();
     for r in revoked {
         let serial = parse_hex_serial(&r.serial_number)?;
-        let when = parse_day(&r.revocation_date)?;
+        let when = parse_instant(&r.revocation_date)?.ok_or_else(|| format!("revocation date for {} is missing", r.serial_number))?;
         entries.push((serial, when, reason_code(&r.reason)?));
     }
     let tbs = yasna::construct_der(|w| {
@@ -619,15 +653,8 @@ pub fn build_crl(signer: &Signer, this_update: i64, next_update: i64, crl_number
                     }
                 });
             }
-            w.next().write_tagged(Tag::context(0), |w| {
-                write_extensions(
-                    w,
-                    &[
-                        ext_authority_key_id(&aki),
-                        Extension::new(oids::EXT_CRL_NUMBER, false, yasna::construct_der(|w| w.write_u64(crl_number))),
-                    ],
-                )
-            });
+            w.next()
+                .write_tagged(Tag::context(0), |w| write_extensions(w, &[ext_authority_key_id(&aki), Extension::new(oids::EXT_CRL_NUMBER, false, yasna::construct_der(|w| w.write_u64(crl_number)))]));
         })
     });
     sign_structure(&tbs, signer)
@@ -662,22 +689,81 @@ fn general_name_to_string(gn: &GeneralName) -> String {
 }
 
 fn key_usage_names(ku: &KeyUsage) -> Vec<String> {
-    let mut v = Vec::new();
-    let pairs: [(bool, &str); 9] = [
-        (ku.digital_signature(), "Digital Signature"),
-        (ku.non_repudiation(), "Non Repudiation"),
-        (ku.key_encipherment(), "Key Encipherment"),
-        (ku.data_encipherment(), "Data Encipherment"),
-        (ku.key_agreement(), "Key Agreement"),
-        (ku.key_cert_sign(), "Certificate Sign"),
-        (ku.crl_sign(), "CRL Sign"),
-        (ku.encipher_only(), "Encipher Only"),
-        (ku.decipher_only(), "Decipher Only"),
+    key_usage_bits(ku).into_iter().map(|(_, name)| name.to_string()).collect()
+}
+
+/// `(id, display name)` for every bit set in `ku`. Ids are what the builders accept.
+fn key_usage_bits(ku: &KeyUsage) -> Vec<(&'static str, &'static str)> {
+    let pairs: [(bool, &str, &str); 9] = [
+        (ku.digital_signature(), "digitalSignature", "Digital Signature"),
+        (ku.non_repudiation(), "nonRepudiation", "Non Repudiation"),
+        (ku.key_encipherment(), "keyEncipherment", "Key Encipherment"),
+        (ku.data_encipherment(), "dataEncipherment", "Data Encipherment"),
+        (ku.key_agreement(), "keyAgreement", "Key Agreement"),
+        (ku.key_cert_sign(), "keyCertSign", "Certificate Sign"),
+        (ku.crl_sign(), "cRLSign", "CRL Sign"),
+        (ku.encipher_only(), "encipherOnly", "Encipher Only"),
+        (ku.decipher_only(), "decipherOnly", "Decipher Only"),
     ];
-    for (set, name) in pairs {
-        if set {
-            v.push(name.to_string());
+    pairs.into_iter().filter(|(set, _, _)| *set).map(|(_, id, name)| (id, name)).collect()
+}
+
+/// Accepts either a builder id (`digitalSignature`) or the display name stored on a parsed certificate.
+pub fn key_usage_id(name: &str) -> Option<&'static str> {
+    match name.trim() {
+        "digitalSignature" | "Digital Signature" => Some("digitalSignature"),
+        "nonRepudiation" | "contentCommitment" | "Non Repudiation" => Some("nonRepudiation"),
+        "keyEncipherment" | "Key Encipherment" => Some("keyEncipherment"),
+        "dataEncipherment" | "Data Encipherment" => Some("dataEncipherment"),
+        "keyAgreement" | "Key Agreement" => Some("keyAgreement"),
+        "keyCertSign" | "Certificate Sign" => Some("keyCertSign"),
+        "cRLSign" | "CRL Sign" => Some("cRLSign"),
+        "encipherOnly" | "Encipher Only" => Some("encipherOnly"),
+        "decipherOnly" | "Decipher Only" => Some("decipherOnly"),
+        _ => None,
+    }
+}
+
+/// Builder id for an extended key usage display name, id, or dotted OID.
+pub fn eku_id(name: &str) -> Option<String> {
+    let n = name.trim();
+    if oids::eku_from_id(n).is_some() || oids::parse_oid_str(n).is_some() {
+        return Some(n.to_string());
+    }
+    Some(
+        match n {
+            "TLS Web Server Authentication" => "serverAuth",
+            "TLS Web Client Authentication" => "clientAuth",
+            "Code Signing" => "codeSigning",
+            "E-mail Protection" => "emailProtection",
+            "Time Stamping" => "timeStamping",
+            "OCSP Signing" => "OCSPSigning",
+            "Any Extended Key Usage" => "anyExtendedKeyUsage",
+            _ => return None,
         }
+        .to_string(),
+    )
+}
+
+fn eku_ids(eku: &ExtendedKeyUsage) -> Vec<String> {
+    let mut v = Vec::new();
+    if eku.any {
+        v.push("anyExtendedKeyUsage".into());
+    }
+    for (set, id) in [
+        (eku.server_auth, "serverAuth"),
+        (eku.client_auth, "clientAuth"),
+        (eku.code_signing, "codeSigning"),
+        (eku.email_protection, "emailProtection"),
+        (eku.time_stamping, "timeStamping"),
+        (eku.ocsp_signing, "OCSPSigning"),
+    ] {
+        if set {
+            v.push(id.into());
+        }
+    }
+    for o in &eku.other {
+        v.push(oids::oid_str(&arcs_of(o)));
     }
     v
 }
@@ -759,23 +845,14 @@ fn describe_extension(ext: &X509Extension) -> X509ExtensionInfo {
             })
             .collect::<Vec<_>>()
             .join(", "),
-        ParsedExtension::CertificatePolicies(policies) => policies
-            .iter()
-            .map(|p| oids::oid_str(&arcs_of(&p.policy_id)))
-            .collect::<Vec<_>>()
-            .join(", "),
+        ParsedExtension::CertificatePolicies(policies) => policies.iter().map(|p| oids::oid_str(&arcs_of(&p.policy_id))).collect::<Vec<_>>().join(", "),
         ParsedExtension::CRLNumber(n) => n.to_string(),
         ParsedExtension::ReasonCode(r) => reason_name(r.0).to_string(),
         ParsedExtension::NSCertType(t) => format!("{t}"),
         ParsedExtension::NsCertComment(c) => c.to_string(),
         ParsedExtension::SCT(scts) => format!("{} signed certificate timestamp(s)", scts.len()),
         ParsedExtension::NameConstraints(nc) => {
-            let fmt = |subtrees: &Option<Vec<GeneralSubtree>>| {
-                subtrees
-                    .as_ref()
-                    .map(|s| s.iter().map(|t| general_name_to_string(&t.base)).collect::<Vec<_>>().join(", "))
-                    .unwrap_or_default()
-            };
+            let fmt = |subtrees: &Option<Vec<GeneralSubtree>>| subtrees.as_ref().map(|s| s.iter().map(|t| general_name_to_string(&t.base)).collect::<Vec<_>>().join(", ")).unwrap_or_default();
             format!("Permitted: [{}] Excluded: [{}]", fmt(&nc.permitted_subtrees), fmt(&nc.excluded_subtrees))
         }
         _ => {
@@ -790,12 +867,7 @@ fn describe_extension(ext: &X509Extension) -> X509ExtensionInfo {
 pub fn parse_certificate(der: &[u8]) -> Res<CertificateInfo> {
     let (_, cert) = X509Certificate::from_der(der).map_err(|err| format!("not a valid X.509 certificate: {err}"))?;
     let spki = cert.public_key().raw;
-    let pk = keys::public_key_info(spki).unwrap_or(keys::PublicKeyInfo {
-        algorithm: "unknown".into(),
-        key_size: 0,
-        curve: None,
-        is_post_quantum: false,
-    });
+    let pk = keys::public_key_info(spki).unwrap_or(keys::PublicKeyInfo { algorithm: "unknown".into(), key_size: 0, curve: None, is_post_quantum: false });
     let not_before = cert.validity().not_before.timestamp();
     let not_after = cert.validity().not_after.timestamp();
     let mut info = CertificateInfo {
@@ -814,7 +886,8 @@ pub fn parse_certificate(der: &[u8]) -> Res<CertificateInfo> {
         curve: pk.curve,
         sha256_fingerprint: colon_hex(&sha256(der)),
         sha1_fingerprint: colon_hex(&sha1(der)),
-        md5_fingerprint: colon_hex(&md5(der)),
+        md5_fingerprint: String::new(),
+        spki_sha256: colon_hex(&sha256(spki)),
         pem: to_pem("CERTIFICATE", der),
         ..Default::default()
     };
@@ -831,6 +904,28 @@ pub fn parse_certificate(der: &[u8]) -> Res<CertificateInfo> {
             }
             ParsedExtension::SubjectKeyIdentifier(k) => info.subject_key_id = Some(colon_hex(k.0)),
             ParsedExtension::AuthorityKeyIdentifier(aki) => info.authority_key_id = aki.key_identifier.as_ref().map(|k| colon_hex(k.0)),
+            ParsedExtension::CRLDistributionPoints(dps) => {
+                for p in &dps.points {
+                    if let Some(DistributionPointName::FullName(names)) = &p.distribution_point {
+                        for n in names {
+                            if let GeneralName::URI(u) = n {
+                                info.crl_distribution_points.push(u.to_string());
+                            }
+                        }
+                    }
+                }
+            }
+            ParsedExtension::AuthorityInfoAccess(aia) => {
+                for ad in &aia.accessdescs {
+                    if let GeneralName::URI(u) = &ad.access_location {
+                        match arcs_of(&ad.access_method).as_slice() {
+                            [1, 3, 6, 1, 5, 5, 7, 48, 1] => info.ocsp_urls.push(u.to_string()),
+                            [1, 3, 6, 1, 5, 5, 7, 48, 2] => info.ca_issuer_urls.push(u.to_string()),
+                            _ => {}
+                        }
+                    }
+                }
+            }
             _ => {}
         }
         info.extensions.push(describe_extension(ext));
@@ -847,8 +942,7 @@ pub fn parse_certificate(der: &[u8]) -> Res<CertificateInfo> {
 /// Verifies that the certificate `der` was signed by the key in `issuer_spki`.
 pub fn verify_certificate_signature(der: &[u8], issuer_spki: &[u8]) -> Res<bool> {
     let (_, cert) = X509Certificate::from_der(der).map_err(e)?;
-    let alg = SigAlg::from_oid(&arcs_of(&cert.signature_algorithm.algorithm))
-        .ok_or_else(|| format!("unsupported signature algorithm {}", cert.signature_algorithm.algorithm))?;
+    let alg = SigAlg::from_oid(&arcs_of(&cert.signature_algorithm.algorithm)).ok_or_else(|| format!("unsupported signature algorithm {}", cert.signature_algorithm.algorithm))?;
     keys::verify(issuer_spki, alg, cert.tbs_certificate.as_ref(), &cert.signature_value.data)
 }
 
@@ -860,19 +954,47 @@ pub struct CertSummary {
 
 pub fn cert_summary(der: &[u8]) -> Res<CertSummary> {
     let (_, cert) = X509Certificate::from_der(der).map_err(|err| format!("not a valid X.509 certificate: {err}"))?;
-    Ok(CertSummary {
-        subject_raw: cert.subject().as_raw().to_vec(),
-        issuer_raw: cert.issuer().as_raw().to_vec(),
-        spki: cert.public_key().raw.to_vec(),
-    })
+    Ok(CertSummary { subject_raw: cert.subject().as_raw().to_vec(), issuer_raw: cert.issuer().as_raw().to_vec(), spki: cert.public_key().raw.to_vec() })
 }
 
-/// True if `child` was issued by `parent` (name match plus signature check when possible).
-pub fn issued_by(child: &[u8], parent: &[u8]) -> bool {
-    match (cert_summary(child), cert_summary(parent)) {
-        (Ok(c), Ok(p)) => c.issuer_raw == p.subject_raw && verify_certificate_signature(child, &p.spki).unwrap_or(true),
-        _ => false,
+/// Subject key identifier and authority key identifier (key id only) from a certificate.
+fn ski_and_aki(der: &[u8]) -> (Option<Vec<u8>>, Option<Vec<u8>>) {
+    let Ok((_, cert)) = X509Certificate::from_der(der) else { return (None, None) };
+    let mut ski = None;
+    let mut aki = None;
+    for ext in cert.iter_extensions() {
+        match ext.parsed_extension() {
+            ParsedExtension::SubjectKeyIdentifier(k) => ski = Some(k.0.to_vec()),
+            ParsedExtension::AuthorityKeyIdentifier(a) => {
+                if let Some(k) = &a.key_identifier {
+                    aki = Some(k.0.to_vec());
+                }
+            }
+            _ => {}
+        }
     }
+    (ski, aki)
+}
+
+/// True when `parent` is the issuer of `child`.
+///
+/// The issuer name must match. When both the child's authority key id and the parent's subject
+/// key id are present they must be equal, so two certificates with the same subject are not
+/// interchangeable. The signature has to verify; an algorithm this process cannot check is not
+/// treated as a match.
+pub fn issued_by(child: &[u8], parent: &[u8]) -> bool {
+    let (Ok(c), Ok(p)) = (cert_summary(child), cert_summary(parent)) else { return false };
+    if c.issuer_raw != p.subject_raw {
+        return false;
+    }
+    let (_, child_aki) = ski_and_aki(child);
+    let (parent_ski, _) = ski_and_aki(parent);
+    if let (Some(aki), Some(ski)) = (child_aki, parent_ski)
+        && aki != ski
+    {
+        return false;
+    }
+    verify_certificate_signature(child, &p.spki).unwrap_or(false)
 }
 
 /// Orders a set of certificates into chains: picks the leaf (the cert that is nobody's issuer,
@@ -886,10 +1008,7 @@ pub fn build_chain(leaf: &[u8], pool: &[Vec<u8>]) -> Vec<Vec<u8>> {
         if cur.issuer_raw == cur.subject_raw {
             break; // self-signed root
         }
-        let next = pool
-            .iter()
-            .enumerate()
-            .find(|(i, c)| !used[*i] && c.as_slice() != current.as_slice() && !chain.contains(c) && issued_by(&current, c));
+        let next = pool.iter().enumerate().find(|(i, c)| !used[*i] && c.as_slice() != current.as_slice() && !chain.contains(c) && issued_by(&current, c));
         match next {
             Some((i, c)) => {
                 used[i] = true;
@@ -909,10 +1028,7 @@ pub fn order_bundle(certs: &[Vec<u8>]) -> Vec<Vec<u8>> {
     if certs.len() <= 1 {
         return certs.to_vec();
     }
-    let leaf = certs
-        .iter()
-        .find(|c| !certs.iter().any(|other| other.as_slice() != c.as_slice() && issued_by(other, c)))
-        .unwrap_or(&certs[0]);
+    let leaf = certs.iter().find(|c| !certs.iter().any(|other| other.as_slice() != c.as_slice() && issued_by(other, c))).unwrap_or(&certs[0]);
     let mut chain = build_chain(leaf, certs);
     for c in certs {
         if !chain.contains(c) {
@@ -937,9 +1053,10 @@ pub fn certificates_from_bytes(data: &[u8]) -> Res<Vec<Vec<u8>>> {
         if out.is_empty() {
             // Bare base64 of a DER certificate.
             if let Ok(der) = unb64(text.trim())
-                && X509Certificate::from_der(&der).is_ok() {
-                    return Ok(vec![der]);
-                }
+                && X509Certificate::from_der(&der).is_ok()
+            {
+                return Ok(vec![der]);
+            }
             return Err("no certificate found in the data".into());
         }
         return Ok(out);
@@ -966,17 +1083,18 @@ pub fn parse_csr(der: &[u8]) -> Res<CsrInfo> {
         None => false,
     };
     let mut sans = Vec::new();
+    let mut key_usage = Vec::new();
+    let mut extended_key_usage = Vec::new();
     let mut extensions = Vec::new();
-    if let Some(exts) = csr.requested_extensions() {
-        for ext in exts {
-            if let ParsedExtension::SubjectAlternativeName(san) = ext {
-                sans = san.general_names.iter().map(general_name_to_string).collect();
-            }
-        }
-    }
     for attr in info.iter_attributes() {
         if let x509_parser::cri_attributes::ParsedCriAttribute::ExtensionRequest(req) = attr.parsed_attribute() {
             for ext in &req.extensions {
+                match ext.parsed_extension() {
+                    ParsedExtension::SubjectAlternativeName(san) => sans = san.general_names.iter().map(general_name_to_string).collect(),
+                    ParsedExtension::KeyUsage(ku) => key_usage = key_usage_bits(ku).into_iter().map(|(id, _)| id.to_string()).collect(),
+                    ParsedExtension::ExtendedKeyUsage(eku) => extended_key_usage = eku_ids(eku),
+                    _ => {}
+                }
                 extensions.push(describe_extension(ext));
             }
         }
@@ -989,6 +1107,8 @@ pub fn parse_csr(der: &[u8]) -> Res<CsrInfo> {
         signature_algorithm: oids::signature_algorithm_name(&arcs_of(&csr.signature_algorithm.algorithm)),
         signature_valid,
         sans,
+        key_usage,
+        extended_key_usage,
         extensions,
         public_key_sha256: colon_hex(&sha256(spki)),
         pem: to_pem("CERTIFICATE REQUEST", der),
@@ -1000,6 +1120,10 @@ pub struct CsrParts {
     pub subject_der: Vec<u8>,
     pub spki: Vec<u8>,
     pub sans: Vec<String>,
+    /// Builder ids (`digitalSignature`, …) requested in the CSR. Empty when the CSR asks for none.
+    pub key_usage: Vec<String>,
+    /// Builder ids (`serverAuth`, `codeSigning`, …) requested in the CSR.
+    pub extended_key_usage: Vec<String>,
 }
 
 pub fn csr_parts(der: &[u8]) -> Res<CsrParts> {
@@ -1012,6 +1136,8 @@ pub fn csr_parts(der: &[u8]) -> Res<CsrParts> {
         subject_der: csr.certification_request_info.subject.as_raw().to_vec(),
         spki: csr.certification_request_info.subject_pki.raw.to_vec(),
         sans: info.sans,
+        key_usage: info.key_usage,
+        extended_key_usage: info.extended_key_usage,
     })
 }
 
@@ -1025,9 +1151,10 @@ pub fn csr_der_from_bytes(data: &[u8]) -> Res<Vec<u8>> {
             }
         }
         if let Ok(der) = unb64(text.trim())
-            && X509CertificationRequest::from_der(&der).is_ok() {
-                return Ok(der);
-            }
+            && X509CertificationRequest::from_der(&der).is_ok()
+        {
+            return Ok(der);
+        }
         return Err("no PKCS#10 certificate request found (expected -----BEGIN CERTIFICATE REQUEST-----)".into());
     }
     Ok(data.to_vec())
@@ -1040,14 +1167,12 @@ pub fn parse_crl(der: &[u8], issuer_spki: Option<&[u8]>) -> Res<CrlInfo> {
         .iter_revoked_certificates()
         .map(|r| RevokedCertEntry {
             serial_number: upper_hex(r.raw_serial()),
-            revocation_date: fmt_date(r.revocation_date.timestamp()),
+            revocation_date: ts_to_datetime(r.revocation_date.timestamp()).format("%Y-%m-%dT%H:%M:%SZ").to_string(),
             reason: r.reason_code().map(|(_, c)| reason_name(c.0).to_string()).unwrap_or_else(|| "unspecified".into()),
         })
         .collect();
     let signature_valid = issuer_spki.map(|spki| {
-        SigAlg::from_oid(&arcs_of(&crl.signature_algorithm.algorithm))
-            .map(|alg| keys::verify(spki, alg, crl.tbs_cert_list.as_ref(), &crl.signature_value.data).unwrap_or(false))
-            .unwrap_or(false)
+        SigAlg::from_oid(&arcs_of(&crl.signature_algorithm.algorithm)).map(|alg| keys::verify(spki, alg, crl.tbs_cert_list.as_ref(), &crl.signature_value.data).unwrap_or(false)).unwrap_or(false)
     });
     Ok(CrlInfo {
         issuer: name_to_string(crl.issuer()),
@@ -1061,6 +1186,215 @@ pub fn parse_crl(der: &[u8], issuer_spki: Option<&[u8]>) -> Res<CrlInfo> {
         pem: to_pem("X509 CRL", der),
         signature_valid,
     })
+}
+
+fn host_matches(name: &str, host: &str) -> bool {
+    let host = host.trim().trim_end_matches('.').to_ascii_lowercase();
+    let name = name.trim().trim_end_matches('.').to_ascii_lowercase();
+    if let Some(rest) = name.strip_prefix("*.") { host.strip_suffix(&format!(".{rest}")).is_some_and(|head| !head.is_empty() && !head.contains('.')) } else { name == host }
+}
+
+fn san_matches_host(san: &str, host: &str) -> bool {
+    let clean_host = host.trim().trim_start_matches('[').trim_end_matches(']');
+    if let Ok(host_ip) = clean_host.parse::<std::net::IpAddr>() {
+        if let Some(ip_str) = san.strip_prefix("IP:").or_else(|| san.strip_prefix("ip:")) {
+            return ip_str.trim().parse::<std::net::IpAddr>().is_ok_and(|san_ip| san_ip == host_ip);
+        }
+        return false;
+    }
+    let lower = san.to_ascii_lowercase();
+    if let Some(name) = lower.strip_prefix("dns:") {
+        return host_matches(name, clean_host);
+    }
+    false
+}
+
+fn dns_subtree_matches(name: &str, subtree: &str) -> bool {
+    let candidate = name.trim().trim_end_matches('.').to_ascii_lowercase();
+    let candidate = candidate.strip_prefix("*.").unwrap_or(&candidate);
+    let base = subtree.trim().trim_end_matches('.').to_ascii_lowercase();
+    if base.is_empty() {
+        return true;
+    }
+    if let Some(suffix) = base.strip_prefix('.') { candidate.ends_with(&format!(".{suffix}")) } else { candidate == base || candidate.ends_with(&format!(".{base}")) }
+}
+
+fn ip_subtree_matches(ip: std::net::IpAddr, constraint: &[u8]) -> bool {
+    match (ip, constraint.len()) {
+        (std::net::IpAddr::V4(v4), 8) => {
+            let addr = u32::from(v4);
+            let net = u32::from_be_bytes([constraint[0], constraint[1], constraint[2], constraint[3]]);
+            let mask = u32::from_be_bytes([constraint[4], constraint[5], constraint[6], constraint[7]]);
+            (addr & mask) == (net & mask)
+        }
+        (std::net::IpAddr::V6(v6), 32) => {
+            let addr = u128::from(v6);
+            let net = u128::from_be_bytes(constraint[0..16].try_into().unwrap());
+            let mask = u128::from_be_bytes(constraint[16..32].try_into().unwrap());
+            (addr & mask) == (net & mask)
+        }
+        _ => false,
+    }
+}
+
+fn check_name_constraints(parent_der: &[u8], parent_subject: &str, child_info: &CertificateInfo, problems: &mut Vec<String>) {
+    let Ok((_, parent_cert)) = X509Certificate::from_der(parent_der) else { return };
+    let mut dns_names: Vec<String> = child_info.sans.iter().filter_map(|s| s.strip_prefix("DNS:").or_else(|| s.strip_prefix("dns:")).map(|d| d.trim().to_string())).collect();
+    if dns_names.is_empty() {
+        for part in child_info.subject.split(',') {
+            if let Some(cn) = part.trim().strip_prefix("CN=")
+                && cn.contains('.')
+                && !cn.contains(' ')
+            {
+                dns_names.push(cn.trim().to_string());
+            }
+        }
+    }
+    let ip_addrs: Vec<std::net::IpAddr> = child_info.sans.iter().filter_map(|s| s.strip_prefix("IP:").or_else(|| s.strip_prefix("ip:"))).filter_map(|ip| ip.trim().parse().ok()).collect();
+
+    for ext in parent_cert.iter_extensions() {
+        let is_nc_oid = arcs_of(&ext.oid) == [2, 5, 29, 30];
+        match ext.parsed_extension() {
+            ParsedExtension::NameConstraints(nc) => {
+                if nc.permitted_subtrees.as_ref().is_some_and(|s| s.is_empty()) || nc.excluded_subtrees.as_ref().is_some_and(|s| s.is_empty()) {
+                    problems.push(format!("{parent_subject} has a malformed NameConstraints extension"));
+                }
+                if let Some(permitted) = &nc.permitted_subtrees {
+                    let permitted_dns: Vec<&str> = permitted
+                        .iter()
+                        .filter_map(|t| match &t.base {
+                            GeneralName::DNSName(d) => Some(*d),
+                            _ => None,
+                        })
+                        .collect();
+                    if !permitted_dns.is_empty() && dns_names.iter().any(|d| !permitted_dns.iter().any(|sub| dns_subtree_matches(d, sub))) {
+                        problems.push(format!("{} violates permitted DNS NameConstraints on {}", child_info.subject, parent_subject));
+                    }
+                    let permitted_ips: Vec<&[u8]> = permitted
+                        .iter()
+                        .filter_map(|t| match &t.base {
+                            GeneralName::IPAddress(b) => Some(*b),
+                            _ => None,
+                        })
+                        .collect();
+                    if !permitted_ips.is_empty() && ip_addrs.iter().any(|ip| !permitted_ips.iter().any(|sub| ip_subtree_matches(*ip, sub))) {
+                        problems.push(format!("{} violates permitted IP NameConstraints on {}", child_info.subject, parent_subject));
+                    }
+                }
+                if let Some(excluded) = &nc.excluded_subtrees {
+                    let excluded_dns: Vec<&str> = excluded
+                        .iter()
+                        .filter_map(|t| match &t.base {
+                            GeneralName::DNSName(d) => Some(*d),
+                            _ => None,
+                        })
+                        .collect();
+                    if dns_names.iter().any(|d| excluded_dns.iter().any(|sub| dns_subtree_matches(d, sub))) {
+                        problems.push(format!("{} violates excluded DNS NameConstraints on {}", child_info.subject, parent_subject));
+                    }
+                    let excluded_ips: Vec<&[u8]> = excluded
+                        .iter()
+                        .filter_map(|t| match &t.base {
+                            GeneralName::IPAddress(b) => Some(*b),
+                            _ => None,
+                        })
+                        .collect();
+                    if ip_addrs.iter().any(|ip| excluded_ips.iter().any(|sub| ip_subtree_matches(*ip, sub))) {
+                        problems.push(format!("{} violates excluded IP NameConstraints on {}", child_info.subject, parent_subject));
+                    }
+                }
+            }
+            _ if is_nc_oid && ext.critical => {
+                problems.push(format!("{parent_subject} has a malformed critical NameConstraints extension"));
+            }
+            _ => {}
+        }
+    }
+}
+
+/// Problems found while building a path from `leaf` to one of `anchors`.
+/// An empty list means a path was built and the checks below passed.
+/// Name constraints are applied to DNS and IP names on the leaf. Revocation is not fetched.
+pub fn validate_chain(leaf: &[u8], intermediates: &[Vec<u8>], anchors: &[Vec<u8>], hostname: Option<&str>) -> Vec<String> {
+    let mut problems = Vec::new();
+    let Ok(leaf_info) = parse_certificate(leaf) else {
+        return vec!["the certificate could not be parsed".into()];
+    };
+    let now = now_ts();
+    if leaf_info.not_before > now {
+        problems.push(format!("{} is not valid yet", leaf_info.subject));
+    }
+    if leaf_info.not_after < now {
+        problems.push(format!("{} has expired", leaf_info.subject));
+    }
+    if let Some(host) = hostname.map(str::trim).filter(|h| !h.is_empty()) {
+        let named = leaf_info.sans.iter().any(|s| san_matches_host(s, host));
+        if !named {
+            problems.push(format!("the certificate is not valid for {host}"));
+        }
+        let server_ok = leaf_info.extended_key_usage.is_empty() || leaf_info.extended_key_usage.iter().any(|u| u.contains("Server") || u == "Any Extended Key Usage");
+        if !server_ok {
+            problems.push("the certificate is not valid for TLS server authentication".into());
+        }
+    }
+    let pool: Vec<&[u8]> = intermediates.iter().map(|c| c.as_slice()).chain(anchors.iter().map(|c| c.as_slice())).collect();
+    let mut current = leaf.to_vec();
+    let mut reached = anchors.iter().any(|a| a.as_slice() == leaf);
+    if reached
+        && let Ok(sum) = cert_summary(leaf)
+        && sum.subject_raw == sum.issuer_raw
+        && !leaf_info.self_signed
+    {
+        problems.push(format!("{} has an invalid self-signature", leaf_info.subject));
+    }
+    let mut ca_certs_below: u32 = u32::from(leaf_info.is_ca && !leaf_info.self_signed);
+    for _ in 0..16 {
+        if reached {
+            break;
+        }
+        let Some(parent) = pool.iter().copied().find(|c| *c != current.as_slice() && issued_by(&current, c)) else { break };
+        let Ok(parent_info) = parse_certificate(parent) else {
+            problems.push("a certificate in the chain could not be parsed".into());
+            break;
+        };
+        if !parent_info.is_ca {
+            problems.push(format!("{} is not a CA certificate", parent_info.subject));
+        }
+        if !parent_info.key_usage.is_empty() && !parent_info.key_usage.iter().any(|k| k == "Certificate Sign") {
+            problems.push(format!("{} does not allow certificate signing", parent_info.subject));
+        }
+        if parent_info.not_before > now {
+            problems.push(format!("{} is not valid yet", parent_info.subject));
+        }
+        if parent_info.not_after < now {
+            problems.push(format!("{} has expired", parent_info.subject));
+        }
+        if let Some(limit) = parent_info.path_len
+            && ca_certs_below > limit
+        {
+            problems.push(format!("{} path length of {limit} is exceeded", parent_info.subject));
+        }
+        check_name_constraints(parent, &parent_info.subject, &leaf_info, &mut problems);
+        reached = anchors.iter().any(|a| a.as_slice() == parent);
+        if reached
+            && let Ok(sum) = cert_summary(parent)
+            && sum.subject_raw == sum.issuer_raw
+            && !parent_info.self_signed
+        {
+            problems.push(format!("{} has an invalid self-signature", parent_info.subject));
+        }
+        if !parent_info.self_signed {
+            ca_certs_below += 1;
+        }
+        current = parent.to_vec();
+        if parent_info.self_signed {
+            break;
+        }
+    }
+    if !reached {
+        problems.push("the chain does not reach one of the supplied trust anchors".into());
+    }
+    problems
 }
 
 #[cfg(test)]
@@ -1126,11 +1460,7 @@ mod tests {
                 not_before: now,
                 not_after: now + 86_400 * 30,
                 spki_der: leaf_key.public_key_der().unwrap(),
-                extensions: vec![
-                    ext_basic_constraints(false, None),
-                    ext_extended_key_usage(&["serverAuth".into()]).unwrap().unwrap(),
-                    ext_subject_alt_name(&sans).unwrap(),
-                ],
+                extensions: vec![ext_basic_constraints(false, None), ext_extended_key_usage(&["serverAuth".into()]).unwrap().unwrap(), ext_subject_alt_name(&sans).unwrap()],
             },
             &Signer { key: &ca_key, cert_der: Some(&ca_der), sig_alg: ca_key.default_sig_alg(None).unwrap() },
         )
@@ -1141,8 +1471,34 @@ mod tests {
         assert_eq!(leaf.authority_key_id, ca_info.subject_key_id);
         assert!(!leaf.self_signed);
         assert!(verify_certificate_signature(&leaf_der, &ca_spki).unwrap());
+        assert!(issued_by(&leaf_der, &ca_der));
         assert_eq!(build_chain(&leaf_der, std::slice::from_ref(&ca_der)).len(), 2);
         assert_eq!(order_bundle(&[ca_der.clone(), leaf_der.clone()])[0], leaf_der);
+
+        // A second CA with the same subject must not be treated as the issuer.
+        let other_key = PrivateKey::generate("ECDSA", 0, Some("P-256")).unwrap();
+        let other_der = build_certificate(
+            CertTemplate {
+                serial: random_serial(),
+                subject_der: ca_dn,
+                not_before: now,
+                not_after: now + 86_400 * 365,
+                spki_der: other_key.public_key_der().unwrap(),
+                extensions: vec![ext_basic_constraints(true, Some(0))],
+            },
+            &Signer { key: &other_key, cert_der: None, sig_alg: other_key.default_sig_alg(None).unwrap() },
+        )
+        .unwrap();
+        assert!(!issued_by(&leaf_der, &other_der));
+        let chained = build_chain(&leaf_der, &[other_der, ca_der.clone()]);
+        assert_eq!(chained.len(), 2);
+        assert_eq!(chained[1], ca_der);
+
+        // A broken signature is not "issued by", including when the certificate no longer parses.
+        let mut bad = leaf_der.clone();
+        let last = bad.len() - 1;
+        bad[last] ^= 0xff;
+        assert!(!issued_by(&bad, &ca_der));
 
         // CSR round trip
         let csr = build_csr(&encode_dn(&parse_dn("CN=req").unwrap()), &leaf_key, SigAlg::Rsa(crate::pbe::HashAlg::Sha256), &[ext_subject_alt_name(&sans).unwrap()]).unwrap();

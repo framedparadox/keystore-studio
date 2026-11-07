@@ -1,0 +1,4 @@
+# The ASN.1 builders are written as long sequences. A 100-column wrap would split every one of them.
+max_width = 200
+use_small_heuristics = "Max"
+edition = "2024"

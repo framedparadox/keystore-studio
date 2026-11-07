@@ -4,15 +4,15 @@ import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import { useStore } from "../state/store";
 import { FORMAT_INFO } from "../lib/keystore";
 import { KEYSTORE_FORMATS, type KeystoreFormat } from "../types/crypto";
-import { Button, Card, CardHeader, Checkbox, Kbd, Page, PageHeader, Select, TextInput, useConfirm, useToast } from "../components/ui";
+import { Button, Card, CardHeader, Checkbox, Kbd, Page, PageHeader, Select, TextArea, TextInput, useConfirm, useToast } from "../components/ui";
 import { TerminalHint, useTerminal } from "../components/Terminal";
 
 const ENGINE = [
-  "PKCS#12 reader/writer (PBES2/AES, legacy 3DES/RC2, SHA-1/SHA-2 MACs, Java secret keys)",
-  "JKS and JCEKS reader/writer (keytool compatible, incl. sealed secret keys)",
+  "PKCS#12 reader/writer (PBES2/AES, legacy 3DES/RC2, SHA-1/SHA-2/PBMAC1 MACs, Java secret keys)",
+  "JKS and JCEKS reader/writer (keytool compatible, incl. sealed secret keys) + read-only BKS v2",
   "X.509 certificates, PKCS#10 CSRs and v2 CRLs built and signed with your keys",
   "RSA (rsa), ECDSA P-256/384/521 (RustCrypto), Ed25519 (ed25519-dalek)",
-  "CMS/PKCS#7 SignedData, JAR signing, JWS/JWT",
+  "CMS/PKCS#7 SignedData, JAR signing, RFC 3161 timestamps, JWS/JWT",
   "TLS inspection with rustls against the system trust store",
   "Vault: Argon2id + AES-256-GCM",
 ];
@@ -29,7 +29,7 @@ export const SHORTCUTS: [string, string][] = [
 ];
 
 export const SettingsView: React.FC = () => {
-  const { settings, updateSettings, appInfo, clearRecentFiles, resetAppData, recentFiles } = useStore();
+  const { settings, updateSettings, appInfo, clearRecentFiles, resetAppData, recentFiles, keystores } = useStore();
   const confirm = useConfirm();
   const toast = useToast();
   const { open } = useTerminal();
@@ -74,6 +74,7 @@ export const SettingsView: React.FC = () => {
             A trusted timestamp records <em>when</em> you signed, so signatures keep verifying after the signing certificate expires. Without one, verifiers reject
             an expired signer. This is the only network request signing makes, and only when it is switched on.
           </p>
+          <TextArea label="TSA trust anchors (PEM)" value={settings.tsaTrustPem} onChange={(e) => updateSettings({ tsaTrustPem: e.target.value })} rows={4} hint="A timestamp is reported as trusted only when the token's certificates chain to this bundle. Leave it empty to record the time without a trust decision." />
           <TextInput
             label="Timestamp authority (TSA) URL"
             value={settings.tsaUrl}
@@ -124,6 +125,22 @@ export const SettingsView: React.FC = () => {
               </Button>
             )}
             <Button
+              onClick={() => {
+                const lines = [
+                  `xkeystore ${appInfo?.version ?? "unknown"}`,
+                  `platform ${appInfo?.platform ?? "unknown"}`,
+                  `data_dir ${appInfo?.data_dir ?? ""}`,
+                  ...keystores.map((k) => `${k.format} ${k.name} entries=${k.entries.length} locked=${k.entries.filter((e) => e.locked).length} aliases=${k.entries.map((e) => e.alias).join(",")}`),
+                ];
+                void navigator.clipboard.writeText(lines.join("\n")).then(
+                  () => toast.success("Copied diagnostics. Passwords and key material are not included."),
+                  () => toast.error("Could not copy diagnostics."),
+                );
+              }}
+            >
+              Copy diagnostics
+            </Button>
+            <Button
               icon={Trash2}
               disabled={!recentFiles.length}
               onClick={() => {
@@ -157,7 +174,9 @@ export const SettingsView: React.FC = () => {
 
         <Card className="space-y-3">
           <CardHeader title="About xkeystore" subtitle={appInfo ? `Version ${appInfo.version} · ${appInfo.platform}` : undefined} icon={ShieldCheck} className="!mb-0" />
-          <p className="text-[13px] text-muted">All cryptography runs locally in the bundled Rust engine. Nothing is sent over the network except the TLS handshakes you start from Examine.</p>
+          <p className="text-[13px] text-muted">
+            All cryptography runs locally in the bundled Rust engine. Nothing is sent over the network except the TLS handshakes you start from Examine and optional RFC 3161 timestamp requests when signing.
+          </p>
           <ul className="space-y-1.5 text-[12.5px]">
             {ENGINE.map((p) => (
               <li key={p} className="flex items-start gap-2 text-ink-2">
@@ -166,7 +185,7 @@ export const SettingsView: React.FC = () => {
               </li>
             ))}
           </ul>
-          <p className="text-[12px] text-faint">Not supported: Bouncy Castle BKS/BCFKS/UBER keystores, hardware tokens (PKCS#11), TSA timestamping.</p>
+          <p className="text-[12px] text-faint">Not supported: Bouncy Castle BCFKS/UBER keystores (BKS v2 is read-only), hardware tokens (PKCS#11).</p>
         </Card>
       </div>
     </Page>

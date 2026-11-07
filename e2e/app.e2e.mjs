@@ -400,7 +400,7 @@ async function run() {
     await find(tid("open-password-dialog"));
     await type(tid("open-password"), "wrong-password");
     await click(tid("open-submit"));
-    await waitText("password incorrect");
+    await waitText("That password does not open this keystore.");
     await type(tid("open-password"), STORE_PW);
     await click(By.xpath(`//label[contains(., "Remember the password in the vault")]`));
     await click(tid("open-submit"));

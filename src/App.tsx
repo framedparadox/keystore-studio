@@ -6,6 +6,7 @@ import { ConfirmProvider, Spinner, ToastProvider } from "./components/ui";
 import { CommandPalette } from "./components/CommandPalette";
 import { DropOverlay, useWindowFileDrop } from "./components/DropZone";
 import { NewKeystoreDialog, OpenPasswordDialog, SaveDialog, VaultPromptDialog } from "./components/KeystoreDialogs";
+import { BuildPkcs12Dialog } from "./components/AddEntryDialogs";
 import { StoreProvider, useStore } from "./state/store";
 import { HomeView } from "./views/HomeView";
 import { KeystoresView } from "./views/KeystoresView";
@@ -122,6 +123,7 @@ const Shell: React.FC = () => {
       <OpenPasswordDialog />
       <SaveDialog />
       <NewKeystoreDialog />
+      <BuildPkcs12Dialog open={store.buildPkcs12Open} onClose={() => store.setBuildPkcs12Open(false)} />
       <VaultPromptDialog />
       <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />
       <DropOverlay visible={dragging} />

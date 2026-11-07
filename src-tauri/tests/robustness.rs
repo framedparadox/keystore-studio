@@ -213,6 +213,11 @@ fn sample_entry_named(alias: &str) -> xkeystore_lib::model::KeystoreEntry {
         key_usage: vec![],
         extended_key_usage: vec![],
         labels: vec![],
+        not_before: String::new(),
+        not_after: String::new(),
+        crl_distribution_points: vec![],
+        ocsp_urls: vec![],
+        ca_issuer_urls: vec![],
     };
     xkeystore_lib::ops::generate_key_pair(&input, None).unwrap()
 }
@@ -221,10 +226,8 @@ fn sample_entry_named(alias: &str) -> xkeystore_lib::model::KeystoreEntry {
 /// nested 0x88-tagged length caused a panic inside yasna's reader rather than a parse error.
 #[test]
 fn fuzz_crash_keys_indefinite_length_does_not_panic() {
-    let data = [
-        0x30, 0x80, 0x30, 0x80, 0x06, 0x08, 0x00, 0x3e, 0x10, 0x00, 0x84, 0x25, 0x02, 0x30, 0x30, 0x88, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-        0xff, 0xff, 0xff, 0xff, 0x3e, 0x00, 0x00, 0x21, 0x0c,
-    ];
+    let data =
+        [0x30, 0x80, 0x30, 0x80, 0x06, 0x08, 0x00, 0x3e, 0x10, 0x00, 0x84, 0x25, 0x02, 0x30, 0x30, 0x88, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x3e, 0x00, 0x00, 0x21, 0x0c];
     // Narrow it down: each of these must return, not panic.
     let _ = keys::PrivateKey::from_pkcs8_der(&data);
     let _ = keys::public_key_info(&data);

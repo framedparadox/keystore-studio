@@ -33,8 +33,9 @@ import {
 } from "lucide-react";
 import type { KeystoreEntry, OpenKeystore } from "../types/crypto";
 import { api, errorMessage } from "../lib/api";
-import { pickSavePath, safeFileStem } from "../lib/files";
+import { baseName, pickSavePath, safeFileStem, withExtension } from "../lib/files";
 import { FORMAT_INFO, canHoldSecretKeys } from "../lib/keystore";
+import { diffEntries } from "../lib/diff";
 import { daysUntilExpiry, entryHealth, formatDuration, summarize } from "../lib/metrics";
 import { useStore } from "../state/store";
 import {
@@ -66,7 +67,7 @@ import { KeyPasswordDialog } from "../components/KeystoreDialogs";
 type TypeFilter = "ALL" | "KeyPair" | "TrustedCertificate" | "SecretKey";
 type Dialog =
   | null
-  | { kind: "inspect" | "export" | "csr" | "reply" | "rename" | "labels" | "workspaces" | "unlock"; entry: KeystoreEntry }
+  | { kind: "inspect" | "export" | "csr" | "reply" | "rename" | "labels" | "workspaces" | "unlock" | "keypw"; entry: KeystoreEntry }
   | { kind: "keypair" | "ca" | "secret" | "cert" | "importkp" | "merge" | "password" };
 
 interface Clip {
@@ -119,9 +120,36 @@ const ChangePasswordDialog: React.FC<{ keystore: OpenKeystore; onClose: () => vo
   );
 };
 
+const ChangeKeyPasswordDialog: React.FC<{ entry: KeystoreEntry; onClose: () => void; onSave: (password: string) => void }> = ({ entry, onClose, onSave }) => {
+  const [pw, setPw] = useState("");
+  const [pw2, setPw2] = useState("");
+  const error = pw && pw.length < 6 ? "At least 6 characters" : pw2 && pw !== pw2 ? "Passwords do not match" : undefined;
+  return (
+    <Modal open onClose={onClose} icon={KeySquare} size="sm" title={`Key password for ${entry.alias}`} footer={<><Button onClick={onClose}>Cancel</Button><Button variant="primary" disabled={!pw || !!error} onClick={() => onSave(pw)}>Save on next write</Button></>}>
+      <div className="space-y-3">
+        <PasswordInput label="New key password" value={pw} onChange={setPw} />
+        <PasswordInput label="Confirm" value={pw2} onChange={setPw2} error={error} />
+        <p className="text-[12px] text-faint">The store password still opens the file. This password wraps only this key, the way keytool -keypasswd does.</p>
+      </div>
+    </Modal>
+  );
+};
+
+const DiffDialog: React.FC<{ keystore: OpenKeystore; others: OpenKeystore[]; text: string; onClose: () => void; onPick: (other: OpenKeystore | "disk") => void }> = ({ keystore, others, text, onClose, onPick }) => (
+  <Modal open onClose={onClose} icon={FileText} title={`Compare ${keystore.name}`} size="md" footer={<Button onClick={onClose}>Close</Button>}>
+    <div className="space-y-3">
+      <div className="flex flex-wrap gap-2">
+        {keystore.path && <Button size="sm" onClick={() => onPick("disk")}>File on disk</Button>}
+        {others.map((o) => <Button key={o.id} size="sm" onClick={() => onPick(o)}>{o.name}</Button>)}
+      </div>
+      {text && <pre className="text-[12.5px] whitespace-pre-wrap font-mono">{text}</pre>}
+    </div>
+  </Modal>
+);
+
 export const KeystoresView: React.FC = () => {
   const store = useStore();
-  const { keystores, activeKeystore: ks, selectKeystore, openFiles, setNewKeystoreOpen, save, closeKeystore, deleteEntries, addEntries, replaceEntry, getPassword, unlockSealed, workspaces } = store;
+  const { keystores, activeKeystore: ks, selectKeystore, openFiles, setNewKeystoreOpen, save, closeKeystore, deleteEntries, addEntries, replaceEntry, setEntryLabels, getPassword, unlockSealed, workspaces } = store;
   const toast = useToast();
   const confirm = useConfirm();
 
@@ -129,6 +157,9 @@ export const KeystoresView: React.FC = () => {
   const [typeFilter, setTypeFilter] = useState<TypeFilter>("ALL");
   const [labelFilter, setLabelFilter] = useState("");
   const [dialog, setDialog] = useState<Dialog>(null);
+  const [selected, setSelected] = useState<string[]>([]);
+  const [diffOpen, setDiffOpen] = useState(false);
+  const [diffText, setDiffText] = useState("");
   const [clip, setClip] = useState<Clip | null>(clipboardMemory);
   useEffect(() => {
     clipboardMemory = clip;
@@ -223,7 +254,7 @@ export const KeystoresView: React.FC = () => {
       const fresh = reread.entries.find((e) => e.alias === entry.alias);
       if (!fresh || fresh.locked) return "Incorrect key password.";
       replaceEntry(ks.id, { ...fresh, id: entry.id, labels: entry.labels });
-      toast.success(`Unlocked '${entry.alias}'. Saving will protect it with the store password.`);
+      toast.success(`Unlocked '${entry.alias}'. Saving keeps its key password separate from the store password.`);
       setDialog(null);
       return null;
     } catch (err) {
@@ -255,12 +286,28 @@ export const KeystoresView: React.FC = () => {
     { label: "Rename…", icon: Edit3, onSelect: () => setDialog({ kind: "rename", entry }), divider: true, testId: "menu-rename" },
     { label: "Labels…", icon: Tag, onSelect: () => setDialog({ kind: "labels", entry }) },
     { label: "Workspaces…", icon: Layers, onSelect: () => setDialog({ kind: "workspaces", entry }) },
+    { label: "Clone", icon: Copy, onSelect: () => { addEntries(ks.id, [entry]); toast.success(`Cloned '${entry.alias}'.`); } },
+    { label: "Change key password…", icon: KeySquare, onSelect: () => setDialog({ kind: "keypw", entry }), disabled: entry.locked || entry.entry_type === "TrustedCertificate" },
     { label: "Copy", icon: Copy, onSelect: () => copyEntries([entry], "copy"), divider: true },
     { label: "Cut", icon: Scissors, onSelect: () => copyEntries([entry], "cut") },
     { label: "Delete", icon: Trash2, onSelect: () => deleteWithConfirm([entry]), danger: true, divider: true, testId: "menu-delete" },
   ];
 
   const columns: Column<KeystoreEntry>[] = [
+    {
+      id: "pick",
+      header: "",
+      width: "36px",
+      cell: (e) => (
+        <input
+          type="checkbox"
+          aria-label={`Select ${e.alias}`}
+          checked={selected.includes(e.id)}
+          onClick={(ev) => ev.stopPropagation()}
+          onChange={() => setSelected((cur) => (cur.includes(e.id) ? cur.filter((id) => id !== e.id) : [...cur, e.id]))}
+        />
+      ),
+    },
     { id: "alias", header: "Alias", width: "30%", sortValue: (e) => e.alias.toLowerCase(), cell: (e) => <EntryNameCell entry={e} /> },
     { id: "alg", header: "Algorithm", sortValue: (e) => e.algorithm, cell: (e) => <AlgorithmCell entry={e} /> },
     { id: "expiry", header: "Expires", width: "210px", sortValue: (e) => daysUntilExpiry(e), cell: (e) => <ExpiryCell entry={e} /> },
@@ -300,6 +347,26 @@ export const KeystoresView: React.FC = () => {
 
   const moreMenu: MenuItem[] = [
     { label: "Save as…", hint: "Different file, format or password", icon: Save, onSelect: () => save(ks.id, { saveAs: true }), testId: "ks-save-as" },
+    {
+      label: "Migrate to PKCS#12…",
+      hint: "Write a new .p12 and leave this file in place",
+      icon: Save,
+      onSelect: async () => {
+        const password = getPassword(ks.id);
+        if (!password) return save(ks.id, { saveAs: true });
+        const suggested = withExtension(baseName(ks.path || ks.name).replace(/\.[^.]+$/, ""), "p12");
+        const path = await pickSavePath("Migrate to PKCS#12", suggested, [{ name: "PKCS#12", extensions: ["p12", "pfx"] }]).catch(() => null);
+        if (!path) return;
+        if (ks.path && path === ks.path) return toast.error("Choose a new file so the original stays in place.");
+        try {
+          const res = await api.saveKeystore(ks, path, password, "PKCS12", "pkcs12", false);
+          toast.success(`Wrote ${res.name}. ${ks.name} was not modified.`);
+        } catch (err) {
+          toast.error(errorMessage(err));
+        }
+      },
+    },
+    { label: "Compare…", hint: "Against another open keystore or the file on disk", icon: FileText, onSelect: () => setDiffOpen(true) },
     { label: "Change password…", icon: KeySquare, onSelect: () => setDialog({ kind: "password" }) },
     { label: "Export inventory (CSV)…", icon: FileText, onSelect: exportCsv, testId: "ks-export-csv" },
     ...(ks.path ? [{ label: "Show in folder", icon: FolderOpen, onSelect: () => void revealItemInDir(ks.path).catch(() => undefined) }] : []),
@@ -433,6 +500,42 @@ export const KeystoresView: React.FC = () => {
                 </select>
               )}
               <div className="flex-1" />
+              {selected.length > 0 && (
+                <div className="flex items-center gap-2">
+                  <span className="text-[12px] text-faint">{selected.length} selected</span>
+                  <Button size="sm" icon={Trash2} onClick={() => void deleteWithConfirm(ks.entries.filter((e) => selected.includes(e.id))).then(() => setSelected([]))}>
+                    Delete
+                  </Button>
+                  <Button
+                    size="sm"
+                    icon={Download}
+                    onClick={async () => {
+                      const pem = ks.entries.filter((e) => selected.includes(e.id)).flatMap((e) => e.certificate_chain.map((c) => c.pem)).join("");
+                      if (!pem) return toast.error("The selection has no certificates to export.");
+                      const path = await pickSavePath("Export certificates", "selection.pem", [{ name: "PEM", extensions: ["pem"] }]).catch(() => null);
+                      if (!path) return;
+                      await api.writeTextFile(path, pem);
+                      toast.success(`Wrote certificates to ${path}.`);
+                    }}
+                  >
+                    Export
+                  </Button>
+                  <Button
+                    size="sm"
+                    icon={Tag}
+                    onClick={() => {
+                      const label = window.prompt("Label to add to the selected entries");
+                      if (!label?.trim()) return;
+                      for (const id of selected) {
+                        const entry = ks.entries.find((e) => e.id === id);
+                        if (entry) setEntryLabels(ks.id, id, [...new Set([...entry.labels, label.trim()])]);
+                      }
+                    }}
+                  >
+                    Label
+                  </Button>
+                </div>
+              )}
               <SearchInput value={search} onChange={setSearch} placeholder="Search alias, subject, serial, fingerprint" className="w-full sm:w-80" />
             </div>
             <DataTable<KeystoreEntry>
@@ -539,6 +642,34 @@ export const KeystoresView: React.FC = () => {
       <ImportKeyPairDialog keystore={ks} open={dialog?.kind === "importkp"} onClose={() => setDialog(null)} />
       <ImportFromKeystoreDialog keystore={ks} open={dialog?.kind === "merge"} onClose={() => setDialog(null)} />
       {dialog?.kind === "password" && <ChangePasswordDialog keystore={ks} onClose={() => setDialog(null)} />}
+      {dialog?.kind === "keypw" && current && (
+        <ChangeKeyPasswordDialog
+          entry={current}
+          onClose={() => setDialog(null)}
+          onSave={(password) => {
+            replaceEntry(ks.id, { ...current, key_password: password });
+            toast.success(`'${current.alias}' will be saved with its own key password.`);
+            setDialog(null);
+          }}
+        />
+      )}
+      {diffOpen && (
+        <DiffDialog
+          keystore={ks}
+          others={keystores.filter((k) => k.id !== ks.id && !k.sealed)}
+          text={diffText}
+          onClose={() => { setDiffOpen(false); setDiffText(""); }}
+          onPick={async (other) => {
+            const right = other === "disk" ? await api.openKeystore(ks.path, getPassword(ks.id) ?? "").catch((err) => { setDiffText(errorMessage(err)); return null; }) : other;
+            if (!right) return;
+            const d = diffEntries(
+              ks.entries.map((e) => ({ alias: e.alias, fingerprint: e.sha256_fingerprint })),
+              right.entries.map((e) => ({ alias: e.alias, fingerprint: e.sha256_fingerprint })),
+            );
+            setDiffText([`Added: ${d.added.join(", ") || "—"}`, `Removed: ${d.removed.join(", ") || "—"}`, `Changed fingerprint: ${d.changed.join(", ") || "—"}`].join("\n"));
+          }}
+        />
+      )}
     </Page>
   );
 };

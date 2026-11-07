@@ -3,7 +3,7 @@ import { CheckCircle2, Clock, Cpu, FileArchive, FileCheck2, FileSignature, Folde
 import type { CertificateInfo, CmsSignResult, CmsVerifyResult, CrlInfo, CsrInfo, DhParamsResult, JarSignResult, JwtVerifyResult, KeystoreEntry, OpenKeystore, RevokedCertEntry, SignedCertificateResult, TimestampInfo } from "../types/crypto";
 import { api, errorMessage } from "../lib/api";
 import { FILTERS, baseName, pickFile, pickSavePath, safeFileStem } from "../lib/files";
-import { EXTENDED_KEY_USAGES, cnOf, isCaEntry, splitList } from "../lib/keystore";
+import { EXTENDED_KEY_USAGES, KEY_USAGES, cnOf, isCaEntry, splitList } from "../lib/keystore";
 import { useStore } from "../state/store";
 import { Alert, Badge, Button, Card, Checkbox, CodeBlock, EmptyState, Page, PageHeader, Segmented, Select, Spinner, TextArea, TextInput, useToast } from "../components/ui";
 import { CertificateDetails } from "../components/CertificateView";
@@ -81,6 +81,9 @@ const TimestampBadge: React.FC<{ ts?: TimestampInfo | null }> = ({ ts }) => {
         </div>
       )}
       {ts.error && <div className="text-danger">{ts.error}</div>}
+      {ts.chain_trusted === true && <div className="text-success">TSA certificate chains to the configured trust bundle.</div>}
+      {ts.chain_trusted === false && <div className="text-danger">TSA certificate does not chain to the configured trust bundle.</div>}
+      {ts.valid && ts.chain_trusted == null && <div className="text-faint">TSA certificate chain was not checked. Add a trust bundle in Settings to verify it.</div>}
     </div>
   );
 };
@@ -166,6 +169,11 @@ async function sha256OfPem(pemText: string): Promise<string> {
 
 // ====================================================================================== CSR
 
+const usageLabels = (ids: string[] | undefined, dict: { id: string; label: string }[]) => {
+  if (!ids?.length) return "none";
+  return ids.map((id) => dict.find((d) => d.id === id)?.label ?? id).join(", ");
+};
+
 const SignCsrTool: React.FC = () => {
   const { keystores, replaceEntry, addEntries, activeKeystore } = useStore();
   const toast = useToast();
@@ -177,10 +185,18 @@ const SignCsrTool: React.FC = () => {
   const [info, setInfo] = useState<CsrInfo | null>(null);
   const [subject, setSubject] = useState("");
   const [days, setDays] = useState(397);
+  const [notBefore, setNotBefore] = useState("");
+  const [notAfter, setNotAfter] = useState("");
+  const [crlUrl, setCrlUrl] = useState("");
+  const [ocspUrl, setOcspUrl] = useState("");
+  const [caIssuerUrl, setCaIssuerUrl] = useState("");
   const [isCa, setIsCa] = useState(false);
+  const [pathLen, setPathLen] = useState("");
   const [extraSans, setExtraSans] = useState("");
   const [copySans, setCopySans] = useState(true);
-  const [eku, setEku] = useState<string[]>(["serverAuth", "clientAuth"]);
+  const [honorUsages, setHonorUsages] = useState(true);
+  const [ku, setKu] = useState<string[]>([]);
+  const [eku, setEku] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<SignedCertificateResult | null>(null);
   const [match, setMatch] = useState<{ entry: KeystoreEntry; ks: OpenKeystore } | null>(null);
@@ -189,6 +205,7 @@ const SignCsrTool: React.FC = () => {
   useEffect(() => {
     setInfo(null);
     setResult(null);
+    setHonorUsages(true);
   }, [path, text]);
 
   const inspect = async () => {
@@ -196,6 +213,8 @@ const SignCsrTool: React.FC = () => {
       const i = await api.inspectCsr(source());
       setInfo(i);
       setSubject(i.subject);
+      setKu(i.key_usage ?? []);
+      setEku(i.extended_key_usage ?? []);
       return i;
     } catch (err) {
       toast.error(errorMessage(err));
@@ -211,7 +230,23 @@ const SignCsrTool: React.FC = () => {
       if (!i) return;
       const csrPem = path ? await api.readTextFile(path) : text;
       const res = await api.signCsr(
-        { csr_pem: csrPem, subject_override: subject && subject !== i.subject ? subject : null, validity_days: Number(days), is_ca: isCa, sans: splitList(extraSans), key_usage: [], extended_key_usage: isCa ? [] : eku, copy_requested_sans: copySans },
+        {
+          csr_pem: csrPem,
+          subject_override: subject && subject !== i.subject ? subject : null,
+          validity_days: Number(days),
+          is_ca: isCa,
+          path_len: isCa && pathLen.trim() !== "" ? Number(pathLen) : null,
+          sans: splitList(extraSans),
+          key_usage: honorUsages ? [] : ku,
+          extended_key_usage: honorUsages ? [] : eku,
+          copy_requested_sans: copySans,
+          copy_requested_usages: honorUsages,
+          not_before: notBefore,
+          not_after: notAfter,
+          crl_distribution_points: splitList(crlUrl),
+          ocsp_urls: splitList(ocspUrl),
+          ca_issuer_urls: splitList(caIssuerUrl),
+        },
         ca.entry
       );
       setResult(res);
@@ -223,7 +258,7 @@ const SignCsrTool: React.FC = () => {
         }
       }
       setMatch(found);
-      toast.success(`Issued a certificate for ${cnOf(res.certificate.subject)}, valid until ${res.certificate.valid_to}.`);
+      toast.success(`Issued a certificate for ${cnOf(res.certificate.subject)}, valid until ${res.certificate.valid_to}.${res.validity_note ? ` ${res.validity_note}` : ""}`);
     } catch (err) {
       toast.error(errorMessage(err));
     } finally {
@@ -258,20 +293,64 @@ const SignCsrTool: React.FC = () => {
             </div>
             <div className="font-mono text-[11.5px] text-ink break-all">{info.subject}</div>
             {info.sans.length > 0 && <div className="text-faint">Requested SANs: {info.sans.join(", ")}</div>}
+            <div className="text-faint">
+              Requested key usage: {usageLabels(info.key_usage, KEY_USAGES)}. Extended: {usageLabels(info.extended_key_usage, EXTENDED_KEY_USAGES)}.
+            </div>
           </div>
         )}
         <TextInput label="Subject" value={subject} onChange={(e) => setSubject(e.target.value)} placeholder="Taken from the CSR" hint="Edit to override the requested subject." className="font-mono !text-[12px]" />
         <div className="grid grid-cols-2 gap-3">
           <TextInput label="Validity (days)" type="number" min={1} value={days} onChange={(e) => setDays(Number(e.target.value))} />
+          <TextInput label="Not before" type="date" value={notBefore} onChange={(e) => setNotBefore(e.target.value)} />
+          <TextInput label="Not after" type="date" value={notAfter} onChange={(e) => setNotAfter(e.target.value)} />
+          <TextInput label="CRL URL" value={crlUrl} onChange={(e) => setCrlUrl(e.target.value)} placeholder="http://ca.example/crl.pem" className="col-span-2" />
+          <TextInput label="OCSP URL (AIA)" value={ocspUrl} onChange={(e) => setOcspUrl(e.target.value)} placeholder="http://ocsp.example" />
+          <TextInput label="CA Issuers URL (AIA)" value={caIssuerUrl} onChange={(e) => setCaIssuerUrl(e.target.value)} placeholder="http://ca.example/ca.crt" />
           <TextInput label="Extra SANs" value={extraSans} onChange={(e) => setExtraSans(e.target.value)} placeholder="DNS:alt.example.com" />
+          {isCa && <TextInput label="Path length constraint" type="number" min={0} value={pathLen} onChange={(e) => setPathLen(e.target.value)} placeholder="Unlimited" />}
         </div>
         <Checkbox checked={copySans} onChange={setCopySans} label="Copy the SANs requested in the CSR" />
-        <Checkbox checked={isCa} onChange={setIsCa} label="Issue a CA certificate (intermediate)" />
-        {!isCa && (
-          <div className="grid grid-cols-2 gap-1.5">
-            {EXTENDED_KEY_USAGES.slice(0, 4).map((k) => (
-              <Checkbox key={k.id} checked={eku.includes(k.id)} onChange={() => setEku(eku.includes(k.id) ? eku.filter((x) => x !== k.id) : [...eku, k.id])} label={k.label} />
-            ))}
+        <Checkbox
+          checked={honorUsages}
+          disabled={isCa}
+          onChange={(v) => {
+            setHonorUsages(v);
+            if (!v && info) {
+              setKu(info.key_usage ?? []);
+              setEku(info.extended_key_usage ?? []);
+            }
+          }}
+          label="Use the key usage requested in the CSR"
+          hint={isCa ? "A CA certificate uses certificate sign and CRL sign instead of the request." : undefined}
+        />
+        <Checkbox
+          checked={isCa}
+          onChange={(v) => {
+            setIsCa(v);
+            if (v) {
+              setHonorUsages(false);
+              setKu(["digitalSignature", "keyCertSign", "cRLSign"]);
+              setEku([]);
+            } else {
+              setHonorUsages(true);
+            }
+          }}
+          label="Issue a CA certificate (intermediate)"
+        />
+        {!honorUsages && (
+          <div className="space-y-3">
+            <div className="grid grid-cols-2 gap-1.5">
+              {KEY_USAGES.map((k) => (
+                <Checkbox key={k.id} checked={ku.includes(k.id)} onChange={() => setKu(ku.includes(k.id) ? ku.filter((x) => x !== k.id) : [...ku, k.id])} label={k.label} />
+              ))}
+            </div>
+            {!isCa && (
+              <div className="grid grid-cols-2 gap-1.5">
+                {EXTENDED_KEY_USAGES.map((k) => (
+                  <Checkbox key={k.id} checked={eku.includes(k.id)} onChange={() => setEku(eku.includes(k.id) ? eku.filter((x) => x !== k.id) : [...eku, k.id])} label={k.label} />
+                ))}
+              </div>
+            )}
           </div>
         )}
         <div className="flex gap-2">
@@ -333,10 +412,10 @@ const SignCsrTool: React.FC = () => {
 
 // ====================================================================================== CRL
 
-const CRL_REASONS = ["unspecified", "keyCompromise", "cACompromise", "affiliationChanged", "superseded", "cessationOfOperation", "certificateHold", "privilegeWithdrawn"];
+const CRL_REASONS = ["unspecified", "keyCompromise", "cACompromise", "affiliationChanged", "superseded", "cessationOfOperation", "certificateHold", "removeFromCRL", "privilegeWithdrawn", "aACompromise"];
 
 const CrlTool: React.FC = () => {
-  const { keystores } = useStore();
+  const { keystores, desktop } = useStore();
   const toast = useToast();
   const saveText = useSaveText();
   const cas = useSigners(isCaEntry);
@@ -348,30 +427,40 @@ const CrlTool: React.FC = () => {
   const [reason, setReason] = useState("keyCompromise");
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<CrlInfo | null>(null);
+  const [ledger, setLedger] = useState<{ serial: string; subject: string; ski: string; not_after: string; profile: string; issuer_ski: string }[]>([]);
 
-  // Next CRL number per CA, remembered on this computer.
+  const caSki = ca?.entry.certificate_chain[0]?.subject_key_id ?? "";
+
   useEffect(() => {
-    if (!ca) return;
-    try {
-      const map = JSON.parse(localStorage.getItem("xkeystore.crlNumbers") ?? "{}");
-      setCrlNumber(map[ca.entry.sha256_fingerprint] ?? 1);
-    } catch {
-      setCrlNumber(1);
-    }
     setRevoked([]);
     setResult(null);
-  }, [ca?.entry.id]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (!desktop || !caSki) {
+      setCrlNumber(1);
+      setLedger([]);
+      return;
+    }
+    api.caNextCrlNumber(caSki).then((n) => setCrlNumber(n)).catch(() => setCrlNumber(1));
+    api.ledgerSearch("").then((all) => setLedger(all.filter((r) => !r.issuer_ski || r.issuer_ski.toUpperCase() === caSki.toUpperCase()))).catch(() => setLedger([]));
+  }, [ca?.entry.id, caSki, desktop]);
 
-  const issued = useMemo(
-    () => (ca ? keystores.flatMap((ks) => ks.entries.filter((e) => e.issuer === ca.entry.subject && e.id !== ca.entry.id && e.serial_number)) : []),
-    [keystores, ca]
-  );
+  const issued = useMemo(() => {
+    if (!ca) return [];
+    const fromOpen = keystores.flatMap((ks) => ks.entries.filter((e) => e.issuer === ca.entry.subject && e.id !== ca.entry.id && e.serial_number));
+    const seen = new Set(fromOpen.map((e) => e.serial_number.toUpperCase()));
+    const fromLedger = ledger
+      .filter((r) => r.serial && !seen.has(r.serial.toUpperCase()))
+      .map((r) => ({ id: `ledger:${r.serial}`, alias: r.profile, subject: r.subject, serial_number: r.serial, fromLedger: true as const }));
+    return [
+      ...fromOpen.map((e) => ({ id: e.id, alias: e.alias, subject: e.subject, serial_number: e.serial_number, fromLedger: false as const })),
+      ...fromLedger,
+    ];
+  }, [keystores, ca, ledger]);
   const add = (s: string, r = reason) => {
     const clean = s.trim().replace(/[:\s]/g, "").toUpperCase();
     if (!clean) return;
     if (!/^(0X)?[0-9A-F]+$/.test(clean)) return toast.error(`'${s}' is not a hexadecimal serial number.`);
     if (revoked.some((x) => x.serial_number === clean)) return;
-    setRevoked([...revoked, { serial_number: clean, revocation_date: new Date().toISOString().slice(0, 10), reason: r }]);
+    setRevoked([...revoked, { serial_number: clean, revocation_date: new Date().toISOString(), reason: r }]);
     setSerial("");
   };
   const generate = async () => {
@@ -380,14 +469,7 @@ const CrlTool: React.FC = () => {
     try {
       const res = await api.generateCrl(ca.entry, Number(days), Number(crlNumber), revoked);
       setResult(res);
-      try {
-        const map = JSON.parse(localStorage.getItem("xkeystore.crlNumbers") ?? "{}");
-        map[ca.entry.sha256_fingerprint] = Number(crlNumber) + 1;
-        localStorage.setItem("xkeystore.crlNumbers", JSON.stringify(map));
-        setCrlNumber(Number(crlNumber) + 1);
-      } catch {
-        /* storage unavailable */
-      }
+      setCrlNumber(Number(crlNumber) + 1);
       toast.success(`Issued CRL #${res.crl_number} with ${res.revoked_entries.length} revoked certificate(s).`);
     } catch (err) {
       toast.error(errorMessage(err));
@@ -413,6 +495,22 @@ const CrlTool: React.FC = () => {
               ))}
             </Select>
             <Button icon={Plus} onClick={() => add(serial)} aria-label="Add serial" data-testid="crl-add" />
+            <Button
+              onClick={async () => {
+                const path = await pickFile("Open a CRL", [FILTERS.certificates]).catch(() => null);
+                if (!path) return;
+                try {
+                  const crl = await api.readCrl({ path });
+                  setRevoked(crl.revoked_entries);
+                  setCrlNumber(Number(crl.crl_number ?? 0) + 1);
+                  toast.success(`Loaded ${crl.revoked_entries.length} revocation(s). The next CRL number is ${Number(crl.crl_number ?? 0) + 1}.`);
+                } catch (err) {
+                  toast.error(errorMessage(err));
+                }
+              }}
+            >
+              Open CRL…
+            </Button>
           </div>
           {issued.length > 0 && (
             <Select className="mt-2" value="" onChange={(e) => e.target.value && add(e.target.value)} aria-label="Add a certificate issued by this CA">
@@ -423,6 +521,31 @@ const CrlTool: React.FC = () => {
                 </option>
               ))}
             </Select>
+          )}
+          {ledger.length > 0 && (
+            <div className="mt-2 rounded-control border border-line bg-surface-2 p-2.5 space-y-1.5">
+              <div className="text-[11.5px] font-medium text-faint">Issuance ledger ({ledger.length})</div>
+              <ul className="space-y-1 max-h-32 overflow-y-auto">
+                {ledger.map((r) => (
+                  <li key={r.serial} className="flex items-center justify-between gap-2 text-[12px]">
+                    <button type="button" className="text-left min-w-0 flex-1 hover:text-brand cursor-pointer" onClick={() => add(r.serial)} title="Click to add to revoked list">
+                      <span className="font-mono text-ink">{r.serial.slice(0, 12)}…</span> · <span className="text-muted">{cnOf(r.subject)}</span>
+                    </button>
+                    <button
+                      type="button"
+                      aria-label={`Delete ledger entry ${r.serial}`}
+                      className="text-faint hover:text-danger p-0.5 cursor-pointer"
+                      onClick={async () => {
+                        await api.ledgerDelete(r.serial).catch(() => undefined);
+                        setLedger((l) => l.filter((x) => x.serial !== r.serial));
+                      }}
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
           )}
           <ul className="mt-2 space-y-1.5 max-h-48 overflow-y-auto">
             {revoked.map((r) => (
@@ -484,6 +607,7 @@ const CrlTool: React.FC = () => {
 // ====================================================================================== CMS
 
 const CmsTool: React.FC = () => {
+  const { settings } = useStore();
   const toast = useToast();
   const saveText = useSaveText();
   const signers = useSigners(usableKeyPair);
@@ -504,7 +628,7 @@ const CmsTool: React.FC = () => {
     if (!signer) return;
     setBusy(true);
     try {
-      setSigned(await api.cmsSign(path ? { path } : { text }, signer.entry, detached, timestamping.tsaUrl));
+      setSigned(await api.cmsSign(path ? { path } : { text }, signer.entry, detached, timestamping.tsaUrl, settings.tsaTrustPem));
     } catch (err) {
       toast.error(errorMessage(err));
     } finally {
@@ -515,7 +639,7 @@ const CmsTool: React.FC = () => {
     setBusy(true);
     try {
       const content = path ? { path } : text ? { text } : null;
-      setVerified(await api.cmsVerify(sigPath ? { path: sigPath } : { text: sigText }, content, useEntry && signer ? signer.entry : null));
+      setVerified(await api.cmsVerify(sigPath ? { path: sigPath } : { text: sigText }, content, useEntry && signer ? signer.entry : null, settings.tsaTrustPem));
     } catch (err) {
       toast.error(errorMessage(err));
     } finally {
@@ -687,7 +811,7 @@ const JwtTool: React.FC = () => {
 // ====================================================================================== JAR
 
 const JarTool: React.FC = () => {
-  const { jarRequest } = useStore();
+  const { jarRequest, settings } = useStore();
   const toast = useToast();
   const savedToast = useSavedToast();
   const signers = useSigners(usableKeyPair);
@@ -705,7 +829,7 @@ const JarTool: React.FC = () => {
       const out = await pickSavePath("Save signed JAR as", baseName(input).replace(/(\.\w+)$/, "-signed$1"), [FILTERS.jar]);
       if (!out) return;
       setBusy(true);
-      const res = await api.jarSign(input, out, signer.entry, timestamping.tsaUrl);
+      const res = await api.jarSign(input, out, signer.entry, timestamping.tsaUrl, settings.tsaTrustPem);
       setResult(res);
       savedToast(`Signed ${res.entries_signed} entries; written to ${res.output_path}.`, res.output_path);
     } catch (err) {

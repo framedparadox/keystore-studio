@@ -2,8 +2,9 @@
 //! importing keys and certificates, CRLs and key rotation.
 
 use crate::entry;
-use crate::keys::{self, parse_hash_name, PrivateKey};
+use crate::keys::{self, PrivateKey, parse_hash_name};
 use crate::model::*;
+use crate::pkcs12;
 use crate::util::*;
 use crate::x509::{self, CertTemplate, San, Signer};
 
@@ -41,6 +42,18 @@ fn default_key_usage(is_ca: bool, algorithm: &str) -> Vec<String> {
     }
 }
 
+/// End-entity default is TLS server authentication only. Client authentication is opt-in.
+fn default_extended_key_usage(is_ca: bool) -> Vec<String> {
+    if is_ca { vec![] } else { vec!["serverAuth".into()] }
+}
+
+struct Validity {
+    not_before: i64,
+    not_after: i64,
+    /// Set when `not_after` was pulled back to the CA certificate's expiry.
+    note: Option<String>,
+}
+
 /// The issuing CA: its private key plus certificate chain (leaf of the CA entry first).
 struct Issuer {
     key: PrivateKey,
@@ -61,6 +74,9 @@ fn issuer_from(ca: &KeystoreEntry) -> Res<Issuer> {
     if !leaf.is_ca {
         return Err(format!("'{}' is not a CA certificate (BasicConstraints CA:TRUE is required to issue certificates)", ca.alias));
     }
+    if leaf.not_before > now_ts() {
+        return Err(format!("the CA certificate '{}' is not valid yet (valid from {})", ca.alias, leaf.valid_from));
+    }
     if leaf.not_after < now_ts() {
         return Err(format!("the CA certificate '{}' has expired", ca.alias));
     }
@@ -70,29 +86,72 @@ fn issuer_from(ca: &KeystoreEntry) -> Res<Issuer> {
     Ok(Issuer { key, chain, not_after: leaf.not_after })
 }
 
-fn validity(days: u32, issuer: Option<&Issuer>) -> Res<(i64, i64)> {
-    if days == 0 || days > 36_500 {
-        return Err("validity must be between 1 and 36500 days".into());
+/// RFC 5280 pathLenConstraint: the number of non-self-issued CA certificates that may follow
+/// this certificate. Issuing a CA counts as one. A subordinate CA under a constrained issuer
+/// must itself set a strictly smaller path length, so it cannot outlive the parent's budget.
+fn enforce_path_length(chain: &[Vec<u8>], new_is_ca: bool, new_path_len: Option<u32>) -> Res<()> {
+    for (i, der) in chain.iter().enumerate() {
+        let info = x509::parse_certificate(der)?;
+        if let Some(limit) = info.path_len {
+            let following = i as u32 + u32::from(new_is_ca);
+            if following > limit {
+                return Err(format!("issuing this certificate would exceed the path length constraint of {limit} on {}", info.subject));
+            }
+        }
     }
+    if new_is_ca {
+        let signer = x509::parse_certificate(&chain[0])?;
+        if let Some(limit) = signer.path_len {
+            match new_path_len {
+                Some(n) if n < limit => {}
+                Some(n) => {
+                    return Err(format!("a subordinate CA under a path length of {limit} must set a path length below {limit} (got {n})"));
+                }
+                None => return Err(format!("a subordinate CA under a path length of {limit} must set a path length below {limit}")),
+            }
+        }
+    }
+    Ok(())
+}
+
+fn validity(days: u32, issuer: Option<&Issuer>) -> Res<Validity> {
+    validity_span(days, "", "", issuer)
+}
+
+fn validity_span(days: u32, not_before_s: &str, not_after_s: &str, issuer: Option<&Issuer>) -> Res<Validity> {
     let now = now_ts() - 60; // tolerate small clock skew on the relying side
-    let mut not_after = now + days as i64 * DAY;
-    if let Some(i) = issuer {
-        not_after = not_after.min(i.not_after);
+    let not_before = x509::parse_instant(not_before_s)?.unwrap_or(now);
+    let explicit_end = x509::parse_instant(not_after_s)?;
+    let requested = if let Some(end) = explicit_end {
+        end
+    } else {
+        if days == 0 || days > 36_500 {
+            return Err("validity must be between 1 and 36500 days".into());
+        }
+        not_before + days as i64 * DAY
+    };
+    let mut not_after = requested;
+    let mut note = None;
+    if let Some(i) = issuer
+        && requested > i.not_after
+    {
+        not_after = i.not_after;
+        note = Some(format!("Requested validity ran to {}, but the CA certificate expires sooner, so this certificate expires on {}.", fmt_date(requested), fmt_date(i.not_after)));
     }
-    Ok((now, not_after))
+    if not_after <= not_before {
+        return Err("validity must be at least one day, and the CA certificate must still be valid".into());
+    }
+    Ok(Validity { not_before, not_after, note })
+}
+
+fn push_distribution(exts: &mut Vec<x509::Extension>, crl: &[String], ocsp: &[String], issuers: &[String]) {
+    exts.extend(x509::ext_crl_distribution_points(crl));
+    exts.extend(x509::ext_authority_info_access(ocsp, issuers));
 }
 
 fn subject_dn(input: &GenerateKeyPairInput) -> Res<Vec<u8>> {
     let dn = if input.subject_dn.trim().is_empty() {
-        x509::dn_from_fields(
-            &input.common_name,
-            &input.organizational_unit,
-            &input.organization,
-            &input.locality,
-            &input.state,
-            &input.country,
-            &input.email,
-        )?
+        x509::dn_from_fields(&input.common_name, &input.organizational_unit, &input.organization, &input.locality, &input.state, &input.country, &input.email)?
     } else {
         x509::parse_dn(&input.subject_dn)?
     };
@@ -101,24 +160,29 @@ fn subject_dn(input: &GenerateKeyPairInput) -> Res<Vec<u8>> {
 
 /// Generates a key pair and its certificate: self-signed, or issued by `issuer` (a CA entry).
 pub fn generate_key_pair(input: &GenerateKeyPairInput, issuer: Option<&KeystoreEntry>) -> Res<KeystoreEntry> {
+    Ok(issue_key_pair(input, issuer)?.0)
+}
+
+/// Like [`generate_key_pair`], and reports when the requested lifetime was shortened to fit the CA.
+pub fn issue_key_pair(input: &GenerateKeyPairInput, issuer: Option<&KeystoreEntry>) -> Res<(KeystoreEntry, Option<String>)> {
     let alias = validate_alias(&input.alias)?;
     let subject = subject_dn(input)?;
     let sans = parse_sans(&input.sans)?;
     let issuer = issuer.map(issuer_from).transpose()?;
-    let (not_before, not_after) = validity(input.validity_days, issuer.as_ref())?;
+    if let Some(i) = &issuer {
+        enforce_path_length(&i.chain, input.is_ca, input.path_len)?;
+    }
+    let span = validity_span(input.validity_days, &input.not_before, &input.not_after, issuer.as_ref())?;
     let key = PrivateKey::generate(&input.algorithm, input.key_size, input.curve.as_deref())?;
     let spki = key.public_key_der()?;
     let ku = if input.key_usage.is_empty() { default_key_usage(input.is_ca, &key.algorithm()) } else { input.key_usage.clone() };
-    let eku = if input.extended_key_usage.is_empty() && !input.is_ca {
-        vec!["serverAuth".to_string(), "clientAuth".to_string()]
-    } else {
-        input.extended_key_usage.clone()
-    };
+    let eku = if input.extended_key_usage.is_empty() { default_extended_key_usage(input.is_ca) } else { input.extended_key_usage.clone() };
     let mut extensions = vec![x509::ext_basic_constraints(input.is_ca, input.path_len)];
     extensions.extend(x509::ext_key_usage(&ku)?);
     extensions.extend(x509::ext_extended_key_usage(&eku)?);
     extensions.extend(x509::ext_subject_alt_name(&sans));
-    let template = CertTemplate { serial: random_serial(), subject_der: subject, not_before, not_after, spki_der: spki, extensions };
+    push_distribution(&mut extensions, &input.crl_distribution_points, &input.ocsp_urls, &input.ca_issuer_urls);
+    let template = CertTemplate { serial: random_serial(), subject_der: subject, not_before: span.not_before, not_after: span.not_after, spki_der: spki, extensions };
     let rsa_hash = parse_hash_name(input.signature_hash.as_deref());
     let (cert, mut chain) = match &issuer {
         Some(i) => {
@@ -134,7 +198,7 @@ pub fn generate_key_pair(input: &GenerateKeyPairInput, issuer: Option<&KeystoreE
     chain.insert(0, cert);
     let mut e = entry::key_pair_entry(&alias, &key.to_pkcs8_der()?, &chain, None)?;
     e.labels = input.labels.clone();
-    Ok(e)
+    Ok((e, span.note))
 }
 
 pub fn generate_secret_key(input: &GenerateSecretKeyInput) -> Res<KeystoreEntry> {
@@ -186,7 +250,13 @@ pub fn generate_csr(e: &KeystoreEntry, options: &CsrOptions) -> Res<CsrResult> {
         Some(list) => parse_sans(list)?,
         None => sans_from_strings(&e.certificate_chain.first().map(|c| c.sans.clone()).unwrap_or_default())?,
     };
-    let exts: Vec<x509::Extension> = x509::ext_subject_alt_name(&sans).into_iter().collect();
+    let leaf = e.certificate_chain.first();
+    let ku: Vec<String> = leaf.iter().flat_map(|c| c.key_usage.iter().filter_map(|n| x509::key_usage_id(n).map(str::to_string))).collect();
+    let eku: Vec<String> = leaf.iter().flat_map(|c| c.extended_key_usage.iter().filter_map(|n| x509::eku_id(n))).collect();
+    let mut exts = Vec::new();
+    exts.extend(x509::ext_key_usage(&ku)?);
+    exts.extend(x509::ext_extended_key_usage(&eku)?);
+    exts.extend(x509::ext_subject_alt_name(&sans));
     let sig_alg = key.default_sig_alg(parse_hash_name(options.signature_hash.as_deref()))?;
     let der = x509::build_csr(&subject, &key, sig_alg, &exts)?;
     Ok(CsrResult {
@@ -202,6 +272,7 @@ pub fn sign_csr(input: &SignCsrInput, ca: &KeystoreEntry) -> Res<SignedCertifica
     let der = x509::csr_der_from_bytes(input.csr_pem.as_bytes())?;
     let parts = x509::csr_parts(&der)?;
     let issuer = issuer_from(ca)?;
+    enforce_path_length(&issuer.chain, input.is_ca, input.path_len)?;
     let subject = match input.subject_override.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
         Some(dn) => x509::encode_dn(&x509::parse_dn(dn)?),
         None => parts.subject_der.clone(),
@@ -209,24 +280,56 @@ pub fn sign_csr(input: &SignCsrInput, ca: &KeystoreEntry) -> Res<SignedCertifica
     let mut san_list: Vec<String> = if input.copy_requested_sans.unwrap_or(true) { parts.sans.clone() } else { vec![] };
     san_list.extend(input.sans.iter().cloned());
     let sans = sans_from_strings(&san_list)?;
-    let (not_before, not_after) = validity(input.validity_days, Some(&issuer))?;
+    let span = validity_span(input.validity_days, &input.not_before, &input.not_after, Some(&issuer))?;
     let algorithm = keys::public_key_info(&parts.spki)?.algorithm;
-    let ku = if input.key_usage.is_empty() { default_key_usage(input.is_ca, &algorithm) } else { input.key_usage.clone() };
-    let eku = if input.extended_key_usage.is_empty() && !input.is_ca { vec!["serverAuth".to_string(), "clientAuth".to_string()] } else { input.extended_key_usage.clone() };
+    let (ku, eku) = resolve_usages(input, &parts, &algorithm);
     let mut extensions = vec![x509::ext_basic_constraints(input.is_ca, input.path_len)];
     extensions.extend(x509::ext_key_usage(&ku)?);
     extensions.extend(x509::ext_extended_key_usage(&eku)?);
     extensions.extend(x509::ext_subject_alt_name(&sans));
+    push_distribution(&mut extensions, &input.crl_distribution_points, &input.ocsp_urls, &input.ca_issuer_urls);
     let sig_alg = issuer.key.default_sig_alg(None)?;
     let cert = x509::build_certificate(
-        CertTemplate { serial: random_serial(), subject_der: subject, not_before, not_after, spki_der: parts.spki, extensions },
+        CertTemplate { serial: random_serial(), subject_der: subject, not_before: span.not_before, not_after: span.not_after, spki_der: parts.spki, extensions },
         &Signer { key: &issuer.key, cert_der: Some(&issuer.chain[0]), sig_alg },
     )?;
     let mut chain_pem = to_pem("CERTIFICATE", &cert);
     for c in &issuer.chain {
         chain_pem.push_str(&to_pem("CERTIFICATE", c));
     }
-    Ok(SignedCertificateResult { certificate: x509::parse_certificate(&cert)?, chain_pem })
+    Ok(SignedCertificateResult { certificate: x509::parse_certificate(&cert)?, chain_pem, validity_note: span.note })
+}
+
+/// Key usage for a certificate issued from a CSR.
+///
+/// Copying (the default) takes the CSR's request when it has one. Issuing a CA does not copy a
+/// server or client request; it uses the CA defaults unless the caller turned copying off and
+/// supplied the bits explicitly.
+fn resolve_usages(input: &SignCsrInput, parts: &x509::CsrParts, algorithm: &str) -> (Vec<String>, Vec<String>) {
+    let copy = input.copy_requested_usages.unwrap_or(true);
+    if input.is_ca && copy {
+        let ku = if !input.key_usage.is_empty() { input.key_usage.clone() } else { default_key_usage(true, algorithm) };
+        return (ku, input.extended_key_usage.clone());
+    }
+    if !copy {
+        let ku = if input.key_usage.is_empty() { default_key_usage(input.is_ca, algorithm) } else { input.key_usage.clone() };
+        return (ku, input.extended_key_usage.clone());
+    }
+    let ku = if !parts.key_usage.is_empty() {
+        parts.key_usage.clone()
+    } else if !input.key_usage.is_empty() {
+        input.key_usage.clone()
+    } else {
+        default_key_usage(false, algorithm)
+    };
+    let eku = if !parts.extended_key_usage.is_empty() {
+        parts.extended_key_usage.clone()
+    } else if !input.extended_key_usage.is_empty() {
+        input.extended_key_usage.clone()
+    } else {
+        default_extended_key_usage(false)
+    };
+    (ku, eku)
 }
 
 /// Installs a CA reply (the signed certificate, optionally with its chain) into a key pair.
@@ -246,6 +349,7 @@ pub fn import_ca_reply(e: &KeystoreEntry, reply: &[u8]) -> Res<KeystoreEntry> {
     let mut updated = entry::key_pair_entry(&e.alias, &key.to_pkcs8_der()?, &chain, None)?;
     updated.id = e.id.clone();
     updated.labels = e.labels.clone();
+    updated.key_password = e.key_password.clone();
     Ok(updated)
 }
 
@@ -268,6 +372,30 @@ pub fn import_key_pair(alias: &str, key_data: &[u8], key_password: Option<&str>,
         .ok_or("none of the certificates matches the private key")?;
     let chain = x509::build_chain(&leaf, &certs);
     entry::key_pair_entry(&alias, &key.to_pkcs8_der()?, &chain, None)
+}
+
+/// Builds a PKCS#12 (.p12/.pfx) from a certificate, its private key and a passphrase.
+///
+/// This is the one-shot form of "import the key pair, then export it as PKCS#12": the key and
+/// certificate are parsed and matched exactly as [`import_key_pair`] does, so an unmatched pair or
+/// a wrong `key_password` is rejected here rather than producing an unusable file. `key_password`
+/// decrypts the *input* key when it arrives encrypted; `passphrase` protects the *output* file and
+/// is required, since a PKCS#12 holding a private key with no password is not useful.
+///
+/// Any extra certificates in `key_data`/`cert_data` are ordered into the chain above the leaf.
+pub fn build_pkcs12(input: &BuildPkcs12Input) -> Res<Vec<u8>> {
+    if input.passphrase.is_empty() {
+        return Err("a passphrase is required to protect the PKCS#12 file".into());
+    }
+    let alias = if input.alias.trim().is_empty() { "1".to_string() } else { validate_alias(&input.alias)? };
+    let mut entry = import_key_pair(&alias, &input.key, input.key_password.as_deref(), input.certificate.as_deref())?;
+    // The output password protects the key bag; clear any per-entry password carried by the import.
+    entry.key_password = None;
+    let mac = match input.mac.as_deref() {
+        Some("pbmac1") => pkcs12::MacKind::Pbmac1,
+        _ => pkcs12::MacKind::Pkcs12,
+    };
+    pkcs12::encode_with_mac(std::slice::from_ref(&entry), &input.passphrase, mac)
 }
 
 /// Imports trusted certificates. A bundle yields one entry per certificate; aliases are made unique.
@@ -300,13 +428,7 @@ pub fn generate_crl(ca: &KeystoreEntry, next_update_days: u32, crl_number: u64, 
     }
     let now = now_ts();
     let sig_alg = issuer.key.default_sig_alg(None)?;
-    let der = x509::build_crl(
-        &Signer { key: &issuer.key, cert_der: Some(&issuer.chain[0]), sig_alg },
-        now,
-        now + next_update_days as i64 * DAY,
-        crl_number,
-        revoked,
-    )?;
+    let der = x509::build_crl(&Signer { key: &issuer.key, cert_der: Some(&issuer.chain[0]), sig_alg }, now, now + next_update_days as i64 * DAY, crl_number, revoked)?;
     let spki = x509::cert_summary(&issuer.chain[0])?.spki;
     x509::parse_crl(&der, Some(&spki))
 }
@@ -322,69 +444,39 @@ pub fn rotate_key(e: &KeystoreEntry, algorithm: &str, key_size: u32, curve: Opti
     let leaf = x509::parse_certificate(leaf_der)?;
     let summary = x509::cert_summary(leaf_der)?;
     let issuer = issuer.map(issuer_from).transpose()?;
+    if let Some(i) = &issuer {
+        enforce_path_length(&i.chain, leaf.is_ca, leaf.path_len)?;
+    }
     let lifetime_days = ((leaf.not_after - leaf.not_before) / DAY).clamp(1, 36_500) as u32;
-    let (not_before, not_after) = validity(lifetime_days, issuer.as_ref())?;
+    let span = validity(lifetime_days, issuer.as_ref())?;
     let key = PrivateKey::generate(algorithm, key_size, curve)?;
-    let label_to_id = |l: &str| -> Option<String> {
-        Some(
-            match l {
-                "Digital Signature" => "digitalSignature",
-                "Non Repudiation" => "nonRepudiation",
-                "Key Encipherment" => "keyEncipherment",
-                "Data Encipherment" => "dataEncipherment",
-                "Key Agreement" => "keyAgreement",
-                "Certificate Sign" => "keyCertSign",
-                "CRL Sign" => "cRLSign",
-                _ => return None,
-            }
-            .to_string(),
-        )
-    };
-    let mut ku: Vec<String> = leaf.key_usage.iter().filter_map(|l| label_to_id(l)).collect();
+    let mut ku: Vec<String> = leaf.key_usage.iter().filter_map(|l| x509::key_usage_id(l).map(str::to_string)).collect();
     if key.algorithm() != "RSA" {
         ku.retain(|k| k != "keyEncipherment" && k != "dataEncipherment");
     }
     if ku.is_empty() {
         ku = default_key_usage(leaf.is_ca, &key.algorithm());
     }
-    let eku: Vec<String> = leaf
-        .extended_key_usage
-        .iter()
-        .filter_map(|l| {
-            Some(
-                match l.as_str() {
-                    "TLS Web Server Authentication" => "serverAuth",
-                    "TLS Web Client Authentication" => "clientAuth",
-                    "Code Signing" => "codeSigning",
-                    "E-mail Protection" => "emailProtection",
-                    "Time Stamping" => "timeStamping",
-                    "OCSP Signing" => "OCSPSigning",
-                    other if crate::oids::parse_oid_str(other).is_some() => other,
-                    _ => return None,
-                }
-                .to_string(),
-            )
-        })
-        .collect();
+    let eku: Vec<String> = leaf.extended_key_usage.iter().filter_map(|l| x509::eku_id(l)).collect();
     let mut extensions = vec![x509::ext_basic_constraints(leaf.is_ca, leaf.path_len)];
     extensions.extend(x509::ext_key_usage(&ku)?);
     extensions.extend(x509::ext_extended_key_usage(&eku)?);
     extensions.extend(x509::ext_subject_alt_name(&sans_from_strings(&leaf.sans)?));
-    let template = CertTemplate {
-        serial: random_serial(),
-        subject_der: summary.subject_raw,
-        not_before,
-        not_after,
-        spki_der: key.public_key_der()?,
-        extensions,
+    push_distribution(&mut extensions, &leaf.crl_distribution_points, &leaf.ocsp_urls, &leaf.ca_issuer_urls);
+    let rsa_hash = match leaf.signature_algorithm.as_str() {
+        "SHA384withRSA" => Some(crate::pbe::HashAlg::Sha384),
+        "SHA512withRSA" => Some(crate::pbe::HashAlg::Sha512),
+        "SHA256withRSA" => Some(crate::pbe::HashAlg::Sha256),
+        _ => None,
     };
+    let template = CertTemplate { serial: random_serial(), subject_der: summary.subject_raw, not_before: span.not_before, not_after: span.not_after, spki_der: key.public_key_der()?, extensions };
     let (cert, mut new_chain) = match &issuer {
         Some(i) => {
             let sig_alg = i.key.default_sig_alg(None)?;
             (x509::build_certificate(template, &Signer { key: &i.key, cert_der: Some(&i.chain[0]), sig_alg })?, i.chain.clone())
         }
         None => {
-            let sig_alg = key.default_sig_alg(None)?;
+            let sig_alg = key.default_sig_alg(rsa_hash)?;
             (x509::build_certificate(template, &Signer { key: &key, cert_der: None, sig_alg })?, vec![])
         }
     };
@@ -392,6 +484,7 @@ pub fn rotate_key(e: &KeystoreEntry, algorithm: &str, key_size: u32, curve: Opti
     let mut rotated = entry::key_pair_entry(&e.alias, &key.to_pkcs8_der()?, &new_chain, None)?;
     rotated.id = e.id.clone();
     rotated.labels = e.labels.clone();
+    rotated.key_password = e.key_password.clone();
     Ok(rotated)
 }
 
@@ -404,6 +497,7 @@ pub mod tests_support {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::pbe;
 
     pub fn input(alias: &str, alg: &str, is_ca: bool) -> GenerateKeyPairInput {
         GenerateKeyPairInput {
@@ -427,6 +521,11 @@ mod tests {
             key_usage: vec![],
             extended_key_usage: vec![],
             labels: vec![],
+            not_before: String::new(),
+            not_after: String::new(),
+            crl_distribution_points: vec![],
+            ocsp_urls: vec![],
+            ca_issuer_urls: vec![],
         }
     }
 
@@ -454,6 +553,12 @@ mod tests {
                 key_usage: vec![],
                 extended_key_usage: vec![],
                 copy_requested_sans: Some(true),
+                copy_requested_usages: None,
+                not_before: String::new(),
+                not_after: String::new(),
+                crl_distribution_points: vec![],
+                ocsp_urls: vec![],
+                ca_issuer_urls: vec![],
             },
             &ca,
         )
@@ -481,12 +586,7 @@ mod tests {
     fn import_pem_key_and_bundle() {
         let ca = generate_key_pair(&input("ca", "RSA", true), None).unwrap();
         let leaf = generate_key_pair(&input("svc", "ECDSA", false), Some(&ca)).unwrap();
-        let pem_bundle = format!(
-            "{}{}{}",
-            leaf.private_key_pem.clone().unwrap(),
-            leaf.certificate_chain[1].pem,
-            leaf.certificate_chain[0].pem
-        );
+        let pem_bundle = format!("{}{}{}", leaf.private_key_pem.clone().unwrap(), leaf.certificate_chain[1].pem, leaf.certificate_chain[0].pem);
         let imported = import_key_pair("svc", pem_bundle.as_bytes(), None, None).unwrap();
         assert_eq!(imported.chain_length, 2);
         assert_eq!(imported.sha256_fingerprint, leaf.sha256_fingerprint);
@@ -496,12 +596,193 @@ mod tests {
     }
 
     #[test]
+    fn build_pkcs12_from_cert_key_and_passphrase() {
+        // Produce a key pair, then feed its certificate + private key back in as separate PEM
+        // files, which is exactly what a user has on disk.
+        let src = generate_key_pair(&input("svc", "RSA", false), None).unwrap();
+        let key_pem = src.private_key_pem.clone().unwrap();
+        let cert_pem = to_pem("CERTIFICATE", &entry::chain_der(&src).unwrap()[0]);
+
+        let mk = |passphrase: &str, key: &str, cert: Option<&str>, key_pw: Option<&str>| BuildPkcs12Input {
+            alias: "svc".into(),
+            key: key.as_bytes().to_vec(),
+            certificate: cert.map(|c| c.as_bytes().to_vec()),
+            key_password: key_pw.map(String::from),
+            passphrase: passphrase.into(),
+            mac: None,
+        };
+
+        let der = build_pkcs12(&mk("secret-pw", &key_pem, Some(&cert_pem), None)).unwrap();
+
+        // It must be a real PKCS#12 readable under the passphrase, carrying the key and the cert.
+        let back = pkcs12::decode(&der, "secret-pw").unwrap();
+        assert_eq!(back.len(), 1);
+        assert_eq!(back[0].alias, "svc");
+        assert_eq!(back[0].entry_type, "KeyPair");
+        assert_eq!(back[0].sha256_fingerprint, src.sha256_fingerprint);
+        assert!(back[0].private_key_pem.is_some(), "the private key must be present");
+
+        // The wrong passphrase must not open it.
+        assert!(pkcs12::decode(&der, "wrong-pw").is_err());
+
+        // A passphrase is required.
+        assert!(build_pkcs12(&mk("", &key_pem, Some(&cert_pem), None)).is_err());
+
+        // A certificate is required: a key on its own is not a key pair.
+        assert!(build_pkcs12(&mk("pw", &key_pem, None, None)).is_err());
+
+        // A certificate that does not match the key is rejected rather than silently written.
+        let other = generate_key_pair(&input("other", "RSA", false), None).unwrap();
+        let other_cert = to_pem("CERTIFICATE", &entry::chain_der(&other).unwrap()[0]);
+        assert!(build_pkcs12(&mk("pw", &key_pem, Some(&other_cert), None)).is_err());
+
+        // An encrypted input key works when its own password is supplied, and fails without it.
+        let enc = to_pem("ENCRYPTED PRIVATE KEY", &pbe::encrypt_pkcs8("key-pw", &entry::private_key_der(&src).unwrap(), pbe::DEFAULT_ITERATIONS).unwrap());
+        let from_enc = build_pkcs12(&mk("out-pw", &enc, Some(&cert_pem), Some("key-pw"))).unwrap();
+        assert_eq!(pkcs12::decode(&from_enc, "out-pw").unwrap()[0].sha256_fingerprint, src.sha256_fingerprint);
+        assert!(build_pkcs12(&mk("out-pw", &enc, Some(&cert_pem), Some("nope"))).is_err());
+
+        // A blank alias is allowed and defaults; a chain above the leaf is preserved.
+        let blank = BuildPkcs12Input { alias: "  ".into(), ..mk("pw", &key_pem, Some(&cert_pem), None) };
+        assert_eq!(pkcs12::decode(&build_pkcs12(&blank).unwrap(), "pw").unwrap()[0].alias, "1");
+
+        // PBMAC1 is selectable and still round-trips.
+        let pb = BuildPkcs12Input { mac: Some("pbmac1".into()), ..mk("pw", &key_pem, Some(&cert_pem), None) };
+        assert_eq!(pkcs12::decode(&build_pkcs12(&pb).unwrap(), "pw").unwrap().len(), 1);
+    }
+
+    #[test]
+    fn build_pkcs12_keeps_the_issuer_chain() {
+        // A leaf signed by a CA, handed in as a two-certificate PEM bundle.
+        let ca = generate_key_pair(&input("ca", "RSA", true), None).unwrap();
+        let leaf = generate_key_pair(&input("leaf", "RSA", false), Some(&ca)).unwrap();
+        let bundle: String = entry::chain_der(&leaf).unwrap().iter().map(|c| to_pem("CERTIFICATE", c)).collect();
+        assert!(leaf.chain_length >= 2, "the generated leaf should already carry its issuer");
+
+        let der = build_pkcs12(&BuildPkcs12Input {
+            alias: "leaf".into(),
+            key: leaf.private_key_pem.clone().unwrap().into_bytes(),
+            certificate: Some(bundle.into_bytes()),
+            key_password: None,
+            passphrase: "pw".into(),
+            mac: None,
+        })
+        .unwrap();
+
+        let back = pkcs12::decode(&der, "pw").unwrap();
+        let kp = back.iter().find(|e| e.entry_type == "KeyPair").unwrap();
+        assert_eq!(kp.chain_length, leaf.chain_length, "the full chain must survive the round trip");
+    }
+
+    #[test]
     fn secret_key_validation() {
         let ok = generate_secret_key(&GenerateSecretKeyInput { alias: "k".into(), algorithm: "AES".into(), key_size: 256, custom_hex: None, labels: vec![] }).unwrap();
         assert_eq!(ok.key_size, 256);
         assert!(generate_secret_key(&GenerateSecretKeyInput { alias: "k".into(), algorithm: "AES".into(), key_size: 100, custom_hex: None, labels: vec![] }).is_err());
-        let custom = generate_secret_key(&GenerateSecretKeyInput { alias: "k".into(), algorithm: "HmacSHA256".into(), key_size: 0, custom_hex: Some("00112233445566778899aabbccddeeff".into()), labels: vec![] }).unwrap();
+        let custom = generate_secret_key(&GenerateSecretKeyInput {
+            alias: "k".into(),
+            algorithm: "HmacSHA256".into(),
+            key_size: 0,
+            custom_hex: Some("00112233445566778899aabbccddeeff".into()),
+            labels: vec![],
+        })
+        .unwrap();
         assert_eq!(custom.key_size, 128);
         assert!(generate_secret_key(&GenerateSecretKeyInput { alias: "".into(), algorithm: "AES".into(), key_size: 128, custom_hex: None, labels: vec![] }).is_err());
+        assert!(!ok.is_post_quantum && !ok.is_weak);
+        let blowfish =
+            generate_secret_key(&GenerateSecretKeyInput { alias: "bf".into(), algorithm: "Blowfish".into(), key_size: 0, custom_hex: Some("00112233445566778899aabbccddeeff".into()), labels: vec![] })
+                .unwrap();
+        assert!(blowfish.is_weak && blowfish.weak_reasons.iter().any(|r| r.contains("deprecated")));
+        assert!(!blowfish.is_post_quantum);
+        let hmac = crate::entry::secret_key_entry("mac", "HmacSHA1", &[1u8; 20], None);
+        assert!(hmac.is_weak && hmac.weak_reasons.iter().any(|r| r.contains("deprecated MAC")));
+    }
+
+    #[test]
+    fn ec_server_certificate_omits_key_encipherment_and_client_auth() {
+        let mut input = input("web", "ECDSA", false);
+        input.key_usage = vec!["digitalSignature".into()];
+        input.extended_key_usage = vec!["serverAuth".into()];
+        let entry = generate_key_pair(&input, None).unwrap();
+        let leaf = &entry.certificate_chain[0];
+        assert_eq!(leaf.key_usage, vec!["Digital Signature"]);
+        assert_eq!(leaf.extended_key_usage, vec!["TLS Web Server Authentication"]);
+    }
+
+    #[test]
+    fn code_signing_csr_is_issued_as_code_signing() {
+        let mut request = input("signer", "ECDSA", false);
+        request.key_usage = vec!["digitalSignature".into()];
+        request.extended_key_usage = vec!["codeSigning".into()];
+        request.sans.clear();
+        let requester = generate_key_pair(&request, None).unwrap();
+        let ca = generate_key_pair(&input("ca", "ECDSA", true), None).unwrap();
+        let csr = generate_csr(&requester, &CsrOptions { subject_dn: None, sans: None, signature_hash: None }).unwrap();
+        let parsed = crate::x509::parse_csr(crate::x509::csr_der_from_bytes(csr.csr_pem.as_bytes()).unwrap().as_slice()).unwrap();
+        assert_eq!(parsed.key_usage, vec!["digitalSignature"]);
+        assert_eq!(parsed.extended_key_usage, vec!["codeSigning"]);
+        let signed = sign_csr(
+            &SignCsrInput {
+                csr_pem: csr.csr_pem,
+                subject_override: None,
+                validity_days: 30,
+                is_ca: false,
+                path_len: None,
+                sans: vec![],
+                key_usage: vec![],
+                extended_key_usage: vec![],
+                copy_requested_sans: Some(true),
+                copy_requested_usages: None,
+                not_before: String::new(),
+                not_after: String::new(),
+                crl_distribution_points: vec![],
+                ocsp_urls: vec![],
+                ca_issuer_urls: vec![],
+            },
+            &ca,
+        )
+        .unwrap();
+        assert_eq!(signed.certificate.key_usage, vec!["Digital Signature"]);
+        assert_eq!(signed.certificate.extended_key_usage, vec!["Code Signing"]);
+        assert!(signed.validity_note.is_none());
+    }
+
+    #[test]
+    fn ca_constraints_and_clamped_validity() {
+        let mut root = input("root", "ECDSA", true);
+        root.path_len = Some(0);
+        root.validity_days = 30;
+        let ca = generate_key_pair(&root, None).unwrap();
+
+        let mut sub = input("sub", "ECDSA", true);
+        sub.path_len = Some(0);
+        let err = generate_key_pair(&sub, Some(&ca)).unwrap_err();
+        assert!(err.contains("path length"), "{err}");
+
+        let leaf = generate_key_pair(&input("web", "ECDSA", false), Some(&ca)).unwrap();
+        assert!(!leaf.certificate_chain[0].is_ca);
+        assert!(leaf.certificate_chain[0].not_after <= ca.certificate_chain[0].not_after);
+
+        let (issued, note) = issue_key_pair(&input("wide", "ECDSA", false), Some(&ca)).unwrap();
+        let note = note.expect("lifetime should be clamped to the CA");
+        assert!(note.contains("expires sooner"), "{note}");
+        assert_eq!(crate::util::fmt_date(issued.certificate_chain[0].not_after), crate::util::fmt_date(ca.certificate_chain[0].not_after));
+
+        let mut future = ca.clone();
+        future.certificate_chain[0].not_before = crate::util::now_ts() + 86_400;
+        future.certificate_chain[0].valid_from = "2099-01-01 00:00".into();
+        let err = generate_key_pair(&input("early", "ECDSA", false), Some(&future)).unwrap_err();
+        assert!(err.contains("not valid yet"), "{err}");
+
+        let mut room = input("room", "ECDSA", true);
+        room.path_len = Some(1);
+        room.validity_days = 365;
+        let parent = generate_key_pair(&room, None).unwrap();
+        let mut child = input("child", "ECDSA", true);
+        child.path_len = Some(0);
+        assert!(generate_key_pair(&child, Some(&parent)).is_ok());
+        child.path_len = Some(1);
+        assert!(generate_key_pair(&child, Some(&parent)).unwrap_err().contains("below 1"));
     }
 }

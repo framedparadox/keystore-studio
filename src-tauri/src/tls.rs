@@ -127,24 +127,14 @@ pub fn inspect(target: &str, port: u16, timeout_secs: u64) -> Res<TlsInspectionR
     }
     let timeout = Duration::from_secs(timeout_secs.clamp(2, 60));
     let provider = Arc::new(rustls::crypto::ring::default_provider());
-    let inner = rustls::client::WebPkiServerVerifier::builder_with_provider(Arc::new(root_store()), provider.clone())
-        .build()
-        .map_err(|err| format!("cannot initialise TLS verifier: {err}"))?;
+    let inner = rustls::client::WebPkiServerVerifier::builder_with_provider(Arc::new(root_store()), provider.clone()).build().map_err(|err| format!("cannot initialise TLS verifier: {err}"))?;
     let recorder = Arc::new(Recorder { inner, chain: Mutex::new(vec![]), error: Mutex::new(None) });
-    let mut config = ClientConfig::builder_with_provider(provider)
-        .with_safe_default_protocol_versions()
-        .map_err(e)?
-        .dangerous()
-        .with_custom_certificate_verifier(recorder.clone())
-        .with_no_client_auth();
+    let mut config =
+        ClientConfig::builder_with_provider(provider).with_safe_default_protocol_versions().map_err(e)?.dangerous().with_custom_certificate_verifier(recorder.clone()).with_no_client_auth();
     config.alpn_protocols = vec![b"h2".to_vec(), b"http/1.1".to_vec()];
     let server_name = ServerName::try_from(host.clone()).map_err(|_| format!("'{host}' is not a valid hostname or IP address"))?;
 
-    let addr = (host.as_str(), port)
-        .to_socket_addrs()
-        .map_err(|err| format!("cannot resolve {host}: {err}"))?
-        .next()
-        .ok_or_else(|| format!("{host} did not resolve to an address"))?;
+    let addr = (host.as_str(), port).to_socket_addrs().map_err(|err| format!("cannot resolve {host}: {err}"))?.next().ok_or_else(|| format!("{host} did not resolve to an address"))?;
     let started = Instant::now();
     let mut sock = TcpStream::connect_timeout(&addr, timeout).map_err(|err| format!("cannot connect to {host}:{port} ({addr}): {err}"))?;
     sock.set_read_timeout(Some(timeout)).ok();

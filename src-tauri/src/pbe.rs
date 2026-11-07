@@ -10,15 +10,15 @@
 //! New content is always written with PBES2 / PBKDF2-HMAC-SHA256 / AES-256-CBC.
 
 use crate::oids::{self, oid};
-use crate::util::{random_bytes, Res};
-use aes::cipher::{block_padding::Pkcs7, BlockDecryptMut, BlockEncryptMut, InnerIvInit, KeyInit, KeyIvInit};
+use crate::util::{Res, random_bytes};
+use aes::cipher::{BlockDecryptMut, BlockEncryptMut, InnerIvInit, KeyInit, KeyIvInit, block_padding::Pkcs7};
 use md5::Md5;
 use sha1::Sha1;
 use sha2::{Digest, Sha224, Sha256, Sha384, Sha512};
 use yasna::{DERWriter, Tag};
 
 pub const DEFAULT_ITERATIONS: u64 = 10_000;
-const WRONG_PASSWORD: &str = "keystore password incorrect or file corrupt";
+const WRONG_PASSWORD: &str = "wrong-password: keystore password incorrect or file corrupt";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum HashAlg {
@@ -284,19 +284,12 @@ pub fn parse_pbmac1_params(params: &[u8]) -> Res<Pbmac1Params> {
     })
     .map_err(|err| format!("malformed PBMAC1 parameters: {err}"))?;
 
-    let hmac = HashAlg::from_hmac_oid(&hmac.oid)
-        .ok_or_else(|| format!("unsupported PBMAC1 message authentication algorithm {}", oids::oid_str(&hmac.oid)))?;
+    let hmac = HashAlg::from_hmac_oid(&hmac.oid).ok_or_else(|| format!("unsupported PBMAC1 message authentication algorithm {}", oids::oid_str(&hmac.oid)))?;
     // RFC 9579 §3: keyLength MUST be present. Fall back to the HMAC's natural output length so a
     // technically invalid file from a lenient writer still opens.
     let key_length = key_length.unwrap_or(hmac.output_len() as u64);
     let key_length = usize::try_from(key_length).ok().filter(|k| (1..=1024).contains(k)).ok_or("PBMAC1 key length out of range")?;
-    Ok(Pbmac1Params {
-        salt,
-        iterations,
-        key_length,
-        prf: prf.and_then(|p| HashAlg::from_hmac_oid(&p.oid)).unwrap_or(HashAlg::Sha1),
-        hmac,
-    })
+    Ok(Pbmac1Params { salt, iterations, key_length, prf: prf.and_then(|p| HashAlg::from_hmac_oid(&p.oid)).unwrap_or(HashAlg::Sha1), hmac })
 }
 
 impl Pbmac1Params {
@@ -375,12 +368,10 @@ pub fn parse_algorithm_id(der: &[u8]) -> Res<AlgorithmId> {
 /// Human-readable name for a password-based encryption AlgorithmIdentifier.
 pub fn describe_algorithm(alg: &AlgorithmId) -> String {
     match alg.oid.as_slice() {
-        a if a == oids::PBES2 => {
-            match alg.params.as_deref().map(parse_pbes2_params) {
-                Some(Ok(p)) => format!("PBES2 (PBKDF2-HMAC-{}, {}, {} iterations)", p.prf.name(), p.cipher_name(), p.iterations),
-                _ => "PBES2".into(),
-            }
-        }
+        a if a == oids::PBES2 => match alg.params.as_deref().map(parse_pbes2_params) {
+            Some(Ok(p)) => format!("PBES2 (PBKDF2-HMAC-{}, {}, {} iterations)", p.prf.name(), p.cipher_name(), p.iterations),
+            _ => "PBES2".into(),
+        },
         a if a == oids::PBE_SHA1_3DES => "PBE-SHA1-3DES".into(),
         a if a == oids::PBE_SHA1_2DES => "PBE-SHA1-2DES".into(),
         a if a == oids::PBE_SHA1_RC2_40 => "PBE-SHA1-RC2-40".into(),
@@ -474,14 +465,7 @@ pub fn parse_pbes2_params(params: &[u8]) -> Res<Pbes2Params> {
                 let iv = r.next().read_bytes()?;
                 Ok((oid, iv))
             })?;
-            Ok(Pbes2Params {
-                salt,
-                iterations,
-                key_length,
-                prf: prf.and_then(|p| HashAlg::from_hmac_oid(&p.oid)).unwrap_or(HashAlg::Sha1),
-                cipher_oid,
-                iv,
-            })
+            Ok(Pbes2Params { salt, iterations, key_length, prf: prf.and_then(|p| HashAlg::from_hmac_oid(&p.oid)).unwrap_or(HashAlg::Sha1), cipher_oid, iv })
         })
     })
     .map_err(|err| format!("malformed PBES2 parameters: {err}"))
@@ -499,11 +483,7 @@ fn pbes2_decrypt(p: &Pbes2Params, password: &str, data: &[u8]) -> Res<Vec<u8>> {
     let iterations = u32::try_from(p.iterations).map_err(|_| "PBKDF2 iteration count too large".to_string())?;
     let mut key = vec![0u8; key_len];
     p.prf.pbkdf2(password.as_bytes(), &p.salt, iterations, &mut key);
-    if p.cipher_oid.as_slice() == oids::DES_EDE3_CBC {
-        des3_cbc_decrypt(&key, &p.iv, data)
-    } else {
-        aes_cbc_decrypt(&key, &p.iv, data)
-    }
+    if p.cipher_oid.as_slice() == oids::DES_EDE3_CBC { des3_cbc_decrypt(&key, &p.iv, data) } else { aes_cbc_decrypt(&key, &p.iv, data) }
 }
 
 /// Encrypts with PBES2 (PBKDF2-HMAC-SHA256, AES-256-CBC). Returns the DER AlgorithmIdentifier and

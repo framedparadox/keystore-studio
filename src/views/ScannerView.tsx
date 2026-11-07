@@ -1,10 +1,11 @@
-import React, { useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import clsx from "clsx";
 import { AlertTriangle, CalendarClock, CheckCircle2, FileText, KeyRound, Link2Off, RefreshCw, RotateCcw, ShieldCheck } from "lucide-react";
 import type { KeystoreEntry, OpenKeystore } from "../types/crypto";
-import { api, errorMessage } from "../lib/api";
+import { api, errorMessage, isDesktop } from "../lib/api";
 import { pickSavePath } from "../lib/files";
-import { cnOf, isCaEntry } from "../lib/keystore";
+import { cnOf, findIssuingCa, renewalTerm } from "../lib/keystore";
+import { csvField } from "../lib/csv";
 import { Finding, daysUntilExpiry, entryHealth, findingsFor, formatDuration, summarize } from "../lib/metrics";
 import { useStore } from "../state/store";
 import { Alert, Badge, Button, Card, CardHeader, Column, DataTable, EmptyState, KpiCard, Modal, Page, PageHeader, ScoreRing, Segmented, Select, Spinner, useToast } from "../components/ui";
@@ -24,13 +25,7 @@ const RotateDialog: React.FC<{ row: Row | null; onClose: () => void }> = ({ row,
   const toast = useToast();
   const [spec, setSpec] = useState("ECDSA:P-256");
   const [busy, setBusy] = useState(false);
-  const issuer = useMemo(() => {
-    if (!row) return null;
-    const leaf = row.entry.certificate_chain[0];
-    if (!leaf || leaf.self_signed) return null;
-    for (const ks of keystores) for (const e of ks.entries) if (isCaEntry(e) && e.subject === row.entry.issuer && e.id !== row.entry.id) return { entry: e, ks };
-    return null;
-  }, [row, keystores]);
+  const issuer = useMemo(() => (row ? findIssuingCa(row.entry, keystores) : null), [row, keystores]);
   if (!row) return null;
   const leaf = row.entry.certificate_chain[0];
   const selfSigned = !!leaf?.self_signed;
@@ -38,9 +33,9 @@ const RotateDialog: React.FC<{ row: Row | null; onClose: () => void }> = ({ row,
     setBusy(true);
     try {
       const [alg, param] = spec.split(":");
-      const rotated = await api.rotateKey(row.entry, alg, alg === "RSA" ? Number(param) : 0, alg === "ECDSA" ? param : null, issuer?.entry ?? null);
+      const rotated = await api.rotateKey(row.entry, alg, alg === "RSA" ? Number(param) : 0, alg === "ECDSA" ? param : null, issuer);
       replaceEntry(row.ks.id, { ...rotated, id: row.entry.id, labels: row.entry.labels });
-      toast.success(`Rotated '${row.entry.alias}' to ${rotated.algorithm} ${rotated.key_size}-bit${issuer ? `, re-issued by ${issuer.entry.alias}` : " (self-signed)"}. Save ${row.ks.name} to keep it.`);
+      toast.success(`Rotated '${row.entry.alias}' to ${rotated.algorithm} ${rotated.key_size}-bit${issuer ? `, re-issued by ${issuer.alias}` : " (self-signed)"}. Save ${row.ks.name} to keep it.`);
       onClose();
     } catch (err) {
       toast.error(errorMessage(err));
@@ -76,7 +71,7 @@ const RotateDialog: React.FC<{ row: Row | null; onClose: () => void }> = ({ row,
         {selfSigned ? (
           <Alert tone="info">The current certificate is self-signed, so the new one will be self-signed too. Clients that pinned the old certificate must be updated.</Alert>
         ) : issuer ? (
-          <Alert tone="success">The issuing CA '{issuer.entry.alias}' ({issuer.ks.name}) is open; the new certificate will be issued by it.</Alert>
+          <Alert tone="success">The issuing CA '{issuer.alias}' ({keystores.find((ks) => ks.entries.some((e) => e.id === issuer.id))?.name}) is open; the new certificate will be issued by it.</Alert>
         ) : (
           <Alert tone="warning" title="Issuing CA not open">
             The certificate was issued by {cnOf(row.entry.issuer)}, which is not in any open keystore. The new certificate will be self-signed — afterwards generate a CSR for it and have your CA sign it.
@@ -93,6 +88,7 @@ export const ScannerView: React.FC = () => {
   const [filter, setFilter] = useState<"issues" | "all">("issues");
   const [rotate, setRotate] = useState<Row | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [chainNotes, setChainNotes] = useState<string[]>([]);
 
   const rows: Row[] = useMemo(() => keystores.flatMap((ks) => ks.entries.map((entry) => ({ entry, ks, findings: findingsFor(entry) }))), [keystores]);
   const sum = summarize(rows.map((r) => r.entry));
@@ -104,17 +100,33 @@ export const ScannerView: React.FC = () => {
 
   /** Renew the certificate keeping the key: CSR → sign with the open issuing CA → install reply. */
   const renew = async (r: Row) => {
-    const ca = keystores.flatMap((ks) => ks.entries).find((e) => isCaEntry(e) && e.subject === r.entry.issuer && e.id !== r.entry.id);
+    const ca = findIssuingCa(r.entry, keystores);
     if (!ca) return toast.error(`The issuing CA (${cnOf(r.entry.issuer)}) is not open. Generate a CSR from the entry and send it to your CA instead.`);
     setBusyId(r.entry.id);
     try {
       const leaf = r.entry.certificate_chain[0];
-      const lifetime = leaf ? Math.max(1, Math.round((leaf.not_after - leaf.not_before) / 86_400)) : 365;
+      const term = renewalTerm(r.entry);
       const csr = await api.generateCsr(r.entry, {});
-      const signed = await api.signCsr({ csr_pem: csr.csr_pem, validity_days: lifetime, is_ca: !!leaf?.is_ca, path_len: leaf?.path_len ?? null, sans: [], key_usage: [], extended_key_usage: [], copy_requested_sans: true }, ca);
+      const signed = await api.signCsr(
+        {
+          csr_pem: csr.csr_pem,
+          validity_days: term.days,
+          is_ca: !!leaf?.is_ca,
+          path_len: leaf?.path_len ?? null,
+          sans: [],
+          key_usage: [],
+          extended_key_usage: [],
+          copy_requested_sans: true,
+          copy_requested_usages: true,
+          crl_distribution_points: leaf?.crl_distribution_points ?? [],
+          ocsp_urls: leaf?.ocsp_urls ?? [],
+          ca_issuer_urls: leaf?.ca_issuer_urls ?? [],
+        },
+        ca
+      );
       const updated = await api.importCaReply(r.entry, { text: signed.chain_pem });
       replaceEntry(r.ks.id, { ...updated, id: r.entry.id, labels: r.entry.labels });
-      toast.success(`Renewed '${r.entry.alias}' until ${signed.certificate.valid_to} (same key). Save ${r.ks.name} to keep it.`);
+      toast.success(`Renewed '${r.entry.alias}' until ${signed.certificate.valid_to} (same key).${signed.validity_note ? ` ${signed.validity_note}` : ""} Save ${r.ks.name} to keep it.`);
     } catch (err) {
       toast.error(errorMessage(err));
     } finally {
@@ -122,11 +134,46 @@ export const ScannerView: React.FC = () => {
     }
   };
 
+  const runValidateChains = useCallback(
+    async (notify: boolean) => {
+      const anchors = keystores
+        .flatMap((k) =>
+          k.entries.flatMap((e) => {
+            const pems: string[] = [];
+            if (e.entry_type === "TrustedCertificate" && e.certificate_chain[0]?.pem) pems.push(e.certificate_chain[0].pem);
+            for (const c of e.certificate_chain) {
+              if (c.is_ca && (c.self_signed || c === e.certificate_chain[0]) && c.pem) pems.push(c.pem);
+            }
+            return pems;
+          })
+        )
+        .filter(Boolean)
+        .join("");
+      const notes: string[] = [];
+      for (const ks of keystores) {
+        for (const entry of ks.entries) {
+          const leaf = entry.certificate_chain[0]?.pem;
+          if (!leaf) continue;
+          const problems = await api.validateChain(leaf, entry.certificate_chain.slice(1).map((c) => c.pem).join(""), anchors, null).catch(() => []);
+          if (problems.length) notes.push(`${ks.name} / ${entry.alias}: ${problems[0]}`);
+        }
+      }
+      setChainNotes(notes);
+      if (notify) toast.success(notes.length ? `${notes.length} chain problem(s).` : "Every certificate chains to an open trust anchor.");
+    },
+    [keystores, toast]
+  );
+
+  useEffect(() => {
+    if (isDesktop() && rows.length > 0) void runValidateChains(false);
+    else setChainNotes([]);
+  }, [rows.length, runValidateChains]);
+
   const exportReport = async () => {
     try {
       const path = await pickSavePath("Save security report", `xkeystore-security-report-${new Date().toISOString().slice(0, 10)}.csv`, [{ name: "CSV", extensions: ["csv"] }]);
       if (!path) return;
-      const esc = (s: string) => `"${s.replace(/"/g, '""')}"`;
+      const esc = (s: string) => csvField(s);
       const lines = ["Keystore,Alias,Type,Algorithm,Expires,Severity,Finding,Detail"];
       for (const r of rows) {
         for (const f of r.findings.length ? r.findings : [{ severity: "ok", title: "No findings", detail: "" } as unknown as Finding]) {
@@ -173,7 +220,7 @@ export const ScannerView: React.FC = () => {
         r.entry.entry_type === "KeyPair" && !r.entry.locked ? (
           <div className="inline-flex items-center gap-1.5">
             {!r.entry.certificate_chain[0]?.self_signed && (
-              <Button size="sm" icon={RefreshCw} disabled={busyId === r.entry.id} onClick={() => renew(r)} title="Re-issue the certificate with the same key">
+              <Button size="sm" icon={RefreshCw} disabled={busyId === r.entry.id} onClick={() => renew(r)} title={renewalTerm(r.entry).note}>
                 Renew
               </Button>
             )}
@@ -211,11 +258,19 @@ export const ScannerView: React.FC = () => {
         title="Security audit"
         description="Finds expired, expiring and weak keys and certificates across every open keystore, with one-click remediation."
         actions={
-          <Button icon={FileText} onClick={exportReport}>
-            Export report
-          </Button>
+          <div className="flex gap-2">
+            <Button onClick={() => void runValidateChains(true)}>Validate chains</Button>
+            <Button icon={FileText} onClick={exportReport}>
+              Export report
+            </Button>
+          </div>
         }
       />
+      {chainNotes.length > 0 && (
+        <Alert tone="warning" className="mb-4" title="Chain validation">
+          {chainNotes.slice(0, 6).join(" ")}
+        </Alert>
+      )}
       {sealed > 0 && (
         <Alert tone="info" className="mb-4">
           {sealed} locked keystore(s) are not included. Unlock them on the Keystores page.

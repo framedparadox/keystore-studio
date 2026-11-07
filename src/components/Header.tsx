@@ -39,8 +39,8 @@ export const Header: React.FC<{ onOpenPalette: () => void }> = ({ onOpenPalette 
           <Kbd>Ctrl K</Kbd>
         </button>
         {vault.unlocked && (
-          <Button size="md" icon={LockOpen} onClick={() => lockVault()} title="The vault is unlocked — click to lock">
-            Lock vault
+          <Button size="md" icon={LockOpen} onClick={() => lockVault()} title="Lock the password vault. Open keystores and their keys stay in this window.">
+            Lock password vault
           </Button>
         )}
         <IconButton icon={TerminalSquare} label="Terminal (Ctrl+`)" onClick={toggleTerminal} className="!w-9 !h-9" />

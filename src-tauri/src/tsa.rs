@@ -14,16 +14,13 @@
 //! This is the only outbound network request the app makes besides the TLS inspector, it only
 //! happens when the user supplies a TSA URL, and it is a single blocking POST.
 //!
-//! # What is and is not checked
+//! # What is checked
 //!
 //! A token read back here is bound to the signature it claims to cover (the message imprint is
-//! recomputed) and, for a fresh request, to the nonce we sent. The TSA's *own* signature over the
-//! token is **not** verified, because doing so means deciding which authorities to trust, and
-//! this app has no TSA trust store. So a reported timestamp means "this token covers this
-//! signature and the authority named in it claims this time", not "a trusted authority vouches
-//! for it". `openssl ts -verify -CAfile …` and `jarsigner -verify` do perform that check, and the
-//! interop tests use them to confirm the tokens we attach are genuinely well-formed and signed.
-//! Verifying the TSA chain in-app is tracked in IMPROVEMENT.md.
+//! recomputed), to the nonce we sent (for a fresh request), and its CMS `SignerInfo` signature
+//! and `Time Stamping` Extended Key Usage (`1.3.6.1.5.5.7.3.8`) are cryptographically verified
+//! against the signing certificate. When the caller also supplies a TSA trust bundle,
+//! `chain_trusted` verifies that the TSA signing certificate chains to that bundle.
 
 use crate::oids::{self, oid};
 use crate::pbe::HashAlg;
@@ -48,6 +45,8 @@ pub struct Timestamp {
     pub serial_number: String,
     pub hash_algorithm: String,
     pub policy: Option<String>,
+    /// Certificates embedded in the token, leaf first when the TSA included them.
+    pub certificates: Vec<Vec<u8>>,
 }
 
 impl Timestamp {
@@ -60,6 +59,7 @@ impl Timestamp {
             policy: self.policy.clone(),
             valid,
             error,
+            chain_trusted: None,
         }
     }
 }
@@ -71,11 +71,7 @@ pub fn describe_any_token(token: &[u8]) -> Res<Timestamp> {
 }
 
 /// Reads a timestamp token found in a SignerInfo's unsigned attributes and checks that it really
-/// covers `signature`.
-///
-/// This confirms the token belongs to this signature. It does not validate the TSA's own
-/// certificate chain, so the result says "this token covers this signature and the TSA claims this
-/// time", not "a trusted authority vouches for it".
+/// covers `signature` and carries a valid TSA signature.
 pub fn verify_token(token: &[u8], signature: &[u8]) -> Res<Timestamp> {
     check_der_lengths(token)?;
     // The imprint hash is the TSA's choice, so read the token first and recompute with that hash.
@@ -84,7 +80,9 @@ pub fn verify_token(token: &[u8], signature: &[u8]) -> Res<Timestamp> {
         .into_iter()
         .find(|h| h.name() == described.hash_algorithm)
         .ok_or_else(|| format!("the timestamp uses an unsupported digest ({})", described.hash_algorithm))?;
-    describe_token(token, Some(&hash.digest(signature)), None)
+    let mut ts = describe_token(token, Some(&hash.digest(signature)), None)?;
+    verify_token_signature(&mut ts, &[])?;
+    Ok(ts)
 }
 
 /// Builds a DER `TimeStampReq` over `digest`.
@@ -167,22 +165,34 @@ fn parse_response(der: &[u8]) -> Res<Vec<u8>> {
     token.ok_or_else(|| "the timestamp authority reported success but returned no token".to_string())
 }
 
-/// The fields of `TSTInfo` we show to the user, read from inside the token's SignedData.
-///
-/// `expected_digest` and `expected_nonce` are checked when supplied. Passing `None` reads the
-/// token without binding it to a particular signature, which is how the imprint hash is discovered
-/// before it can be recomputed.
-fn describe_token(token: &[u8], expected_digest: Option<&[u8]>, expected_nonce: Option<&[u8]>) -> Res<Timestamp> {
-    // The token is a CMS SignedData whose encapsulated content is the DER TSTInfo.
-    let (tst_info, certificates) = yasna::parse_ber(token, |r| {
+struct TsaSigner {
+    issuer_raw: Option<Vec<u8>>,
+    serial: Option<Vec<u8>>,
+    ski: Option<Vec<u8>>,
+    digest_oid: Vec<u64>,
+    signed_attrs_raw: Option<Vec<u8>>,
+    sig_oid: Vec<u64>,
+    signature: Vec<u8>,
+}
+
+type ParsedTokenCms = (Vec<u8>, Vec<Vec<u8>>, Vec<TsaSigner>);
+
+fn parse_token_cms(token: &[u8]) -> Res<ParsedTokenCms> {
+    let (tst_info, certificates, signers) = yasna::parse_ber(token, |r| {
         r.read_sequence(|r| {
-            let _ct = r.next().read_oid()?;
+            let ct = r.next().read_oid()?;
+            if ct.components().as_slice() != oids::PKCS7_SIGNED_DATA {
+                return Err(yasna::ASN1Error::new(yasna::ASN1ErrorKind::Invalid));
+            }
             r.next().read_tagged(Tag::context(0), |r| {
                 r.read_sequence(|r| {
                     let _version = r.next().read_u8()?;
                     r.next().read_set_of(|r| r.read_der().map(|_| ()))?;
                     let content = r.next().read_sequence(|r| {
-                        let _ct = r.next().read_oid()?;
+                        let ect = r.next().read_oid()?;
+                        if ect.components().as_slice() != oids::TST_INFO {
+                            return Err(yasna::ASN1Error::new(yasna::ASN1ErrorKind::Invalid));
+                        }
                         r.read_optional(|r| r.read_tagged(Tag::context(0), |r| r.read_bytes()))
                     })?;
                     let mut certificates = Vec::new();
@@ -197,21 +207,159 @@ fn describe_token(token: &[u8], expected_digest: Option<&[u8]>, expected_nonce: 
                             })
                         })
                     })?;
-                    // [1] crls, then the mandatory signerInfos. Both are read and discarded: the
-                    // TSA's own signature is checked by a verifier that has its trust anchors, not
-                    // here. Skipping them would leave trailing data and fail the parse.
                     if r.next().lookahead_tag()? == Tag::context(1) {
                         r.next().read_der()?;
                     }
-                    r.next().read_der()?;
-                    Ok((content, certificates))
+                    let mut signers = Vec::new();
+                    r.next().read_set_of(|r| {
+                        r.read_sequence(|r| {
+                            let _v = r.next().read_u8()?;
+                            let (issuer_raw, serial, ski) = match r.next().read_der()? {
+                                sid if sid.first() == Some(&0x30) => yasna::parse_ber(&sid, |r| {
+                                    r.read_sequence(|r| {
+                                        let issuer = r.next().read_der()?;
+                                        let serial = r.next().read_bigint_bytes()?.0;
+                                        Ok((Some(issuer), Some(serial), None))
+                                    })
+                                })?,
+                                sid => {
+                                    let ski = yasna::parse_ber(&sid, |r| r.read_tagged_implicit(Tag::context(0), |r| r.read_bytes()))?;
+                                    (None, None, Some(ski))
+                                }
+                            };
+                            let digest_oid = crate::pbe::read_algorithm_id(r.next())?.oid;
+                            let signed_attrs_raw = if r.next().lookahead_tag()? == Tag::context(0) { Some(r.next().read_der()?) } else { None };
+                            let sig_oid = crate::pbe::read_algorithm_id(r.next())?.oid;
+                            let signature = r.next().read_bytes()?;
+                            if r.next().lookahead_tag().ok() == Some(Tag::context(1)) {
+                                r.next().read_der()?;
+                            }
+                            signers.push(TsaSigner { issuer_raw, serial, ski, digest_oid, signed_attrs_raw, sig_oid, signature });
+                            Ok(())
+                        })
+                    })?;
+                    Ok((content, certificates, signers))
                 })
             })
         })
     })
     .map_err(|err| format!("the timestamp token is not a valid CMS structure: {err}"))?;
-
     let tst_info = tst_info.ok_or("the timestamp token carries no TSTInfo content")?;
+    Ok((tst_info, certificates, signers))
+}
+
+fn find_attr_in_set(set_der: &[u8], arcs: &[u64]) -> Option<Vec<u8>> {
+    yasna::parse_ber(set_der, |r| {
+        let mut found = None;
+        r.read_set_of(|r| {
+            r.read_sequence(|r| {
+                let attr_oid = r.next().read_oid()?;
+                r.next().read_set_of(|r| {
+                    let v = r.read_der()?;
+                    if attr_oid.components().as_slice() == arcs && found.is_none() {
+                        found = Some(v);
+                    }
+                    Ok(())
+                })
+            })
+        })?;
+        Ok(found)
+    })
+    .ok()
+    .flatten()
+}
+
+fn matches_signer_id(cert_der: &[u8], s: &TsaSigner) -> bool {
+    use x509_parser::prelude::*;
+    let Ok((_, x)) = X509Certificate::from_der(cert_der) else { return false };
+    if let (Some(issuer), Some(serial)) = (&s.issuer_raw, &s.serial) {
+        x.issuer().as_raw() == issuer.as_slice() && trim_leading_zeros(x.raw_serial()) == trim_leading_zeros(serial)
+    } else if let Some(ski) = &s.ski {
+        x.iter_extensions().any(|e| matches!(e.parsed_extension(), ParsedExtension::SubjectKeyIdentifier(k) if k.0 == ski.as_slice()))
+    } else {
+        false
+    }
+}
+
+/// Verifies the CMS `SignerInfo` signature inside a timestamp token, checks `signedAttrs` digest
+/// and content-type, checks the `Time Stamping` Extended Key Usage when a signer certificate is
+/// available, and ensures `ts.certificates[0]` is the matched TSA signing certificate.
+fn verify_token_signature(ts: &mut Timestamp, extra_certs: &[Vec<u8>]) -> Res<()> {
+    let (tst_info, mut certificates, signers) = parse_token_cms(&ts.token)?;
+    let s = signers.first().ok_or("the timestamp token contains no signature (empty signerInfos)")?;
+    let hash = HashAlg::from_digest_oid(&s.digest_oid).ok_or_else(|| format!("the timestamp token uses an unsupported digest algorithm ({})", oids::oid_str(&s.digest_oid)))?;
+    let sig_alg = match s.sig_oid.as_slice() {
+        a if a == oids::RSA_ENCRYPTION => Some(crate::keys::SigAlg::Rsa(hash)),
+        a if a == oids::EC_PUBLIC_KEY => Some(crate::keys::SigAlg::Ecdsa(hash)),
+        a => crate::keys::SigAlg::from_oid(a),
+    }
+    .ok_or_else(|| format!("the timestamp token uses an unsupported signature algorithm ({})", oids::signature_algorithm_name(&s.sig_oid)))?;
+
+    let signed_set = if let Some(raw) = &s.signed_attrs_raw {
+        let mut set = raw.clone();
+        set[0] = 0x31;
+        if let Some(ct_der) = find_attr_in_set(&set, oids::ATTR_CONTENT_TYPE) {
+            let ct = yasna::parse_der(&ct_der, |r| r.read_oid()).map_err(|_| "malformed content-type attribute in timestamp token")?;
+            if ct.components().as_slice() != oids::TST_INFO {
+                return Err("the timestamp token's signed content-type is not id-ct-TSTInfo".into());
+            }
+        }
+        let md =
+            find_attr_in_set(&set, oids::ATTR_MESSAGE_DIGEST).and_then(|v| yasna::parse_der(&v, |r| r.read_bytes()).ok()).ok_or("the timestamp token's signed attributes omit the message digest")?;
+        if md != hash.digest(&tst_info) {
+            return Err("the timestamp token's signed message digest does not match its TSTInfo".into());
+        }
+        Some(set)
+    } else {
+        None
+    };
+
+    let mut pool = certificates.clone();
+    for c in extra_certs {
+        if !pool.iter().any(|existing| existing == c) {
+            pool.push(c.clone());
+        }
+    }
+
+    if !pool.is_empty() {
+        let signer_cert = pool.iter().find(|c| matches_signer_id(c, s)).cloned().ok_or("the timestamp token's signing certificate does not match its SignerInfo")?;
+        let summary = crate::x509::cert_summary(&signer_cert)?;
+        let payload = signed_set.as_deref().unwrap_or(&tst_info);
+        if !crate::keys::verify(&summary.spki, sig_alg, payload, &s.signature).unwrap_or(false) {
+            return Err("the timestamp authority's cryptographic signature is invalid".into());
+        }
+        let cert_info = crate::x509::parse_certificate(&signer_cert)?;
+        if !cert_info.extended_key_usage.iter().any(|u| u == "Time Stamping" || u == "timeStamping") {
+            return Err("the timestamp signer certificate lacks the Time Stamping extended key usage".into());
+        }
+        if let Some(pos) = certificates.iter().position(|c| c == &signer_cert) {
+            certificates.remove(pos);
+        }
+        certificates.insert(0, signer_cert);
+        ts.certificates = certificates;
+        if ts.authority == "unnamed authority" {
+            ts.authority = cert_info.subject;
+        }
+    }
+    Ok(())
+}
+
+/// The fields of `TSTInfo` we show to the user, read from inside the token's SignedData.
+///
+/// `expected_digest` and `expected_nonce` are checked when supplied. Passing `None` reads the
+/// token without binding it to a particular signature, which is how the imprint hash is discovered
+/// before it can be recomputed.
+fn describe_token(token: &[u8], expected_digest: Option<&[u8]>, expected_nonce: Option<&[u8]>) -> Res<Timestamp> {
+    // The token is a CMS SignedData whose encapsulated content is the DER TSTInfo.
+    let (tst_info, mut certificates, signers) = parse_token_cms(token)?;
+    if let Some(s) = signers.first()
+        && let Some(pos) = certificates.iter().position(|c| matches_signer_id(c, s))
+        && pos > 0
+    {
+        let signer_cert = certificates.remove(pos);
+        certificates.insert(0, signer_cert);
+    }
+
     let (policy, hash_oid, digest, serial, gen_time, nonce, tsa_name) = yasna::parse_ber(&tst_info, |r| {
         r.read_sequence(|r| {
             let _version = r.next().read_u8()?;
@@ -223,11 +371,19 @@ fn describe_token(token: &[u8], expected_digest: Option<&[u8]>, expected_nonce: 
             })?;
             let serial = r.next().read_bigint_bytes()?.0;
             let gen_time = r.next().read_der()?;
-            // accuracy, ordering, nonce, tsa and extensions are all optional.
-            let _accuracy = r.read_optional(|r| r.read_sequence(|r| r.read_optional(|r| r.read_u64()).map(|_| ())))?;
+            // accuracy, ordering, nonce, tsa and extensions are all optional (RFC 3161 §2.4.2).
+            let _accuracy = r.read_optional(|r| {
+                r.read_sequence(|r| {
+                    let _seconds = r.read_optional(|r| r.read_u64())?;
+                    let _millis = r.read_optional(|r| r.read_tagged_implicit(Tag::context(0), |r| r.read_u64()))?;
+                    let _micros = r.read_optional(|r| r.read_tagged_implicit(Tag::context(1), |r| r.read_u64()))?;
+                    Ok(())
+                })
+            })?;
             let _ordering = r.read_optional(|r| r.read_bool())?;
             let nonce = r.read_optional(|r| r.read_bigint_bytes().map(|(b, _)| b))?;
             let tsa_name = r.read_optional(|r| r.read_tagged(Tag::context(0), |r| r.read_der()))?;
+            let _extensions = r.read_optional(|r| r.read_tagged_implicit(Tag::context(1), |r| r.read_der()))?;
             Ok((policy, hash_oid, digest, serial, gen_time, nonce, tsa_name))
         })
     })
@@ -235,9 +391,10 @@ fn describe_token(token: &[u8], expected_digest: Option<&[u8]>, expected_nonce: 
 
     // These checks are what make the token ours rather than a replayed or unrelated one.
     if let Some(expected) = expected_digest
-        && digest != expected {
-            return Err("the timestamp covers different data than this signature".into());
-        }
+        && digest != expected
+    {
+        return Err("the timestamp covers different data than this signature".into());
+    }
     // RFC 3161 §2.4.2: when the request carried a nonce the response MUST echo it. A missing
     // nonce has to be rejected rather than skipped, or a replayed token would pass the check by
     // simply leaving the field out.
@@ -262,7 +419,27 @@ fn describe_token(token: &[u8], expected_digest: Option<&[u8]>, expected_nonce: 
         serial_number: upper_hex(trim_leading_zeros(&serial)),
         hash_algorithm: HashAlg::from_digest_oid(&hash_oid).map(|h| h.name().to_string()).unwrap_or_else(|| oids::oid_str(&hash_oid)),
         policy: Some(oids::oid_str(&policy)).filter(|p| !p.is_empty()),
+        certificates,
     })
+}
+
+/// `Some(true)` when `anchors_pem` is a trust bundle, the token's `SignerInfo` signature and
+/// `Time Stamping` EKU are valid, and the signing certificate chains to `anchors_pem`.
+/// `None` when no bundle was configured, so the caller does not claim the timestamp is trusted.
+pub fn chain_trusted(ts: &Timestamp, anchors_pem: &str) -> Option<bool> {
+    if anchors_pem.trim().is_empty() {
+        return None;
+    }
+    let Ok(anchors) = crate::x509::certificates_from_bytes(anchors_pem.as_bytes()) else { return Some(false) };
+    if anchors.is_empty() {
+        return Some(false);
+    }
+    let mut verified = ts.clone();
+    if verify_token_signature(&mut verified, &anchors).is_err() {
+        return Some(false);
+    }
+    let Some(leaf) = verified.certificates.first() else { return Some(false) };
+    Some(crate::x509::validate_chain(leaf, &verified.certificates[1..], &anchors, None).is_empty())
 }
 
 /// Renders the `GeneralName` the TSA identifies itself with; only directoryName is common.
@@ -297,25 +474,13 @@ pub fn request_timestamp(url: &str, signature: &[u8], hash: HashAlg) -> Res<Time
     let nonce = random_bytes(16);
     let request = build_request(&digest, hash, &nonce, true);
 
-    let agent: ureq::Agent = ureq::Agent::config_builder()
-        .timeout_global(Some(Duration::from_secs(30)))
-        .user_agent(concat!("xkeystore/", env!("CARGO_PKG_VERSION")))
-        .build()
-        .into();
-    let mut response = agent
-        .post(trimmed)
-        .content_type(REQUEST_TYPE)
-        .send(&request[..])
-        .map_err(|err| format!("cannot reach the timestamp authority at {trimmed}: {}", tidy_network_error(&err.to_string())))?;
+    let agent: ureq::Agent = ureq::Agent::config_builder().timeout_global(Some(Duration::from_secs(30))).user_agent(concat!("xkeystore/", env!("CARGO_PKG_VERSION"))).build().into();
+    let mut response =
+        agent.post(trimmed).content_type(REQUEST_TYPE).send(&request[..]).map_err(|err| format!("cannot reach the timestamp authority at {trimmed}: {}", tidy_network_error(&err.to_string())))?;
 
     let status = response.status();
     let content_type = response.headers().get("content-type").and_then(|v| v.to_str().ok()).unwrap_or("").to_string();
-    let body = response
-        .body_mut()
-        .with_config()
-        .limit(MAX_RESPONSE)
-        .read_to_vec()
-        .map_err(|err| format!("cannot read the timestamp authority's reply: {err}"))?;
+    let body = response.body_mut().with_config().limit(MAX_RESPONSE).read_to_vec().map_err(|err| format!("cannot read the timestamp authority's reply: {err}"))?;
 
     if !status.is_success() {
         return Err(format!("the timestamp authority answered HTTP {status}{}", http_body_hint(&body)));
@@ -326,7 +491,9 @@ pub fn request_timestamp(url: &str, signature: &[u8], hash: HashAlg) -> Res<Time
         return Err(format!("{trimmed} replied with '{content_type}' instead of a timestamp; check the URL"));
     }
     let token = parse_response(&body)?;
-    describe_token(&token, Some(&digest), Some(&nonce))
+    let mut ts = describe_token(&token, Some(&digest), Some(&nonce))?;
+    verify_token_signature(&mut ts, &[])?;
+    Ok(ts)
 }
 
 /// Turns the HTML or text of an error page into a short hint rather than dumping a whole page.
@@ -453,5 +620,139 @@ mod tests {
     fn urls_are_checked_before_any_network_call() {
         assert!(request_timestamp("", b"x", HashAlg::Sha256).unwrap_err().contains("enter the URL"));
         assert!(request_timestamp("tsa.example.test", b"x", HashAlg::Sha256).unwrap_err().contains("not an http"));
+    }
+
+    #[test]
+    fn forged_unsigned_or_non_tsa_tokens_are_rejected_and_accuracy_millis_parses() {
+        use crate::keys::PrivateKey;
+        use crate::x509::{CertTemplate, Signer, build_certificate, encode_dn, ext_basic_constraints, ext_extended_key_usage, ext_key_usage, parse_dn};
+
+        let now = now_ts();
+        let root_key = PrivateKey::generate("ECDSA", 0, Some("P-256")).unwrap();
+        let root_der = build_certificate(
+            CertTemplate {
+                serial: vec![1],
+                subject_der: encode_dn(&parse_dn("CN=TSA Root CA").unwrap()),
+                not_before: now - 60,
+                not_after: now + 86_400,
+                spki_der: root_key.public_key_der().unwrap(),
+                extensions: vec![ext_basic_constraints(true, None), ext_key_usage(&["keyCertSign".into(), "cRLSign".into()]).unwrap().unwrap()],
+            },
+            &Signer { key: &root_key, cert_der: None, sig_alg: root_key.default_sig_alg(None).unwrap() },
+        )
+        .unwrap();
+        let root_pem = to_pem("CERTIFICATE", &root_der);
+
+        let tsa_key = PrivateKey::generate("ECDSA", 0, Some("P-256")).unwrap();
+        let tsa_der = build_certificate(
+            CertTemplate {
+                serial: vec![2],
+                subject_der: encode_dn(&parse_dn("CN=Valid TSA").unwrap()),
+                not_before: now - 60,
+                not_after: now + 86_400,
+                spki_der: tsa_key.public_key_der().unwrap(),
+                extensions: vec![ext_basic_constraints(false, None), ext_key_usage(&["digitalSignature".into()]).unwrap().unwrap(), ext_extended_key_usage(&["timeStamping".into()]).unwrap().unwrap()],
+            },
+            &Signer { key: &root_key, cert_der: Some(&root_der), sig_alg: root_key.default_sig_alg(None).unwrap() },
+        )
+        .unwrap();
+
+        let non_tsa_der = build_certificate(
+            CertTemplate {
+                serial: vec![3],
+                subject_der: encode_dn(&parse_dn("CN=Non TSA Leaf").unwrap()),
+                not_before: now - 60,
+                not_after: now + 86_400,
+                spki_der: tsa_key.public_key_der().unwrap(),
+                extensions: vec![ext_basic_constraints(false, None), ext_key_usage(&["digitalSignature".into()]).unwrap().unwrap(), ext_extended_key_usage(&["serverAuth".into()]).unwrap().unwrap()],
+            },
+            &Signer { key: &root_key, cert_der: Some(&root_der), sig_alg: root_key.default_sig_alg(None).unwrap() },
+        )
+        .unwrap();
+
+        let sig_bytes = b"cms-signature-value";
+        let imprint = sha256(sig_bytes);
+        let tst_info = yasna::construct_der(|w| {
+            w.write_sequence(|w| {
+                w.next().write_u8(1);
+                w.next().write_oid(&oid(&[1, 3, 6, 1, 4, 1, 99999, 1]));
+                w.next().write_sequence(|w| {
+                    w.next().write_sequence(|w| {
+                        w.next().write_oid(&oid(oids::SHA256));
+                        w.next().write_null();
+                    });
+                    w.next().write_bytes(&imprint);
+                });
+                w.next().write_bigint_bytes(&[42], true);
+                w.next().write_der(&generalized_time_der(now));
+                // Accuracy with seconds, [0] millis, [1] micros
+                w.next().write_sequence(|w| {
+                    w.next().write_u64(1);
+                    w.next().write_tagged_implicit(Tag::context(0), |w| w.write_u64(500));
+                    w.next().write_tagged_implicit(Tag::context(1), |w| w.write_u64(250));
+                });
+            })
+        });
+
+        let make_token = |certs: Vec<Vec<u8>>, signer_cert: Option<&[u8]>| {
+            yasna::construct_der(|w| {
+                w.write_sequence(|w| {
+                    w.next().write_oid(&oid(oids::PKCS7_SIGNED_DATA));
+                    w.next().write_tagged(Tag::context(0), |w| {
+                        w.write_sequence(|w| {
+                            w.next().write_u8(3);
+                            w.next().write_set(|w| {
+                                w.next().write_sequence(|w| w.next().write_oid(&oid(oids::SHA256)));
+                            });
+                            w.next().write_sequence(|w| {
+                                w.next().write_oid(&oid(oids::TST_INFO));
+                                w.next().write_tagged(Tag::context(0), |w| w.write_bytes(&tst_info));
+                            });
+                            w.next().write_tagged_implicit(Tag::context(0), |w| {
+                                w.write_set_of(|w| {
+                                    for c in &certs {
+                                        w.next().write_der(c);
+                                    }
+                                })
+                            });
+                            w.next().write_set(|w| {
+                                if let Some(sc) = signer_cert {
+                                    use x509_parser::prelude::*;
+                                    let (_, x) = X509Certificate::from_der(sc).unwrap();
+                                    let sig_alg = tsa_key.default_sig_alg(None).unwrap();
+                                    let sig = tsa_key.sign(sig_alg, &tst_info).unwrap();
+                                    w.next().write_sequence(|w| {
+                                        w.next().write_u8(1);
+                                        w.next().write_sequence(|w| {
+                                            w.next().write_der(x.issuer().as_raw());
+                                            w.next().write_bigint_bytes(x.raw_serial(), true);
+                                        });
+                                        w.next().write_sequence(|w| w.next().write_oid(&oid(oids::SHA256)));
+                                        w.next().write_sequence(|w| w.next().write_oid(&oid(sig_alg.oid())));
+                                        w.next().write_bytes(&sig);
+                                    });
+                                }
+                            });
+                        })
+                    });
+                })
+            })
+        };
+
+        // 1. Forged unsigned token is rejected by verify_token and chain_trusted.
+        let unsigned = make_token(vec![tsa_der.clone()], None);
+        assert!(verify_token(&unsigned, sig_bytes).is_err());
+        let desc = describe_any_token(&unsigned).unwrap();
+        assert_eq!(chain_trusted(&desc, &root_pem), Some(false));
+
+        // 2. Token signed by a certificate without Time Stamping EKU is rejected.
+        let bad_eku = make_token(vec![non_tsa_der.clone()], Some(&non_tsa_der));
+        assert!(verify_token(&bad_eku, sig_bytes).is_err());
+
+        // 3. Valid TSA token (even with root_der listed before tsa_der in certificates SET) verifies and is chain_trusted.
+        let valid_tok = make_token(vec![root_der.clone(), tsa_der.clone()], Some(&tsa_der));
+        let verified = verify_token(&valid_tok, sig_bytes).expect("valid TSA token with Accuracy.millis must verify");
+        assert_eq!(verified.certificates[0], tsa_der);
+        assert_eq!(chain_trusted(&verified, &root_pem), Some(true));
     }
 }

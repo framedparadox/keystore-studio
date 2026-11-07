@@ -11,8 +11,13 @@ use crate::vault::{SecretSummary, VaultState, VaultStatus};
 use crate::*;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::io::{Read, Write};
 use std::sync::Arc;
-use tauri::State;
+use std::sync::atomic::{AtomicBool, Ordering};
+use tauri::{Manager, State};
+
+static E2E_PAGE_LOADED: AtomicBool = AtomicBool::new(false);
+use zeroize::Zeroize;
 
 const MAX_INPUT_BYTES: u64 = 64 * 1024 * 1024;
 
@@ -125,9 +130,13 @@ async fn probe_file(path: String) -> Res<FileProbe> {
         let lower = name.to_ascii_lowercase();
         let (kind, keystore_format) = if let Some(fmt) = keystore::detect(&head) {
             ("keystore".to_string(), Some(fmt.name().to_string()))
-        } else if lower.ends_with(".jar") || lower.ends_with(".war") || lower.ends_with(".ear") || lower.ends_with(".apk") {
+        } else if keystore::looks_like_bks_v2(&head) {
+            ("keystore".to_string(), Some("BKS".to_string()))
+        } else if lower.ends_with(".apk") {
+            ("apk".to_string(), None)
+        } else if lower.ends_with(".jar") || lower.ends_with(".war") || lower.ends_with(".ear") {
             ("jar".to_string(), None)
-        } else if let Some(kind) = keystore::detect_unsupported(&head).filter(|_| lower.ends_with(".bks") || lower.ends_with(".uber") || lower.ends_with(".bcfks")) {
+        } else if let Some(kind) = keystore::detect_unsupported(&head) {
             // Report the actual format: the conversion command differs per store type, and
             // suggesting BKS for a BCFKS file produces a command that fails.
             ("unsupported_keystore".to_string(), Some(kind.store_type().to_string()))
@@ -153,14 +162,27 @@ struct SaveResult {
     name: String,
     format: String,
     byte_length: usize,
+    mtime_ms: Option<i64>,
 }
 
 #[tauri::command]
-async fn save_keystore(ks: KeystoreFile, path: String, password: String, format: String) -> Res<SaveResult> {
+async fn save_keystore(mut ks: KeystoreFile, path: String, mut password: String, format: String, mac: Option<String>, force: Option<bool>) -> Res<SaveResult> {
     blocking(move || {
         let fmt = keystore::Format::parse(&format)?;
-        let n = keystore::save(&ks, &path, &password, fmt)?;
-        Ok(SaveResult { name: util::file_name_of(&path), path, format: fmt.name().into(), byte_length: n })
+        let mac_kind = match mac.as_deref() {
+            Some("pbmac1") => pkcs12::MacKind::Pbmac1,
+            _ => pkcs12::MacKind::Pkcs12,
+        };
+        let saved = keystore::save_with(&ks, &path, &password, fmt, keystore::SavePolicy { mac: mac_kind, force: force.unwrap_or(false) });
+        password.zeroize();
+        for entry in &mut ks.entries {
+            if let Some(kp) = entry.key_password.as_mut() {
+                kp.zeroize();
+            }
+        }
+        let n = saved?;
+        let mtime_ms = keystore::mtime_ms(std::path::Path::new(&path));
+        Ok(SaveResult { name: util::file_name_of(&path), path, format: fmt.name().into(), byte_length: n, mtime_ms })
     })
     .await
 }
@@ -179,9 +201,26 @@ async fn export_keystore_csv(ks: KeystoreFile, path: String) -> Res<ExportResult
 // Entries
 // ------------------------------------------------------------------------------------------------
 
+#[derive(Serialize)]
+struct GeneratedKeyPair {
+    #[serde(flatten)]
+    entry: KeystoreEntry,
+    /// Set when the requested lifetime was shortened to the CA certificate's expiry.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    validity_note: Option<String>,
+}
+
 #[tauri::command]
-async fn generate_key_pair(input: GenerateKeyPairInput, issuer: Option<KeystoreEntry>) -> Res<KeystoreEntry> {
-    blocking(move || ops::generate_key_pair(&input, issuer.as_ref())).await
+async fn generate_key_pair(input: GenerateKeyPairInput, issuer: Option<KeystoreEntry>, paths: State<'_, Arc<AppPaths>>) -> Res<GeneratedKeyPair> {
+    let dir = paths.data_dir.clone();
+    blocking(move || {
+        let (entry, validity_note) = ops::issue_key_pair(&input, issuer.as_ref())?;
+        if let Some(ca) = &issuer {
+            record_issuance(&dir, entry.certificate_chain.first(), ca.certificate_chain.first(), "generate");
+        }
+        Ok(GeneratedKeyPair { entry, validity_note })
+    })
+    .await
 }
 
 #[tauri::command]
@@ -206,6 +245,39 @@ async fn import_key_pair(alias: String, key: DataSource, key_password: Option<St
     .await
 }
 
+/// Builds a PKCS#12 (.p12/.pfx) from a certificate, a private key and a passphrase, and writes it
+/// to `path`. The standalone counterpart to importing a key pair and then exporting it.
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+async fn build_pkcs12(
+    path: String,
+    key: DataSource,
+    certificate: Option<DataSource>,
+    key_password: Option<String>,
+    passphrase: String,
+    alias: Option<String>,
+    mac: Option<String>,
+) -> Res<ExportResult> {
+    blocking(move || {
+        let cert_bytes = match &certificate {
+            Some(c) if !c.is_empty() => Some(c.bytes()?),
+            _ => None,
+        };
+        let input = BuildPkcs12Input {
+            alias: alias.unwrap_or_default(),
+            key: key.bytes()?,
+            certificate: cert_bytes,
+            key_password,
+            passphrase,
+            mac,
+        };
+        let der = ops::build_pkcs12(&input)?;
+        util::write_atomic(std::path::Path::new(&path), &der)?;
+        Ok(ExportResult { path, format: "PKCS#12 (certificate and private key)".into(), byte_length: der.len(), text: None })
+    })
+    .await
+}
+
 #[tauri::command]
 async fn generate_csr(entry: KeystoreEntry, options: CsrOptions) -> Res<CsrResult> {
     blocking(move || ops::generate_csr(&entry, &options)).await
@@ -217,8 +289,16 @@ async fn import_ca_reply(entry: KeystoreEntry, reply: DataSource) -> Res<Keystor
 }
 
 #[tauri::command]
-async fn rotate_key(entry: KeystoreEntry, algorithm: String, key_size: u32, curve: Option<String>, issuer: Option<KeystoreEntry>) -> Res<KeystoreEntry> {
-    blocking(move || ops::rotate_key(&entry, &algorithm, key_size, curve.as_deref(), issuer.as_ref())).await
+async fn rotate_key(entry: KeystoreEntry, algorithm: String, key_size: u32, curve: Option<String>, issuer: Option<KeystoreEntry>, paths: State<'_, Arc<AppPaths>>) -> Res<KeystoreEntry> {
+    let dir = paths.data_dir.clone();
+    blocking(move || {
+        let rotated = ops::rotate_key(&entry, &algorithm, key_size, curve.as_deref(), issuer.as_ref())?;
+        if let Some(ca) = &issuer {
+            record_issuance(&dir, rotated.certificate_chain.first(), ca.certificate_chain.first(), "rotate");
+        }
+        Ok(rotated)
+    })
+    .await
 }
 
 #[tauri::command]
@@ -241,8 +321,14 @@ async fn jwt_algorithms(entry: KeystoreEntry) -> Res<Vec<String>> {
 // ------------------------------------------------------------------------------------------------
 
 #[tauri::command]
-async fn sign_csr(input: SignCsrInput, ca_entry: KeystoreEntry) -> Res<SignedCertificateResult> {
-    blocking(move || ops::sign_csr(&input, &ca_entry)).await
+async fn sign_csr(input: SignCsrInput, ca_entry: KeystoreEntry, paths: State<'_, Arc<AppPaths>>) -> Res<SignedCertificateResult> {
+    let dir = paths.data_dir.clone();
+    blocking(move || {
+        let signed = ops::sign_csr(&input, &ca_entry)?;
+        record_issuance(&dir, Some(&signed.certificate), ca_entry.certificate_chain.first(), "sign-csr");
+        Ok(signed)
+    })
+    .await
 }
 
 #[tauri::command]
@@ -251,12 +337,38 @@ async fn inspect_csr(data: DataSource) -> Res<CsrInfo> {
 }
 
 #[tauri::command]
-async fn generate_crl(ca_entry: KeystoreEntry, next_update_days: u32, crl_number: u64, revoked_entries: Vec<RevokedCertEntry>) -> Res<CrlInfo> {
-    blocking(move || ops::generate_crl(&ca_entry, next_update_days, crl_number, &revoked_entries)).await
+async fn generate_crl(ca_entry: KeystoreEntry, next_update_days: u32, crl_number: u64, revoked_entries: Vec<RevokedCertEntry>, paths: State<'_, Arc<AppPaths>>) -> Res<CrlInfo> {
+    let dir = paths.data_dir.clone();
+    blocking(move || {
+        let crl = ops::generate_crl(&ca_entry, next_update_days, crl_number, &revoked_entries)?;
+        if let Some(ski) = ca_entry.certificate_chain.first().and_then(|c| c.subject_key_id.as_deref()).filter(|s| !s.is_empty()) {
+            let path = dir.join("crl_numbers.json");
+            let mut map: HashMap<String, u64> = std::fs::read_to_string(&path).ok().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default();
+            let entry = map.entry(ski.to_string()).or_insert(0);
+            if crl_number > *entry {
+                *entry = crl_number;
+            }
+            if let Ok(json) = serde_json::to_vec_pretty(&map) {
+                let _ = util::write_atomic(&path, &json);
+            }
+        }
+        Ok(crl)
+    })
+    .await
 }
 
 #[tauri::command]
-async fn cms_sign(content: DataSource, signer_entry: KeystoreEntry, detached: bool, tsa_url: Option<String>) -> Res<CmsSignResult> {
+async fn ca_next_crl_number(paths: State<'_, Arc<AppPaths>>, ca_ski: String) -> Res<u64> {
+    let path = paths.data_dir.join("crl_numbers.json");
+    blocking(move || {
+        let map: HashMap<String, u64> = std::fs::read_to_string(&path).ok().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default();
+        Ok(map.get(&ca_ski).copied().unwrap_or(0).saturating_add(1))
+    })
+    .await
+}
+
+#[tauri::command]
+async fn cms_sign(content: DataSource, signer_entry: KeystoreEntry, detached: bool, tsa_url: Option<String>, tsa_trust_pem: Option<String>) -> Res<CmsSignResult> {
     blocking(move || {
         let data = content.bytes()?;
         let key = entry::private_key(&signer_entry)?;
@@ -271,14 +383,20 @@ async fn cms_sign(content: DataSource, signer_entry: KeystoreEntry, detached: bo
             cms_pem: util::to_pem("PKCS7", &der),
             byte_length: der.len(),
             signed_at: util::fmt_ts(util::now_ts()),
-            timestamp: timestamp.map(|ts| ts.info(true, None)),
+            timestamp: timestamp.map(|ts| {
+                let mut info = ts.info(true, None);
+                if let Some(pem) = tsa_trust_pem.as_deref() {
+                    info.chain_trusted = tsa::chain_trusted(&ts, pem);
+                }
+                info
+            }),
         })
     })
     .await
 }
 
 #[tauri::command]
-async fn cms_verify(signature: DataSource, content: Option<DataSource>, entry: Option<KeystoreEntry>) -> Res<CmsVerifyResult> {
+async fn cms_verify(signature: DataSource, content: Option<DataSource>, entry: Option<KeystoreEntry>, tsa_trust_pem: Option<String>) -> Res<CmsVerifyResult> {
     blocking(move || {
         let der = cms::cms_der_from_bytes(&signature.bytes()?)?;
         let content_bytes = match &content {
@@ -289,7 +407,7 @@ async fn cms_verify(signature: DataSource, content: Option<DataSource>, entry: O
             Some(e) => entry::chain_der(e)?,
             None => vec![],
         };
-        cms::verify(&der, content_bytes.as_deref(), &extra)
+        cms::verify_with_trust(&der, content_bytes.as_deref(), &extra, tsa_trust_pem.as_deref())
     })
     .await
 }
@@ -308,13 +426,7 @@ struct JwtSignInput {
 async fn jwt_sign(input: JwtSignInput, signer_entry: KeystoreEntry) -> Res<String> {
     blocking(move || {
         jwt::sign(
-            &jwt::JwtClaims {
-                issuer: &input.issuer,
-                subject: &input.subject,
-                audience: &input.audience,
-                validity_minutes: input.validity_minutes,
-                custom_claims_json: &input.custom_claims_json,
-            },
+            &jwt::JwtClaims { issuer: &input.issuer, subject: &input.subject, audience: &input.audience, validity_minutes: input.validity_minutes, custom_claims_json: &input.custom_claims_json },
             &signer_entry,
             input.algorithm.as_deref(),
         )
@@ -333,13 +445,119 @@ async fn dh_params(bits: u32, mode: String) -> Res<DhParamsResult> {
 }
 
 #[tauri::command]
-async fn jar_sign(input_path: String, output_path: String, signer_entry: KeystoreEntry, tsa_url: Option<String>) -> Res<JarSignResult> {
-    blocking(move || jar::sign_jar_timestamped(&input_path, &output_path, &signer_entry, tsa_url.as_deref())).await
+async fn jar_sign(input_path: String, output_path: String, signer_entry: KeystoreEntry, tsa_url: Option<String>, tsa_trust_pem: Option<String>) -> Res<JarSignResult> {
+    blocking(move || {
+        if input_path.to_ascii_lowercase().ends_with(".apk") || output_path.to_ascii_lowercase().ends_with(".apk") {
+            return Err("apk: Android APKs use APK Signature Scheme v2 or v3. A JAR signature is ignored by Android, so this tool will not write one.".into());
+        }
+        jar::sign_jar_with_trust(&input_path, &output_path, &signer_entry, tsa_url.as_deref(), tsa_trust_pem.as_deref())
+    })
+    .await
 }
 
 // ------------------------------------------------------------------------------------------------
 // Examine
 // ------------------------------------------------------------------------------------------------
+
+#[derive(Serialize, Deserialize, Clone)]
+struct IssuanceRecord {
+    serial: String,
+    subject: String,
+    ski: String,
+    not_after: String,
+    profile: String,
+    issuer_ski: String,
+}
+
+fn record_issuance(dir: &std::path::Path, leaf: Option<&CertificateInfo>, issuer: Option<&CertificateInfo>, profile: &str) {
+    let Some(leaf) = leaf else { return };
+    let rec = IssuanceRecord {
+        serial: leaf.serial_number.clone(),
+        subject: leaf.subject.clone(),
+        ski: leaf.subject_key_id.clone().unwrap_or_default(),
+        not_after: leaf.valid_to.clone(),
+        profile: profile.into(),
+        issuer_ski: issuer.and_then(|c| c.subject_key_id.clone()).unwrap_or_default(),
+    };
+    let Ok(line) = serde_json::to_string(&rec) else { return };
+    let path = dir.join("issuance.jsonl");
+    if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
+        use std::io::Write;
+        let _ = writeln!(file, "{line}");
+    }
+}
+
+#[tauri::command]
+async fn ledger_search(paths: State<'_, Arc<AppPaths>>, query: String) -> Res<Vec<IssuanceRecord>> {
+    let path = paths.data_dir.join("issuance.jsonl");
+    blocking(move || {
+        let text = std::fs::read_to_string(&path).unwrap_or_default();
+        let q = query.trim().to_ascii_lowercase();
+        let mut out = Vec::new();
+        for line in text.lines() {
+            if let Ok(rec) = serde_json::from_str::<IssuanceRecord>(line) {
+                let blob = format!("{} {} {}", rec.serial, rec.subject, rec.ski).to_ascii_lowercase();
+                if q.is_empty() || blob.contains(&q) {
+                    out.push(rec);
+                }
+            }
+        }
+        Ok(out)
+    })
+    .await
+}
+
+#[tauri::command]
+async fn ledger_delete(paths: State<'_, Arc<AppPaths>>, serial: String) -> Res<()> {
+    let path = paths.data_dir.join("issuance.jsonl");
+    blocking(move || {
+        let text = std::fs::read_to_string(&path).unwrap_or_default();
+        let mut kept = String::new();
+        for line in text.lines() {
+            if let Ok(rec) = serde_json::from_str::<IssuanceRecord>(line)
+                && rec.serial.eq_ignore_ascii_case(serial.trim())
+            {
+                continue;
+            }
+            kept.push_str(line);
+            kept.push('\n');
+        }
+        util::write_atomic(&path, kept.as_bytes())
+    })
+    .await
+}
+
+#[tauri::command]
+async fn validate_chain(leaf_pem: String, intermediates_pem: String, anchors_pem: String, hostname: Option<String>) -> Res<Vec<String>> {
+    blocking(move || {
+        let leaf = x509::certificates_from_bytes(leaf_pem.as_bytes())?;
+        let leaf = leaf.first().cloned().ok_or("no leaf certificate")?;
+        let intermediates = if intermediates_pem.trim().is_empty() {
+            Vec::new()
+        } else {
+            x509::certificates_from_bytes(intermediates_pem.as_bytes()).map_err(|err| format!("invalid intermediate certificate(s): {err}"))?
+        };
+        let anchors =
+            if anchors_pem.trim().is_empty() { Vec::new() } else { x509::certificates_from_bytes(anchors_pem.as_bytes()).map_err(|err| format!("invalid trust anchor certificate(s): {err}"))? };
+        Ok(x509::validate_chain(&leaf, &intermediates, &anchors, hostname.as_deref()))
+    })
+    .await
+}
+
+#[tauri::command]
+async fn read_crl(data: DataSource) -> Res<CrlInfo> {
+    blocking(move || {
+        let bytes = data.bytes()?;
+        let der = if util::looks_textual(&bytes) {
+            let text = String::from_utf8_lossy(&bytes);
+            util::pem_blocks(&text).into_iter().find(|b| b.tag.contains("CRL")).map(|b| b.der).ok_or("no CRL found in the PEM data")?
+        } else {
+            bytes
+        };
+        x509::parse_crl(&der, None)
+    })
+    .await
+}
 
 #[tauri::command]
 async fn examine_tls(host: String, port: u16) -> Res<TlsInspectionResult> {
@@ -462,6 +680,134 @@ async fn run_terminal_command(command: String, cwd: Option<String>, timeout_secs
     blocking(move || terminal::run(&command, cwd, timeout_secs.unwrap_or(120))).await
 }
 
+/// Localhost JavaScript bridge used by `e2e/eval-drive.mjs`.
+///
+/// Started only when `XKEYSTORE_E2E` is set (the same switch that lets the harness script file
+/// dialogs). It binds `127.0.0.1` and writes the port to `e2e.port` in the data directory.
+/// Each connection carries length-prefixed UTF-8 frames: a script in, a JSON value out.
+fn start_e2e_bridge(app: tauri::AppHandle, data_dir: std::path::PathBuf) {
+    std::thread::spawn(move || {
+        if let Err(err) = e2e_listen(app, &data_dir) {
+            eprintln!("e2e bridge: {err}");
+        }
+    });
+}
+
+fn e2e_listen(app: tauri::AppHandle, data_dir: &std::path::Path) -> Result<(), String> {
+    std::fs::create_dir_all(data_dir).map_err(|err| err.to_string())?;
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").map_err(|err| err.to_string())?;
+    let port = listener.local_addr().map_err(|err| err.to_string())?.port();
+    e2e_wait_ready(&app, data_dir)?;
+    std::fs::write(data_dir.join("e2e.port"), port.to_string()).map_err(|err| err.to_string())?;
+    eprintln!("e2e bridge listening on 127.0.0.1:{port}");
+    for conn in listener.incoming() {
+        let mut conn = match conn {
+            Ok(conn) => conn,
+            Err(err) => {
+                eprintln!("e2e bridge accept: {err}");
+                continue;
+            }
+        };
+        let _ = conn.set_read_timeout(Some(std::time::Duration::from_secs(60)));
+        let _ = conn.set_write_timeout(Some(std::time::Duration::from_secs(60)));
+        while let Ok(script) = e2e_read_frame(&mut conn) {
+            let result = e2e_eval(&app, script).unwrap_or_else(|err| serde_json::json!({ "__e2eError": err }).to_string());
+            if e2e_write_frame(&mut conn, &result).is_err() {
+                break;
+            }
+        }
+    }
+    Ok(())
+}
+
+fn e2e_read_frame(conn: &mut std::net::TcpStream) -> Result<String, String> {
+    let mut len_buf = [0u8; 4];
+    conn.read_exact(&mut len_buf).map_err(|err| err.to_string())?;
+    let len = u32::from_be_bytes(len_buf) as usize;
+    if len > 1_000_000 {
+        return Err("script is too large".into());
+    }
+    let mut buf = vec![0u8; len];
+    conn.read_exact(&mut buf).map_err(|err| err.to_string())?;
+    String::from_utf8(buf).map_err(|err| err.to_string())
+}
+
+fn e2e_write_frame(conn: &mut std::net::TcpStream, body: &str) -> Result<(), String> {
+    let bytes = body.as_bytes();
+    conn.write_all(&(bytes.len() as u32).to_be_bytes()).map_err(|err| err.to_string())?;
+    conn.write_all(bytes).map_err(|err| err.to_string())?;
+    Ok(())
+}
+
+enum EvalWait {
+    Gone,
+    Late,
+}
+
+const READINESS_HINT: &str = "the page never ran the readiness script. Build with the `custom-protocol` \
+feature so the window serves the embedded frontend (cargo build --features custom-protocol, or \
+`pnpm tauri build --debug`); without it the webview loads devUrl and stays blank unless `pnpm dev` is running.";
+
+/// Waits until the webview reports that the page finished loading, then confirms the document is
+/// actually able to run scripts. The event alone is not proof: when the window never reaches the
+/// foreground, macOS can withhold it even though the page is fine, so a missing event is reported
+/// but not treated as fatal until the document itself fails to answer.
+fn e2e_wait_ready(app: &tauri::AppHandle, _data_dir: &std::path::Path) -> Result<(), String> {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+    while !E2E_PAGE_LOADED.load(Ordering::SeqCst) && std::time::Instant::now() < deadline {
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    if !E2E_PAGE_LOADED.load(Ordering::SeqCst) {
+        eprintln!("e2e bridge: no page load event yet; asking the document directly");
+    }
+    match e2e_eval_once(app, "return document.readyState".into(), std::time::Duration::from_secs(10))? {
+        Ok(value) if value.contains("complete") || value.contains("interactive") => Ok(()),
+        Ok(value) => Err(format!("the page answered unexpectedly: {value}")),
+        // By far the most common cause: the binary was built without the `custom-protocol`
+        // feature, so the webview is pointed at devUrl (the Vite server) instead of the embedded
+        // frontend. With nothing serving that URL the page never loads and no script ever runs.
+        Err(EvalWait::Gone) => Err(READINESS_HINT.into()),
+        Err(EvalWait::Late) => Err(READINESS_HINT.into()),
+    }
+}
+
+fn e2e_eval(app: &tauri::AppHandle, script: String) -> Result<String, String> {
+    match e2e_eval_once(app, script, std::time::Duration::from_secs(90))? {
+        Ok(value) => Ok(value),
+        Err(EvalWait::Gone) => Err("the page dropped the script".into()),
+        Err(EvalWait::Late) => Err("the page did not answer within 90s".into()),
+    }
+}
+
+fn e2e_eval_once(app: &tauri::AppHandle, script: String, timeout: std::time::Duration) -> Result<Result<String, EvalWait>, String> {
+    let (tx, rx) = std::sync::mpsc::channel();
+    // Native evaluateJavaScript compiles this string itself. Calling eval() from the page would
+    // be refused by the CSP (`script-src 'self'`), so the script is spliced in directly.
+    // Synchronous on purpose. WKWebView's completion handler does not resolve a Promise, so an
+    // async wrapper would report null and let the driver race ahead of the script.
+    let wrapped =
+        format!("(() => {{ try {{ const __v = (() => {{\n{script}\n}})(); return __v === undefined ? null : __v; }} catch (e) {{ return {{ __e2eError: String((e && e.message) || e) }}; }} }})()");
+    let window_app = app.clone();
+    let tx_fail = tx.clone();
+    app.run_on_main_thread(move || {
+        let Some(window) = window_app.get_webview_window("main") else {
+            let _ = tx.send(r#"{"__e2eError":"the main window is not open"}"#.to_string());
+            return;
+        };
+        if let Err(err) = window.eval_with_callback(wrapped, move |result| {
+            let _ = tx.send(if result.is_empty() { "null".into() } else { result });
+        }) {
+            let _ = tx_fail.send(serde_json::json!({ "__e2eError": format!("eval failed: {err}") }).to_string());
+        }
+    })
+    .map_err(|err| err.to_string())?;
+    match rx.recv_timeout(timeout) {
+        Ok(value) => Ok(Ok(value)),
+        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => Ok(Err(EvalWait::Late)),
+        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => Ok(Err(EvalWait::Gone)),
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let data_dir = std::env::var_os("XKEYSTORE_DATA_DIR").map(std::path::PathBuf::from).unwrap_or_else(VaultState::default_dir);
@@ -469,7 +815,25 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .manage(Arc::new(VaultState::new(data_dir.clone())))
-        .manage(Arc::new(AppPaths { data_dir }))
+        .manage(Arc::new(AppPaths { data_dir: data_dir.clone() }))
+        .on_page_load(|_, payload| {
+            if std::env::var_os("XKEYSTORE_E2E").is_none() {
+                return;
+            }
+            let url = payload.url().to_string();
+            // The window finishes about:blank before the embedded page. Evaluating during that
+            // gap is cancelled by the real navigation, so only the app document counts.
+            if payload.event() == tauri::webview::PageLoadEvent::Finished && !url.starts_with("about:") {
+                E2E_PAGE_LOADED.store(true, Ordering::SeqCst);
+                eprintln!("e2e page ready {url}");
+            }
+        })
+        .setup(move |app| {
+            if std::env::var_os("XKEYSTORE_E2E").is_some() {
+                start_e2e_bridge(app.handle().clone(), data_dir.clone());
+            }
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             app_info,
             load_app_state,
@@ -482,6 +846,7 @@ pub fn run() {
             generate_secret_key,
             import_trusted_certificates,
             import_key_pair,
+            build_pkcs12,
             generate_csr,
             import_ca_reply,
             rotate_key,
@@ -491,6 +856,11 @@ pub fn run() {
             sign_csr,
             inspect_csr,
             generate_crl,
+            ca_next_crl_number,
+            read_crl,
+            ledger_search,
+            ledger_delete,
+            validate_chain,
             cms_sign,
             cms_verify,
             jwt_sign,

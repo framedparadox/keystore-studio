@@ -6,7 +6,7 @@ use crate::keys::{self, SigAlg};
 use crate::model::{JwtInfo, JwtVerifyResult, KeystoreEntry};
 use crate::pbe::HashAlg;
 use crate::util::*;
-use base64::{engine::general_purpose::URL_SAFE_NO_PAD as B64URL, Engine};
+use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD as B64URL};
 use serde_json::{Map, Value};
 
 enum Jws {
@@ -86,11 +86,7 @@ pub fn sign(claims: &JwtClaims, signer: &KeystoreEntry, algorithm: Option<&str>)
     payload.insert("exp".into(), (now + claims.validity_minutes as i64 * 60).into());
     payload.entry("jti").or_insert_with(|| Value::String(uuid::Uuid::new_v4().to_string()));
     let header = serde_json::json!({ "alg": alg, "typ": "JWT", "kid": signer.alias });
-    let signing_input = format!(
-        "{}.{}",
-        B64URL.encode(serde_json::to_vec(&header).map_err(e)?),
-        B64URL.encode(serde_json::to_vec(&Value::Object(payload)).map_err(e)?)
-    );
+    let signing_input = format!("{}.{}", B64URL.encode(serde_json::to_vec(&header).map_err(e)?), B64URL.encode(serde_json::to_vec(&Value::Object(payload)).map_err(e)?));
     let sig = match jws_for(alg)? {
         Jws::Hmac(hash) => hash.hmac(&entry::secret_bytes(signer)?, signing_input.as_bytes()),
         Jws::Asym(sig_alg) => entry::private_key(signer)?.sign_jws(sig_alg, signing_input.as_bytes())?,
@@ -194,6 +190,11 @@ mod tests {
                 key_usage: vec![],
                 extended_key_usage: vec![],
                 labels: vec![],
+                not_before: String::new(),
+                not_after: String::new(),
+                crl_distribution_points: vec![],
+                ocsp_urls: vec![],
+                ca_issuer_urls: vec![],
             },
             None,
         )

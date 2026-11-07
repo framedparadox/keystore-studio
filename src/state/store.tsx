@@ -1,7 +1,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
-import { api, errorMessage, isDesktop, passwordSecretId } from "../lib/api";
+import { api, classifyError, errorMessage, isDesktop, passwordSecretId } from "../lib/api";
 import { allowDialogStub, baseName, pickFile, FILTERS } from "../lib/files";
-import { entryKey, normalizeEntries, uniqueAlias } from "../lib/keystore";
+import { canonicalAlias, entryKey, normalizeEntries, uniqueAlias } from "../lib/keystore";
 import { setThresholds } from "../lib/metrics";
 import { useConfirm, useToast } from "../components/ui";
 import type { AppInfo, KeystoreEntry, KeystoreFile, KeystoreFormat, OpenKeystore, TabType, VaultStatus, Workspace } from "../types/crypto";
@@ -17,6 +17,8 @@ export interface Settings {
   /** Timestamp authority URL used when signing, empty to sign without a timestamp. */
   tsaUrl: string;
   timestampByDefault: boolean;
+  /** PEM trust anchors used to decide whether a timestamp is trusted. Empty skips the check. */
+  tsaTrustPem: string;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -29,6 +31,7 @@ export const DEFAULT_SETTINGS: Settings = {
   restoreSession: true,
   tsaUrl: "",
   timestampByDefault: false,
+  tsaTrustPem: "",
 };
 
 export interface RecentFile {
@@ -105,15 +108,17 @@ interface Store {
   // file workflows
   openFiles: (paths?: string[]) => Promise<void>;
   pendingOpen: PendingOpen | null;
-  submitOpenPassword: (password: string, remember: boolean) => Promise<boolean>;
+  submitOpenPassword: (password: string, remember: boolean, keyPasswords?: Record<string, string>) => Promise<boolean>;
   cancelOpen: () => void;
   unlockSealed: (keystoreId: string) => void;
   createKeystore: (req: NewKeystoreRequest) => OpenKeystore;
   newKeystoreOpen: boolean;
   setNewKeystoreOpen: (open: boolean) => void;
+  buildPkcs12Open: boolean;
+  setBuildPkcs12Open: (open: boolean) => void;
   save: (keystoreId: string, opts?: { saveAs?: boolean; then?: () => void }) => Promise<void>;
   pendingSave: PendingSave | null;
-  completeSave: (args: { path: string; password: string; format: KeystoreFormat; remember: boolean }) => Promise<boolean>;
+  completeSave: (args: { path: string; password: string; format: KeystoreFormat; remember: boolean; mac?: "pkcs12" | "pbmac1"; force?: boolean }) => Promise<boolean>;
   cancelSave: () => void;
   closeKeystore: (keystoreId: string) => Promise<boolean>;
   recentFiles: RecentFile[];
@@ -189,6 +194,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const openQueue = useRef<string[]>([]);
   const [pendingSave, setPendingSave] = useState<PendingSave | null>(null);
   const [newKeystoreOpen, setNewKeystoreOpen] = useState(false);
+  const [buildPkcs12Open, setBuildPkcs12Open] = useState(false);
   const [recentFiles, setRecentFiles] = useState<RecentFile[]>([]);
 
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
@@ -264,7 +270,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       let working: OpenKeystore = { ...ks, entries: [...ks.entries] };
       const added: KeystoreEntry[] = [];
       for (const e of entries) {
-        const alias = uniqueAlias(working, e.alias);
+        const alias = uniqueAlias(working, canonicalAlias(ks.format, e.alias));
         const entry = { ...e, alias, id: entryKey(working, alias), labels: e.labels ?? [] };
         working = { ...working, entries: [entry, ...working.entries] };
         added.push(entry);
@@ -414,7 +420,9 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           return;
         }
         if (probe.kind === "unsupported_keystore") {
-          toast.error(`${probe.name}: Bouncy Castle (BKS/UBER/BCFKS) keystores are not supported. Convert it to PKCS#12 with keytool -importkeystore.`);
+          toast.error(`${probe.name}: this Bouncy Castle keystore cannot be opened here. UBER and BCFKS still need conversion with keytool -importkeystore.`);
+        } else if (probe.kind === "apk") {
+          toast.error(`${probe.name} is an Android APK. APK Signature Scheme v2/v3 is not a JAR signature, so it is not opened for signing.`);
         } else if (probe.kind === "jar") {
           setJarRequest({ path, nonce: Date.now() });
           setTab("ca_signing");
@@ -452,11 +460,11 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   );
 
   const submitOpenPassword = useCallback(
-    async (password: string, remember: boolean) => {
+    async (password: string, remember: boolean, keyPasswords?: Record<string, string>) => {
       const p = pendingOpen;
       if (!p) return false;
       try {
-        const file = await api.openKeystore(p.path, password);
+        const file = await api.openKeystore(p.path, password, keyPasswords);
         installOpened(file, password, p.sealedId);
         setPendingOpen(null);
         setTab("keystores");
@@ -466,7 +474,8 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         showNextQueued();
         return true;
       } catch (err) {
-        setPendingOpen({ ...p, error: errorMessage(err) });
+        const classified = (await import("../lib/api")).classifyError(err);
+        setPendingOpen({ ...p, error: classified.kind === "wrong-password" ? "That password does not open this keystore." : classified.message });
         return false;
       }
     },
@@ -503,7 +512,10 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         dirty: true,
         sealed: false,
       };
-      if (req.initialEntry) ks = { ...ks, entries: [{ ...req.initialEntry, id: entryKey(ks, req.initialEntry.alias) }] };
+      if (req.initialEntry) {
+        const alias = canonicalAlias(req.format, req.initialEntry.alias);
+        ks = { ...ks, entries: [{ ...req.initialEntry, alias, id: entryKey(ks, alias) }] };
+      }
       passwords.current.set(id, req.password);
       commit([...keystoresRef.current, ks]);
       setActiveKeystoreId(id);
@@ -514,9 +526,9 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   );
 
   const finishSaved = useCallback(
-    (ks: OpenKeystore, path: string, format: KeystoreFormat, password: string) => {
+    (ks: OpenKeystore, path: string, format: KeystoreFormat, password: string, mtimeMs?: number | null) => {
       const name = baseName(path);
-      const updated: OpenKeystore = applyLabels({ ...ks, path, name, format, dirty: false, updated_at: now() });
+      const updated: OpenKeystore = applyLabels({ ...ks, path, name, format, dirty: false, updated_at: now(), source_mtime_ms: mtimeMs ?? Date.now() });
       const mapping: Record<string, string> = {};
       ks.entries.forEach((e, i) => {
         if (e.id !== updated.entries[i].id) mapping[e.id] = updated.entries[i].id;
@@ -547,19 +559,40 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       }
       try {
         const res = await api.saveKeystore(ks, ks.path, password, ks.format);
-        finishSaved(ks, res.path, res.format, password);
+        finishSaved(ks, res.path, res.format, password, res.mtime_ms);
         void syncRememberedPassword(res.path, password);
         toast.success(`Saved ${res.name} (${res.byte_length.toLocaleString()} bytes).`);
         opts?.then?.();
       } catch (err) {
+        const classified = classifyError(err);
+        if (classified.kind === "changed-on-disk") {
+          const override = await confirm({
+            title: `Replace ${ks.name} on disk?`,
+            message: classified.message,
+            confirmLabel: "Override",
+            danger: true,
+          });
+          if (override) {
+            try {
+              const res = await api.saveKeystore(ks, ks.path, password, ks.format, null, true);
+              finishSaved(ks, res.path, res.format, password, res.mtime_ms);
+              void syncRememberedPassword(res.path, password);
+              toast.success(`Saved ${res.name} (${res.byte_length.toLocaleString()} bytes).`);
+              opts?.then?.();
+            } catch (err2) {
+              toast.error(`Could not save ${ks.name}: ${errorMessage(err2)}`);
+            }
+          }
+          return;
+        }
         toast.error(`Could not save ${ks.name}: ${errorMessage(err)}`);
       }
     },
-    [finishSaved, toast, syncRememberedPassword]
+    [finishSaved, toast, syncRememberedPassword, confirm]
   );
 
   const completeSave = useCallback(
-    async ({ path, password, format, remember }: { path: string; password: string; format: KeystoreFormat; remember: boolean }) => {
+    async ({ path, password, format, remember, mac, force }: { path: string; password: string; format: KeystoreFormat; remember: boolean; mac?: "pkcs12" | "pbmac1"; force?: boolean }) => {
       const req = pendingSave;
       const ks = req && keystoresRef.current.find((k) => k.id === req.keystoreId);
       if (!req || !ks) return false;
@@ -569,8 +602,8 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         return false;
       }
       try {
-        const res = await api.saveKeystore(ks, path, password, format);
-        finishSaved(ks, res.path, res.format, password);
+        const res = await api.saveKeystore(ks, path, password, format, mac, force);
+        finishSaved(ks, res.path, res.format, password, res.mtime_ms);
         setPendingSave(null);
         toast.success(`Saved ${res.name} as ${res.format} (${res.byte_length.toLocaleString()} bytes).`);
         if (remember && vaultRef.current.unlocked) await rememberPassword(res.path, password);
@@ -843,6 +876,8 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     createKeystore,
     newKeystoreOpen,
     setNewKeystoreOpen,
+    buildPkcs12Open,
+    setBuildPkcs12Open,
     save,
     pendingSave,
     completeSave,

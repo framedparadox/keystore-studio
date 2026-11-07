@@ -58,8 +58,8 @@ export const CertificateDetails: React.FC<{ cert: CertificateInfo; showPem?: boo
         <Row label="Subject key ID" value={cert.subject_key_id ?? undefined} mono />
         <Row label="Authority key ID" value={cert.authority_key_id ?? undefined} mono />
         <Row label="SHA-256" value={cert.sha256_fingerprint} copy={cert.sha256_fingerprint} mono />
+        <Row label="SPKI SHA-256" value={cert.spki_sha256 || undefined} copy={cert.spki_sha256} mono />
         <Row label="SHA-1" value={cert.sha1_fingerprint} copy={cert.sha1_fingerprint} mono />
-        <Row label="MD5" value={cert.md5_fingerprint} mono />
       </tbody>
     </table>
     {showPem && <CodeBlock label="PEM" value={cert.pem} maxHeight={200} />}

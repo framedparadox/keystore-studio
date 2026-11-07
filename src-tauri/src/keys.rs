@@ -6,8 +6,8 @@
 
 use crate::oids;
 use crate::pbe::HashAlg;
-use crate::util::{b64, e, pem_blocks, sha256, to_pem, trim_leading_zeros, Res};
-use base64::{engine::general_purpose::URL_SAFE_NO_PAD as B64URL, Engine};
+use crate::util::{Res, b64, e, pem_blocks, sha256, to_pem, trim_leading_zeros};
+use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD as B64URL};
 use rsa::pkcs1::{DecodeRsaPrivateKey, DecodeRsaPublicKey};
 use rsa::pkcs8::{DecodePrivateKey, DecodePublicKey, EncodePrivateKey, EncodePublicKey};
 use rsa::traits::{PrivateKeyParts, PublicKeyParts};
@@ -97,7 +97,10 @@ pub enum PrivateKey {
     P521(p521::SecretKey),
     Ed25519(Box<ed25519_dalek::SigningKey>),
     /// A key we can store but not use (DSA, Ed448, X25519, post-quantum, RSA-PSS, …).
-    Opaque { algorithm: String, pkcs8: Vec<u8> },
+    Opaque {
+        algorithm: String,
+        pkcs8: Vec<u8>,
+    },
 }
 
 impl PrivateKey {
@@ -106,8 +109,8 @@ impl PrivateKey {
         let mut rng = rand::rngs::OsRng;
         match algorithm.to_ascii_uppercase().as_str() {
             "RSA" => {
-                if !(1024..=16384).contains(&key_size) || !key_size.is_multiple_of(8) {
-                    return Err("RSA key size must be a multiple of 8 between 1024 and 16384 bits".into());
+                if !(2048..=16384).contains(&key_size) || !key_size.is_multiple_of(8) {
+                    return Err("RSA key size must be a multiple of 8 between 2048 and 16384 bits".into());
                 }
                 let key = RsaPrivateKey::new(&mut rng, key_size as usize).map_err(|err| format!("RSA key generation failed: {err}"))?;
                 Ok(PrivateKey::Rsa(Box::new(key)))
@@ -132,11 +135,7 @@ impl PrivateKey {
             return RsaPrivateKey::from_pkcs8_der(der).map(|k| PrivateKey::Rsa(Box::new(k))).map_err(|err| format!("invalid RSA key: {err}"));
         }
         if alg == oids::EC_PUBLIC_KEY {
-            let curve: Vec<u64> = info
-                .algorithm
-                .parameters_oid()
-                .map(|o| o.arcs().map(u64::from).collect())
-                .unwrap_or_default();
+            let curve: Vec<u64> = info.algorithm.parameters_oid().map(|o| o.arcs().map(u64::from).collect()).unwrap_or_default();
             return match curve.as_slice() {
                 c if c == oids::SECP256R1 => p256::SecretKey::from_pkcs8_der(der).map(PrivateKey::P256).map_err(e),
                 c if c == oids::SECP384R1 => p384::SecretKey::from_pkcs8_der(der).map(PrivateKey::P384).map_err(e),
@@ -145,9 +144,7 @@ impl PrivateKey {
             };
         }
         if alg == oids::ED25519 {
-            return ed25519_dalek::SigningKey::from_pkcs8_der(der)
-                .map(|k| PrivateKey::Ed25519(Box::new(k)))
-                .map_err(|err| format!("invalid Ed25519 key: {err}"));
+            return ed25519_dalek::SigningKey::from_pkcs8_der(der).map(|k| PrivateKey::Ed25519(Box::new(k))).map_err(|err| format!("invalid Ed25519 key: {err}"));
         }
         let algorithm = match alg {
             a if a == oids::DSA => "DSA".to_string(),
@@ -164,35 +161,40 @@ impl PrivateKey {
     /// PKCS#1 "RSA PRIVATE KEY" and SEC1 "EC PRIVATE KEY".
     pub fn from_bytes(data: &[u8], password: Option<&str>) -> Res<PrivateKey> {
         if let Ok(text) = std::str::from_utf8(data)
-            && text.contains("-----BEGIN") {
-                if text.contains("Proc-Type: 4,ENCRYPTED") {
-                    return Err("legacy OpenSSL-encrypted PEM keys are not supported; convert with `openssl pkcs8 -topk8 -in key.pem -out key-pkcs8.pem`".into());
-                }
-                for block in pem_blocks(text) {
-                    match block.tag.as_str() {
-                        "PRIVATE KEY" => return Self::from_pkcs8_der(&block.der),
-                        "ENCRYPTED PRIVATE KEY" => {
-                            let pw = password.filter(|p| !p.is_empty()).ok_or("this private key is encrypted; enter its password")?;
-                            let der = crate::pbe::decrypt_pkcs8(pw, &block.der).map_err(|_| "incorrect private key password".to_string())?;
-                            return Self::from_pkcs8_der(&der);
-                        }
-                        "RSA PRIVATE KEY" => {
-                            return RsaPrivateKey::from_pkcs1_der(&block.der).map(|k| PrivateKey::Rsa(Box::new(k))).map_err(e);
-                        }
-                        "EC PRIVATE KEY" => return Self::from_sec1_der(&block.der),
-                        _ => continue,
-                    }
-                }
-                return Err("no private key found in the PEM data".into());
+            && text.contains("-----BEGIN")
+        {
+            if text.contains("Proc-Type: 4,ENCRYPTED") {
+                return Err("legacy OpenSSL-encrypted PEM keys are not supported; convert with `openssl pkcs8 -topk8 -in key.pem -out key-pkcs8.pem`".into());
             }
+            if text.contains("BEGIN OPENSSH PRIVATE KEY") {
+                return Err("OpenSSH private keys are not supported. Convert with `ssh-keygen -p -m PKCS8 -f key` and import the PKCS#8 file.".into());
+            }
+            for block in pem_blocks(text) {
+                match block.tag.as_str() {
+                    "PRIVATE KEY" => return Self::from_pkcs8_der(&block.der),
+                    "ENCRYPTED PRIVATE KEY" => {
+                        let pw = password.filter(|p| !p.is_empty()).ok_or("this private key is encrypted; enter its password")?;
+                        let der = crate::pbe::decrypt_pkcs8(pw, &block.der).map_err(|_| "incorrect private key password".to_string())?;
+                        return Self::from_pkcs8_der(&der);
+                    }
+                    "RSA PRIVATE KEY" => {
+                        return RsaPrivateKey::from_pkcs1_der(&block.der).map(|k| PrivateKey::Rsa(Box::new(k))).map_err(e);
+                    }
+                    "EC PRIVATE KEY" => return Self::from_sec1_der(&block.der),
+                    _ => continue,
+                }
+            }
+            return Err("no private key found in the PEM data".into());
+        }
         // DER: try PKCS#8, then encrypted PKCS#8, PKCS#1 and SEC1.
         if let Ok(k) = Self::from_pkcs8_der(data) {
             return Ok(k);
         }
         if let Some(pw) = password.filter(|p| !p.is_empty())
-            && let Ok(der) = crate::pbe::decrypt_pkcs8(pw, data) {
-                return Self::from_pkcs8_der(&der);
-            }
+            && let Ok(der) = crate::pbe::decrypt_pkcs8(pw, data)
+        {
+            return Self::from_pkcs8_der(&der);
+        }
         if let Ok(k) = RsaPrivateKey::from_pkcs1_der(data) {
             return Ok(PrivateKey::Rsa(Box::new(k)));
         }
@@ -244,6 +246,20 @@ impl PrivateKey {
 
     pub fn to_pkcs8_pem(&self) -> Res<String> {
         Ok(to_pem("PRIVATE KEY", &self.to_pkcs8_der()?))
+    }
+
+    /// PKCS#1 for RSA and SEC1 for the three NIST curves. Other algorithms have no traditional encoding.
+    pub fn to_traditional_pem(&self) -> Res<String> {
+        match self {
+            PrivateKey::Rsa(k) => {
+                use rsa::pkcs1::EncodeRsaPrivateKey;
+                Ok(to_pem("RSA PRIVATE KEY", k.to_pkcs1_der().map_err(e)?.as_bytes()))
+            }
+            PrivateKey::P256(k) => Ok(to_pem("EC PRIVATE KEY", &k.to_sec1_der().map_err(e)?)),
+            PrivateKey::P384(k) => Ok(to_pem("EC PRIVATE KEY", &k.to_sec1_der().map_err(e)?)),
+            PrivateKey::P521(k) => Ok(to_pem("EC PRIVATE KEY", &k.to_sec1_der().map_err(e)?)),
+            _ => Err("this algorithm has no PKCS#1 or SEC1 form; export PKCS#8 instead".into()),
+        }
     }
 
     pub fn is_usable(&self) -> bool {
@@ -323,16 +339,8 @@ impl PrivateKey {
                 let digest = hash.digest(msg);
                 k.sign(pkcs1v15_scheme(hash), &digest).map_err(|err| format!("RSA signing failed: {err}"))
             }
-            (PrivateKey::P256(k), SigAlg::Ecdsa(hash)) => sign_prehash::<p256::ecdsa::SigningKey, p256::ecdsa::Signature>(
-                &p256::ecdsa::SigningKey::from(k),
-                &hash.digest(msg),
-                raw_ecdsa,
-            ),
-            (PrivateKey::P384(k), SigAlg::Ecdsa(hash)) => sign_prehash::<p384::ecdsa::SigningKey, p384::ecdsa::Signature>(
-                &p384::ecdsa::SigningKey::from(k),
-                &hash.digest(msg),
-                raw_ecdsa,
-            ),
+            (PrivateKey::P256(k), SigAlg::Ecdsa(hash)) => sign_prehash::<p256::ecdsa::SigningKey, p256::ecdsa::Signature>(&p256::ecdsa::SigningKey::from(k), &hash.digest(msg), raw_ecdsa),
+            (PrivateKey::P384(k), SigAlg::Ecdsa(hash)) => sign_prehash::<p384::ecdsa::SigningKey, p384::ecdsa::Signature>(&p384::ecdsa::SigningKey::from(k), &hash.digest(msg), raw_ecdsa),
             (PrivateKey::P521(k), SigAlg::Ecdsa(hash)) => {
                 let signing = p521::ecdsa::SigningKey::from_bytes(&k.to_bytes()).map_err(e)?;
                 sign_prehash::<p521::ecdsa::SigningKey, p521::ecdsa::Signature>(&signing, &hash.digest(msg), raw_ecdsa)
@@ -477,9 +485,7 @@ pub fn split_spki(spki: &[u8]) -> Res<SpkiParts> {
 
 pub fn public_key_info(spki: &[u8]) -> Res<PublicKeyInfo> {
     let (alg, params, bits) = split_spki(spki)?;
-    let curve_oid = || -> Option<Vec<u64>> {
-        yasna::parse_der(params.as_deref()?, |r| r.read_oid()).ok().map(|o| o.components().to_vec())
-    };
+    let curve_oid = || -> Option<Vec<u64>> { yasna::parse_der(params.as_deref()?, |r| r.read_oid()).ok().map(|o| o.components().to_vec()) };
     Ok(match alg.as_slice() {
         a if a == oids::RSA_ENCRYPTION || a == oids::RSASSA_PSS => {
             let size = RsaPublicKey::from_pkcs1_der(&bits).map(|k| (k.size() * 8) as u32).unwrap_or(0);
@@ -528,19 +534,20 @@ pub fn public_key_info(spki: &[u8]) -> Res<PublicKeyInfo> {
 /// Normalises a public key given as SPKI PEM/DER or PKCS#1 "RSA PUBLIC KEY" into SPKI DER.
 pub fn public_key_from_bytes(data: &[u8]) -> Res<Vec<u8>> {
     if let Ok(text) = std::str::from_utf8(data)
-        && text.contains("-----BEGIN") {
-            for block in pem_blocks(text) {
-                match block.tag.as_str() {
-                    "PUBLIC KEY" => return Ok(block.der),
-                    "RSA PUBLIC KEY" => {
-                        let k = RsaPublicKey::from_pkcs1_der(&block.der).map_err(e)?;
-                        return Ok(k.to_public_key_der().map_err(e)?.as_bytes().to_vec());
-                    }
-                    _ => {}
+        && text.contains("-----BEGIN")
+    {
+        for block in pem_blocks(text) {
+            match block.tag.as_str() {
+                "PUBLIC KEY" => return Ok(block.der),
+                "RSA PUBLIC KEY" => {
+                    let k = RsaPublicKey::from_pkcs1_der(&block.der).map_err(e)?;
+                    return Ok(k.to_public_key_der().map_err(e)?.as_bytes().to_vec());
                 }
+                _ => {}
             }
-            return Err("no public key found in the PEM data".into());
         }
+        return Err("no public key found in the PEM data".into());
+    }
     split_spki(data).map(|_| data.to_vec())
 }
 

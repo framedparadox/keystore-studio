@@ -1,7 +1,10 @@
 import { describe, expect, it, beforeEach } from "vitest";
 import type { KeystoreEntry, OpenKeystore } from "../types/crypto";
 import { daysUntilExpiry, entryHealth, expiryStatus, findingsFor, formatDuration, setThresholds, summarize } from "./metrics";
-import { aliasTaken, cnOf, entryKey, normalizeEntries, splitList, uniqueAlias } from "./keystore";
+import { aliasTaken, canonicalAlias, cnOf, entryKey, findIssuingCa, normalizeEntries, pkcs12BuildReady, profileUsages, renewalTerm, saveProblems, splitList, uniqueAlias } from "./keystore";
+import { csvField } from "./csv";
+import { diffEntries } from "./diff";
+import { classifyError } from "./api";
 import { baseName, dirName, safeFileStem, withExtension } from "./files";
 
 const DAY = 86_400;
@@ -139,10 +142,92 @@ describe("keystore helpers", () => {
     expect(uniqueAlias(k, "  ")).toBe("entry");
   });
 
+  it("builds certificate profiles without RSA-only key usage on elliptic curves", () => {
+    expect(profileUsages("server", "ECDSA")).toEqual({ isCa: false, ku: ["digitalSignature"], eku: ["serverAuth"] });
+    expect(profileUsages("server", "Ed25519").ku).not.toContain("keyEncipherment");
+    expect(profileUsages("server", "RSA")).toEqual({ isCa: false, ku: ["digitalSignature", "keyEncipherment"], eku: ["serverAuth"] });
+    expect(profileUsages("client", "ECDSA").eku).toEqual(["clientAuth"]);
+    expect(profileUsages("codesign", "ECDSA").eku).toEqual(["codeSigning"]);
+    expect(profileUsages("ca", "RSA").isCa).toBe(true);
+    expect(profileUsages("ca", "RSA").eku).toEqual([]);
+  });
+
+  it("lowercases Java keystore aliases and keeps PKCS#12 case", () => {
+    expect(canonicalAlias("JKS", " API ")).toBe("api");
+    expect(canonicalAlias("JCEKS", "API")).toBe("api");
+    expect(canonicalAlias("PKCS12", "API")).toBe("API");
+  });
+
+  it("selects the issuing CA by key id", () => {
+    const ca = entry("root", { selfSigned: true });
+    ca.certificate_chain[0].is_ca = true;
+    ca.certificate_chain[0].subject_key_id = "AA:BB";
+    ca.private_key_pem = "-----BEGIN PRIVATE KEY-----\nAAA\n-----END PRIVATE KEY-----\n";
+    const other = entry("other", { selfSigned: true });
+    other.certificate_chain[0].is_ca = true;
+    other.certificate_chain[0].subject = ca.subject;
+    other.certificate_chain[0].subject_key_id = "CC:DD";
+    other.private_key_pem = ca.private_key_pem;
+    const leaf = entry("web", { selfSigned: false });
+    leaf.issuer = ca.subject;
+    leaf.certificate_chain[0].issuer = ca.subject;
+    leaf.certificate_chain[0].authority_key_id = "aa:bb";
+    expect(findIssuingCa(leaf, [ks([ca, other, leaf])])?.alias).toBe("root");
+    leaf.certificate_chain[0].authority_key_id = "ccdd";
+    expect(findIssuingCa(leaf, [ks([ca, other, leaf])])?.alias).toBe("other");
+  });
+
   it("extracts CNs and splits lists", () => {
     expect(cnOf("CN=Acme\\, Inc., O=Acme, C=US")).toBe("Acme, Inc.");
     expect(cnOf("O=NoCn")).toBe("O=NoCn");
     expect(splitList("a.example, b.example\n10.0.0.1,,")).toEqual(["a.example", "b.example", "10.0.0.1"]);
+  });
+});
+
+describe("milestone helpers", () => {
+  it("escapes csv fields the way the inventory writer does", () => {
+    expect(csvField("hello")).toBe('"hello"');
+    expect(csvField('say "hi"')).toBe('"say ""hi"""');
+    expect(csvField("=cmd")).toBe(`"'=cmd"`);
+  });
+
+  it("diffs keystores by alias and fingerprint", () => {
+    const diff = diffEntries(
+      [{ alias: "a", fingerprint: "1" }, { alias: "b", fingerprint: "2" }],
+      [{ alias: "b", fingerprint: "9" }, { alias: "c", fingerprint: "3" }],
+    );
+    expect(diff).toEqual({ added: ["c"], removed: ["a"], changed: ["b"] });
+  });
+
+  it("caps a server renewal at 398 days and explains the cap", () => {
+    const server = entry("web", { daysLeft: 800 });
+    server.certificate_chain[0].not_before = now() - 10 * DAY;
+    server.certificate_chain[0].not_after = now() + 800 * DAY;
+    server.certificate_chain[0].extended_key_usage = ["TLS Web Server Authentication"];
+    const term = renewalTerm(server);
+    expect(term.cap).toBe(398);
+    expect(term.days).toBe(398);
+    expect(term.note).toContain("398");
+  });
+
+  it("blocks saving secret keys into JKS and refuses to write BKS", () => {
+    const entries = [{ entry_type: "SecretKey", locked: false }, { entry_type: "KeyPair", locked: true }];
+    expect(saveProblems(entries, "PKCS12", "JKS").join(" ")).toContain("secret");
+    expect(saveProblems(entries, "PKCS12", "PKCS12")).toEqual([]);
+    expect(saveProblems([], "BKS", "BKS").join(" ")).toContain("read-only");
+  });
+
+  it("classifies engine errors and flags a JKS store", () => {
+    expect(classifyError("wrong-password: nope").kind).toBe("wrong-password");
+    expect(classifyError("changed-on-disk: file").kind).toBe("changed-on-disk");
+    expect(classifyError("unrecognized: bad header").kind).toBe("unrecognized");
+    expect(classifyError("unrecognised: bad header").kind).toBe("unrecognized");
+    expect(classifyError("unsupported: BCFKS").kind).toBe("unsupported");
+    expect(classifyError("invalid: truncated file").kind).toBe("invalid");
+    expect(classifyError("apk: Android APKs use v2").kind).toBe("apk");
+    expect(classifyError("something else").kind).toBe("other");
+    const jks = findingsFor(entry("a"), { format: "JKS" });
+    expect(jks.some((f) => f.title === "JKS store")).toBe(true);
   });
 });
 
@@ -154,5 +239,23 @@ describe("file helpers", () => {
     expect(withExtension("app.p12", "jks")).toBe("app.jks");
     expect(withExtension("app", "p12")).toBe("app.p12");
     expect(safeFileStem("api server/prod")).toBe("api_server_prod");
+  });
+});
+
+describe("pkcs12BuildReady", () => {
+  const ok = { hasCertificate: true, hasKey: true, passphrase: "pw", confirm: "pw" };
+
+  it("accepts a certificate, a key and a confirmed passphrase", () => {
+    expect(pkcs12BuildReady(ok)).toBe(true);
+  });
+
+  it("requires both the certificate and the key", () => {
+    expect(pkcs12BuildReady({ ...ok, hasCertificate: false })).toBe(false);
+    expect(pkcs12BuildReady({ ...ok, hasKey: false })).toBe(false);
+  });
+
+  it("requires a non-empty passphrase that matches its confirmation", () => {
+    expect(pkcs12BuildReady({ ...ok, passphrase: "", confirm: "" })).toBe(false);
+    expect(pkcs12BuildReady({ ...ok, confirm: "different" })).toBe(false);
   });
 });

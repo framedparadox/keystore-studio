@@ -35,6 +35,7 @@ export const CommandPalette: React.FC<{ open: boolean; onClose: () => void }> = 
     const list: Command[] = [
       { id: "open", label: "Open keystore or file…", group: "Actions", icon: FolderOpen, run: () => store.openFiles(), hint: "Ctrl+O" },
       { id: "new", label: "New keystore…", group: "Actions", icon: FilePlus2, run: () => store.setNewKeystoreOpen(true), hint: "Ctrl+N" },
+      { id: "build-p12", label: "Create PKCS#12 from certificate and key…", group: "Actions", icon: FolderArchive, run: () => store.setBuildPkcs12Open(true) },
       { id: "save", label: ks ? `Save ${ks.name}` : "Save", group: "Actions", icon: Save, run: () => ks && store.save(ks.id), disabled: !ks || ks.sealed, hint: "Ctrl+S" },
       { id: "saveas", label: ks ? `Save ${ks.name} as…` : "Save as…", group: "Actions", icon: Save, run: () => ks && store.save(ks.id, { saveAs: true }), disabled: !ks || ks.sealed, hint: "Ctrl+Shift+S" },
       { id: "close", label: ks ? `Close ${ks.name}` : "Close keystore", group: "Actions", icon: X, run: () => ks && store.closeKeystore(ks.id), disabled: !ks },

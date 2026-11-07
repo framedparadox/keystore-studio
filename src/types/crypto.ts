@@ -11,7 +11,8 @@ export type TabType =
   | "settings";
 
 /** Formats xkeystore can open and save. */
-export type KeystoreFormat = "PKCS12" | "JKS" | "JCEKS";
+export type KeystoreFormat = "PKCS12" | "JKS" | "JCEKS" | "BKS";
+/** Formats the app can write. BKS is opened read-only. */
 export const KEYSTORE_FORMATS: KeystoreFormat[] = ["PKCS12", "JKS", "JCEKS"];
 
 export type EntryType = "KeyPair" | "TrustedCertificate" | "SecretKey";
@@ -49,6 +50,11 @@ export interface CertificateInfo {
   sha256_fingerprint: string;
   sha1_fingerprint: string;
   md5_fingerprint: string;
+  /** SHA-256 of the subjectPublicKeyInfo, for pinning. */
+  spki_sha256?: string;
+  crl_distribution_points?: string[];
+  ocsp_urls?: string[];
+  ca_issuer_urls?: string[];
   pem: string;
 }
 
@@ -74,6 +80,8 @@ export interface KeystoreEntry {
   /** Private key could not be decrypted with the store password (separate key password). */
   locked: boolean;
   protected_key?: string | null;
+  /** Present when this key is re-wrapped with a password other than the store password. */
+  key_password?: string | null;
   labels: string[];
   is_expired: boolean;
   is_weak: boolean;
@@ -91,6 +99,8 @@ export interface KeystoreFile {
   password_protected: boolean;
   created_at: string;
   updated_at: string;
+  /** File mtime in unix milliseconds, captured when the file was opened. */
+  source_mtime_ms?: number | null;
   entries: KeystoreEntry[];
 }
 
@@ -134,6 +144,11 @@ export interface GenerateKeyPairInput {
   key_usage: string[];
   extended_key_usage: string[];
   labels: string[];
+  not_before?: string;
+  not_after?: string;
+  crl_distribution_points?: string[];
+  ocsp_urls?: string[];
+  ca_issuer_urls?: string[];
 }
 
 export interface GenerateSecretKeyInput {
@@ -166,6 +181,10 @@ export interface CsrInfo {
   signature_algorithm: string;
   signature_valid: boolean;
   sans: string[];
+  /** Builder ids requested by the CSR (`digitalSignature`, …). */
+  key_usage: string[];
+  /** Builder ids requested by the CSR (`serverAuth`, `codeSigning`, …). */
+  extended_key_usage: string[];
   extensions: X509ExtensionInfo[];
   public_key_sha256: string;
   pem: string;
@@ -181,12 +200,24 @@ export interface SignCsrInput {
   key_usage: string[];
   extended_key_usage: string[];
   copy_requested_sans?: boolean;
+  /** When true (default), key usage comes from the CSR. When false, the lists above are written as given. */
+  copy_requested_usages?: boolean;
+  not_before?: string;
+  not_after?: string;
+  crl_distribution_points?: string[];
+  ocsp_urls?: string[];
+  ca_issuer_urls?: string[];
 }
 
 export interface SignedCertificateResult {
   certificate: CertificateInfo;
   chain_pem: string;
+  /** Set when the requested lifetime was shortened to the CA certificate's expiry. */
+  validity_note?: string | null;
 }
+
+/** Key pair from the engine, plus a note when the CA expiry shortened the lifetime. */
+export type GeneratedKeyPair = KeystoreEntry & { validity_note?: string | null };
 
 export interface RevokedCertEntry {
   serial_number: string;
@@ -216,6 +247,8 @@ export interface TimestampInfo {
   policy?: string | null;
   valid: boolean;
   error?: string | null;
+  /** Set only when a TSA trust bundle was configured. */
+  chain_trusted?: boolean | null;
 }
 
 export interface CmsSignResult {
@@ -358,7 +391,7 @@ export interface FileProbe {
   path: string;
   name: string;
   size: number;
-  kind: DetectionKind | "jar" | "unsupported_keystore";
+  kind: DetectionKind | "jar" | "apk" | "unsupported_keystore";
   keystore_format?: string | null;
 }
 
@@ -367,6 +400,7 @@ export interface SaveResult {
   name: string;
   format: KeystoreFormat;
   byte_length: number;
+  mtime_ms?: number | null;
 }
 
 export interface VaultStatus {

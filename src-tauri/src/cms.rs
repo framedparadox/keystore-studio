@@ -5,7 +5,7 @@
 use crate::keys::{self, PrivateKey, SigAlg};
 use crate::model::{CertificateInfo, CmsSignerInfo, CmsVerifyResult};
 use crate::oids::{self, oid};
-use crate::pbe::{read_algorithm_id, HashAlg};
+use crate::pbe::{HashAlg, read_algorithm_id};
 use crate::util::*;
 use crate::x509;
 use x509_parser::prelude::*;
@@ -45,9 +45,11 @@ fn attribute(arcs: &[u64], value_der: &[u8]) -> Vec<u8> {
 
 /// DER SET OF attributes, sorted as DER requires.
 fn signed_attributes_set(content_digest: &[u8], signing_time: i64) -> Vec<u8> {
-    let mut attrs = [attribute(oids::ATTR_CONTENT_TYPE, &yasna::construct_der(|w| w.write_oid(&oid(oids::PKCS7_DATA)))),
+    let mut attrs = [
+        attribute(oids::ATTR_CONTENT_TYPE, &yasna::construct_der(|w| w.write_oid(&oid(oids::PKCS7_DATA)))),
         attribute(oids::ATTR_SIGNING_TIME, &asn1_time_der(signing_time)),
-        attribute(oids::ATTR_MESSAGE_DIGEST, &yasna::construct_der(|w| w.write_bytes(content_digest)))];
+        attribute(oids::ATTR_MESSAGE_DIGEST, &yasna::construct_der(|w| w.write_bytes(content_digest))),
+    ];
     attrs.sort();
     let body: Vec<u8> = attrs.concat();
     let mut out = vec![0x31];
@@ -77,13 +79,7 @@ pub fn sign(content: &[u8], key: &PrivateKey, signer_chain: &[Vec<u8>], detached
 /// The RFC 3161 token goes into the SignerInfo's *unsigned* attributes, so it covers the signature
 /// without being covered by it. That is what lets the token be fetched after signing, and it is
 /// where `jarsigner -verify` and `openssl ts` look for it.
-pub fn sign_timestamped(
-    content: &[u8],
-    key: &PrivateKey,
-    signer_chain: &[Vec<u8>],
-    detached: bool,
-    tsa_url: Option<&str>,
-) -> Res<(Vec<u8>, Option<crate::tsa::Timestamp>)> {
+pub fn sign_timestamped(content: &[u8], key: &PrivateKey, signer_chain: &[Vec<u8>], detached: bool, tsa_url: Option<&str>) -> Res<(Vec<u8>, Option<crate::tsa::Timestamp>)> {
     let signer_cert = signer_chain.first().ok_or("the signing entry has no certificate")?;
     let summary = x509::cert_summary(signer_cert)?;
     if !keys::key_matches_spki(key, &summary.spki) {
@@ -194,6 +190,7 @@ struct ParsedSigner {
 }
 
 struct ParsedSignedData {
+    e_content_type: Vec<u64>,
     content: Option<Vec<u8>>,
     certificates: Vec<Vec<u8>>,
     signers: Vec<ParsedSigner>,
@@ -210,9 +207,10 @@ fn parse_signed_data(der: &[u8]) -> Res<ParsedSignedData> {
                 r.read_sequence(|r| {
                     let _version = r.next().read_u8()?;
                     r.next().read_set_of(|r| read_algorithm_id(r).map(|_| ()))?;
-                    let content = r.next().read_sequence(|r| {
-                        let _ct = r.next().read_oid()?;
-                        r.read_optional(|r| r.read_tagged(Tag::context(0), |r| r.read_bytes()))
+                    let (e_content_type, content) = r.next().read_sequence(|r| {
+                        let ect = r.next().read_oid()?.components().to_vec();
+                        let data = r.read_optional(|r| r.read_tagged(Tag::context(0), |r| r.read_bytes()))?;
+                        Ok((ect, data))
                     })?;
                     let mut certificates = Vec::new();
                     r.read_optional(|r| {
@@ -251,13 +249,12 @@ fn parse_signed_data(der: &[u8]) -> Res<ParsedSignedData> {
                             let sig_oid = read_algorithm_id(r.next())?.oid;
                             let signature = r.next().read_bytes()?;
                             // [1] IMPLICIT unsignedAttrs, where the RFC 3161 token lives.
-                            let unsigned_attrs_raw =
-                                if r.next().lookahead_tag().ok() == Some(Tag::context(1)) { Some(r.next().read_der()?) } else { None };
+                            let unsigned_attrs_raw = if r.next().lookahead_tag().ok() == Some(Tag::context(1)) { Some(r.next().read_der()?) } else { None };
                             signers.push(ParsedSigner { issuer_raw, serial, ski, digest_oid, signed_attrs_raw, sig_oid, signature, unsigned_attrs_raw });
                             Ok(())
                         })
                     })?;
-                    Ok(ParsedSignedData { content, certificates, signers })
+                    Ok(ParsedSignedData { e_content_type, content, certificates, signers })
                 })
             })
         })
@@ -305,12 +302,18 @@ fn parse_time_der(der: &[u8]) -> Option<String> {
 
 /// Reads the RFC 3161 token from a signer's unsigned attributes, if it carries one, and checks it
 /// against that signer's signature.
-fn timestamp_of(s: &ParsedSigner) -> Option<crate::model::TimestampInfo> {
+fn timestamp_of(s: &ParsedSigner, tsa_trust_pem: Option<&str>) -> Option<crate::model::TimestampInfo> {
     let mut set = s.unsigned_attrs_raw.clone()?;
     set[0] = 0x31; // [1] IMPLICIT -> SET OF, so the generic attribute reader can walk it.
     let token = find_attr(&set, oids::ATTR_TIMESTAMP_TOKEN)?;
     match crate::tsa::verify_token(&token, &s.signature) {
-        Ok(ts) => Some(ts.info(true, None)),
+        Ok(ts) => {
+            let mut info = ts.info(true, None);
+            if let Some(pem) = tsa_trust_pem {
+                info.chain_trusted = crate::tsa::chain_trusted(&ts, pem);
+            }
+            Some(info)
+        }
         // A token that does not match is worth reporting, not hiding: it means the file was
         // assembled from parts, so read what we can and mark it invalid.
         Err(err) => match crate::tsa::describe_any_token(&token) {
@@ -323,6 +326,7 @@ fn timestamp_of(s: &ParsedSigner) -> Option<crate::model::TimestampInfo> {
                 policy: None,
                 valid: false,
                 error: Some(err),
+                chain_trusted: None,
             }),
         },
     }
@@ -332,6 +336,10 @@ fn timestamp_of(s: &ParsedSigner) -> Option<crate::model::TimestampInfo> {
 /// signatures; `extra_certs` (e.g. a keystore entry's chain) are used to find signers whose
 /// certificate is not embedded.
 pub fn verify(cms_der: &[u8], detached_content: Option<&[u8]>, extra_certs: &[Vec<u8>]) -> Res<CmsVerifyResult> {
+    verify_with_trust(cms_der, detached_content, extra_certs, None)
+}
+
+pub fn verify_with_trust(cms_der: &[u8], detached_content: Option<&[u8]>, extra_certs: &[Vec<u8>], tsa_trust_pem: Option<&str>) -> Res<CmsVerifyResult> {
     check_der_lengths(cms_der)?;
     let parsed = parse_signed_data(cms_der)?;
     let detached = parsed.content.is_none();
@@ -375,7 +383,7 @@ pub fn verify(cms_der: &[u8], detached_content: Option<&[u8]>, extra_certs: &[Ve
             signing_time: None,
             signature_valid: false,
             content_digest_valid: None,
-            timestamp: timestamp_of(s),
+            timestamp: timestamp_of(s, tsa_trust_pem),
             error: None,
         };
         let Some(cert) = cert else {
@@ -384,6 +392,7 @@ pub fn verify(cms_der: &[u8], detached_content: Option<&[u8]>, extra_certs: &[Ve
             continue;
         };
         let summary = x509::cert_summary(cert)?;
+        let cert_info = x509::parse_certificate(cert)?;
         info.subject = x509::name_der_to_string(&summary.subject_raw);
         let Some(hash) = hash else {
             info.error = Some(format!("unsupported digest algorithm {}", oids::oid_str(&s.digest_oid)));
@@ -405,7 +414,15 @@ pub fn verify(cms_der: &[u8], detached_content: Option<&[u8]>, extra_certs: &[Ve
                 let mut set = raw.clone();
                 set[0] = 0x31;
                 info.signing_time = find_attr(&set, oids::ATTR_SIGNING_TIME).and_then(|t| parse_time_der(&t));
-                info.signature_valid = keys::verify(&summary.spki, sig_alg, &set, &s.signature).unwrap_or(false);
+                let ct_ok = find_attr(&set, oids::ATTR_CONTENT_TYPE)
+                    .and_then(|v| yasna::parse_der(&v, |r| r.read_oid()).ok())
+                    .is_some_and(|oid| oid.components().as_slice() == parsed.e_content_type.as_slice());
+                if !ct_ok {
+                    info.signature_valid = false;
+                    info.error = Some("signed content-type attribute is missing or does not match encapsulated content type".into());
+                } else {
+                    info.signature_valid = keys::verify(&summary.spki, sig_alg, &set, &s.signature).unwrap_or(false);
+                }
                 if let Some(content) = &content {
                     let md = find_attr(&set, oids::ATTR_MESSAGE_DIGEST).and_then(|v| yasna::parse_der(&v, |r| r.read_bytes()).ok());
                     info.content_digest_valid = Some(md.as_deref() == Some(hash.digest(content).as_slice()));
@@ -416,6 +433,32 @@ pub fn verify(cms_der: &[u8], detached_content: Option<&[u8]>, extra_certs: &[Ve
                 info.content_digest_valid = Some(info.signature_valid);
             }
             (None, None) => info.error = Some("detached signature: provide the original content to verify".into()),
+        }
+        if info.signature_valid {
+            if let Some(expected_leaf) = extra_certs.first() {
+                let matches_selected = cert.as_slice() == expected_leaf.as_slice() || x509::cert_summary(expected_leaf).is_ok_and(|ex| ex.spki == summary.spki);
+                if !matches_selected {
+                    info.signature_valid = false;
+                    info.error = Some("the signature was not created by the selected keystore entry".into());
+                }
+            }
+            let now = now_ts();
+            if info.signature_valid && now < cert_info.not_before {
+                info.signature_valid = false;
+                info.error = Some(format!("signer certificate '{}' is not valid until {}", cert_info.subject, cert_info.valid_from));
+            } else if info.signature_valid && now > cert_info.not_after {
+                let covered_by_ts = info.timestamp.as_ref().is_some_and(|ts| {
+                    ts.valid
+                        && chrono::NaiveDateTime::parse_from_str(ts.time.trim_end_matches(" UTC"), "%Y-%m-%d %H:%M:%S")
+                            .ok()
+                            .map(|dt| dt.and_utc().timestamp())
+                            .is_some_and(|t| t >= cert_info.not_before && t <= cert_info.not_after)
+                });
+                if !covered_by_ts {
+                    info.signature_valid = false;
+                    info.error = Some(format!("signer certificate '{}' expired on {}", cert_info.subject, cert_info.valid_to));
+                }
+            }
         }
         if !info.signature_valid && info.error.is_none() {
             info.error = Some("signature does not verify with the signer's public key".into());
@@ -466,7 +509,7 @@ pub fn cms_der_from_bytes(data: &[u8]) -> Res<Vec<u8>> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::x509::{build_certificate, encode_dn, parse_dn, CertTemplate, Signer};
+    use crate::x509::{CertTemplate, Signer, build_certificate, encode_dn, parse_dn};
 
     fn self_signed(key: &PrivateKey) -> Vec<u8> {
         let now = now_ts();
@@ -512,5 +555,37 @@ mod tests {
         let cert = self_signed(&key);
         let p7 = certs_only(std::slice::from_ref(&cert));
         assert_eq!(certificates_from_pkcs7(&p7).unwrap(), vec![cert]);
+    }
+
+    #[test]
+    fn verify_rejects_expired_signer_and_mismatched_selected_entry() {
+        let key = PrivateKey::generate("ECDSA", 0, Some("P-256")).unwrap();
+        let cert = self_signed(&key);
+        let other_key = PrivateKey::generate("ECDSA", 0, Some("P-256")).unwrap();
+        let other_cert = self_signed(&other_key);
+
+        let attached = sign(b"hello", &key, std::slice::from_ref(&cert), false).unwrap();
+        assert!(verify(&attached, None, std::slice::from_ref(&cert)).unwrap().valid);
+        let mismatch = verify(&attached, None, std::slice::from_ref(&other_cert)).unwrap();
+        assert!(!mismatch.valid);
+        assert!(mismatch.message.contains("selected keystore entry"), "{}", mismatch.message);
+
+        let past = now_ts() - 86_400 * 10;
+        let expired_cert = build_certificate(
+            CertTemplate {
+                serial: random_serial(),
+                subject_der: encode_dn(&parse_dn("CN=Expired Signer").unwrap()),
+                not_before: past - 86_400,
+                not_after: past,
+                spki_der: key.public_key_der().unwrap(),
+                extensions: vec![],
+            },
+            &Signer { key: &key, cert_der: None, sig_alg: key.default_sig_alg(None).unwrap() },
+        )
+        .unwrap();
+        let expired_sig = sign(b"hello", &key, std::slice::from_ref(&expired_cert), false).unwrap();
+        let expired_res = verify(&expired_sig, None, &[]).unwrap();
+        assert!(!expired_res.valid);
+        assert!(expired_res.message.contains("expired"), "{}", expired_res.message);
     }
 }

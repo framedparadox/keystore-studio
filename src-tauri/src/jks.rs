@@ -21,7 +21,7 @@ pub const JKS_MAGIC: u32 = 0xFEED_FEED;
 pub const JCEKS_MAGIC: u32 = 0xCECE_CECE;
 const VERSION: u32 = 2;
 const MIGHTY_APHRODITE: &[u8] = b"Mighty Aphrodite";
-const WRONG_PASSWORD: &str = "keystore password incorrect or file corrupt";
+const WRONG_PASSWORD: &str = "wrong-password: keystore password incorrect or file corrupt";
 /// JDK default for JCEKS key protection (`jdk.jceks.iterationCount`).
 const JCEKS_ITERATIONS: u64 = 200_000;
 
@@ -105,11 +105,7 @@ fn recover_private_key(password: &str, protected: &[u8]) -> Res<Vec<u8>> {
         })
     })
     .map_err(|err| format!("malformed protected private key: {err}"))?;
-    if alg.oid.as_slice() == oids::JKS_KEY_PROTECTOR {
-        jks_recover(password, &data)
-    } else {
-        pbe::decrypt(&alg, password, &data).map_err(|_| WRONG_PASSWORD.to_string())
-    }
+    if alg.oid.as_slice() == oids::JKS_KEY_PROTECTOR { jks_recover(password, &data) } else { pbe::decrypt(&alg, password, &data).map_err(|_| WRONG_PASSWORD.to_string()) }
 }
 
 fn jceks_protect(password: &str, pkcs8: &[u8]) -> Res<Vec<u8>> {
@@ -133,11 +129,7 @@ fn unseal_secret(password: &str, sealed: &javaser::JValue) -> Res<(String, Vec<u
     let key_obj = javaser::parse(&plain)?;
     // SecretKeySpec { algorithm, key } or KeyRep { algorithm, encoded, format, type }.
     let algorithm = key_obj.field("algorithm").and_then(|v| v.as_str()).unwrap_or("Secret").to_string();
-    let bytes = key_obj
-        .field("key")
-        .or_else(|| key_obj.field("encoded"))
-        .and_then(|v| v.as_bytes())
-        .ok_or_else(|| format!("unsupported sealed key class {}", key_obj.class().unwrap_or("?")))?;
+    let bytes = key_obj.field("key").or_else(|| key_obj.field("encoded")).and_then(|v| v.as_bytes()).ok_or_else(|| format!("unsupported sealed key class {}", key_obj.class().unwrap_or("?")))?;
     Ok((algorithm, bytes.to_vec()))
 }
 
@@ -161,13 +153,13 @@ fn read_utf(c: &mut Cursor<&[u8]>) -> Res<String> {
 }
 
 fn truncated() -> String {
-    "the keystore file is truncated or corrupt".into()
+    "invalid: the keystore file is truncated or corrupt".into()
 }
 
 fn read_cert(c: &mut Cursor<&[u8]>) -> Res<Vec<u8>> {
     let cert_type = read_utf(c)?;
     if cert_type != "X.509" {
-        return Err(format!("unsupported certificate type '{cert_type}'"));
+        return Err(format!("unsupported: certificate type '{cert_type}'"));
     }
     let len = c.read_u32::<BigEndian>().map_err(|_| truncated())? as usize;
     if len > c.get_ref().len() {
@@ -181,7 +173,7 @@ fn read_cert(c: &mut Cursor<&[u8]>) -> Res<Vec<u8>> {
 /// Decodes JKS/JCEKS bytes. `key_passwords` maps aliases to per-key passwords that differ from
 /// the store password; keys that still cannot be decrypted load as locked entries.
 pub fn decode(bytes: &[u8], password: &str, key_passwords: &std::collections::HashMap<String, String>) -> Res<Vec<KeystoreEntry>> {
-    let kind = detect(bytes).ok_or("not a JKS or JCEKS keystore")?;
+    let kind = detect(bytes).ok_or("unrecognized: not a JKS or JCEKS keystore")?;
     if bytes.len() < 32 {
         return Err(truncated());
     }
@@ -193,10 +185,13 @@ pub fn decode(bytes: &[u8], password: &str, key_passwords: &std::collections::Ha
     c.set_position(4);
     let version = c.read_u32::<BigEndian>().map_err(|_| truncated())?;
     if version != 1 && version != 2 {
-        return Err(format!("unsupported keystore version {version}"));
+        return Err(format!("unsupported: keystore version {version}"));
     }
     let count = c.read_u32::<BigEndian>().map_err(|_| truncated())?;
     let mut entries = Vec::new();
+    let lookup_pw = |alias: &str| -> Option<&str> {
+        key_passwords.get(alias).or_else(|| key_passwords.iter().find(|(k, _)| k.eq_ignore_ascii_case(alias)).map(|(_, v)| v)).map(String::as_str).filter(|p| !p.is_empty())
+    };
     for _ in 0..count {
         let tag = c.read_u32::<BigEndian>().map_err(|_| truncated())?;
         let alias = read_utf(&mut c)?;
@@ -222,10 +217,18 @@ pub fn decode(bytes: &[u8], password: &str, key_passwords: &std::collections::Ha
                 c.read_exact(&mut protected).map_err(|_| truncated())?;
                 let chain_len = c.read_u32::<BigEndian>().map_err(|_| truncated())?;
                 let chain: Vec<Vec<u8>> = (0..chain_len).map(|_| read_v1_cert(&mut c)).collect::<Res<_>>()?;
-                let key_pw = key_passwords.get(&alias).map(String::as_str).unwrap_or(password);
-                match recover_private_key(key_pw, &protected) {
-                    Ok(pkcs8) => entries.push(entry::key_pair_entry(&alias, &pkcs8, &chain, created)?),
-                    Err(_) => entries.push(entry::locked_key_pair_entry(&alias, &protected, &chain, created)?),
+                let recovered = lookup_pw(&alias)
+                    .and_then(|pw| recover_private_key(pw, &protected).ok().map(|pkcs8| (pw, pkcs8)))
+                    .or_else(|| recover_private_key(password, &protected).ok().map(|pkcs8| (password, pkcs8)));
+                match recovered {
+                    Some((used_pw, pkcs8)) => {
+                        let mut entry = entry::key_pair_entry(&alias, &pkcs8, &chain, created)?;
+                        if used_pw != password {
+                            entry.key_password = Some(used_pw.to_string());
+                        }
+                        entries.push(entry);
+                    }
+                    None => entries.push(entry::locked_key_pair_entry(&alias, &protected, &chain, created)?),
                 }
             }
             2 => {
@@ -238,13 +241,21 @@ pub fn decode(bytes: &[u8], password: &str, key_passwords: &std::collections::Ha
                 let sealed = reader.object()?;
                 let raw = &body[start..start + reader.position()];
                 c.set_position((start + reader.position()) as u64);
-                let key_pw = key_passwords.get(&alias).map(String::as_str).unwrap_or(password);
-                match unseal_secret(key_pw, &sealed) {
-                    Ok((alg, key)) => entries.push(entry::secret_key_entry(&alias, &alg, &key, created)),
-                    Err(_) => entries.push(entry::locked_secret_entry(&alias, raw, created)),
+                let unsealed = lookup_pw(&alias)
+                    .and_then(|pw| unseal_secret(pw, &sealed).ok().map(|(alg, key)| (pw, alg, key)))
+                    .or_else(|| unseal_secret(password, &sealed).ok().map(|(alg, key)| (password, alg, key)));
+                match unsealed {
+                    Some((used_pw, alg, key)) => {
+                        let mut entry = entry::secret_key_entry(&alias, &alg, &key, created);
+                        if used_pw != password {
+                            entry.key_password = Some(used_pw.to_string());
+                        }
+                        entries.push(entry);
+                    }
+                    None => entries.push(entry::locked_secret_entry(&alias, raw, created)),
                 }
             }
-            other => return Err(format!("unknown keystore entry type {other}")),
+            other => return Err(format!("unsupported: keystore entry type {other}")),
         }
     }
     Ok(entries)
@@ -266,9 +277,7 @@ fn write_cert(buf: &mut Vec<u8>, der: &[u8]) -> Res<()> {
 }
 
 fn entry_millis(entry: &KeystoreEntry) -> i64 {
-    chrono::NaiveDate::parse_from_str(&entry.creation_date, "%Y-%m-%d")
-        .map(|d| d.and_hms_opt(0, 0, 0).unwrap().and_utc().timestamp_millis())
-        .unwrap_or_else(|_| chrono::Utc::now().timestamp_millis())
+    chrono::NaiveDate::parse_from_str(&entry.creation_date, "%Y-%m-%d").map(|d| d.and_hms_opt(0, 0, 0).unwrap().and_utc().timestamp_millis()).unwrap_or_else(|_| chrono::Utc::now().timestamp_millis())
 }
 
 pub fn encode(entries: &[KeystoreEntry], password: &str, kind: Kind) -> Res<Vec<u8>> {
@@ -278,22 +287,24 @@ pub fn encode(entries: &[KeystoreEntry], password: &str, kind: Kind) -> Res<Vec<
     buf.write_u32::<BigEndian>(entries.len() as u32).map_err(e)?;
     let mut seen = std::collections::HashSet::new();
     for entry in entries {
-        // JKS aliases are case-insensitive.
-        let alias = if kind == Kind::Jks { entry.alias.to_lowercase() } else { entry.alias.clone() };
+        // Java lowercases JKS and JCEKS aliases on read and on write. PKCS#12 is handled
+        // elsewhere and keeps the case OpenSSL stored.
+        let alias = entry.alias.to_lowercase();
         if !seen.insert(alias.to_lowercase()) {
-            return Err(format!("duplicate alias '{alias}' (JKS/JCEKS aliases are case-insensitive)"));
+            return Err(format!("invalid: duplicate alias '{alias}' (JKS/JCEKS aliases are case-insensitive)"));
         }
         match entry.entry_type.as_str() {
             "KeyPair" => {
                 let chain = entry::chain_der(entry)?;
                 if chain.is_empty() {
-                    return Err(format!("key pair '{}' has no certificate chain", entry.alias));
+                    return Err(format!("invalid: key pair '{}' has no certificate chain", entry.alias));
                 }
                 let protected = if entry.locked {
-                    unb64(entry.protected_key.as_deref().ok_or_else(|| format!("'{}' has no key material", entry.alias))?)?
+                    unb64(entry.protected_key.as_deref().ok_or_else(|| format!("invalid: '{}' has no key material", entry.alias))?)?
                 } else {
                     let pkcs8 = entry::private_key_der(entry)?;
-                    if kind == Kind::Jks { jks_protect(password, &pkcs8) } else { jceks_protect(password, &pkcs8)? }
+                    let key_pw = entry.key_password.as_deref().filter(|p| !p.is_empty()).unwrap_or(password);
+                    if kind == Kind::Jks { jks_protect(key_pw, &pkcs8) } else { jceks_protect(key_pw, &pkcs8)? }
                 };
                 buf.write_u32::<BigEndian>(1).map_err(e)?;
                 write_utf(&mut buf, &alias)?;
@@ -307,7 +318,7 @@ pub fn encode(entries: &[KeystoreEntry], password: &str, kind: Kind) -> Res<Vec<
             }
             "TrustedCertificate" => {
                 let chain = entry::chain_der(entry)?;
-                let cert = chain.first().ok_or_else(|| format!("'{}' has no certificate", entry.alias))?;
+                let cert = chain.first().ok_or_else(|| format!("invalid: '{}' has no certificate", entry.alias))?;
                 buf.write_u32::<BigEndian>(2).map_err(e)?;
                 write_utf(&mut buf, &alias)?;
                 buf.write_i64::<BigEndian>(entry_millis(entry)).map_err(e)?;
@@ -315,19 +326,20 @@ pub fn encode(entries: &[KeystoreEntry], password: &str, kind: Kind) -> Res<Vec<
             }
             "SecretKey" => {
                 if kind == Kind::Jks {
-                    return Err(format!("JKS cannot store secret keys ('{}'); save as PKCS#12 or JCEKS instead", entry.alias));
+                    return Err(format!("unsupported: JKS cannot store secret keys ('{}'); save as PKCS#12 or JCEKS instead", entry.alias));
                 }
                 let sealed = if entry.locked {
-                    unb64(entry.protected_key.as_deref().ok_or_else(|| format!("'{}' has no key material", entry.alias))?)?
+                    unb64(entry.protected_key.as_deref().ok_or_else(|| format!("invalid: '{}' has no key material", entry.alias))?)?
                 } else {
-                    seal_secret(password, &entry.algorithm, &entry::secret_bytes(entry)?)?
+                    let key_pw = entry.key_password.as_deref().filter(|p| !p.is_empty()).unwrap_or(password);
+                    seal_secret(key_pw, &entry.algorithm, &entry::secret_bytes(entry)?)?
                 };
                 buf.write_u32::<BigEndian>(3).map_err(e)?;
                 write_utf(&mut buf, &alias)?;
                 buf.write_i64::<BigEndian>(entry_millis(entry)).map_err(e)?;
                 buf.write_all(&sealed).map_err(e)?;
             }
-            other => return Err(format!("unsupported entry type '{other}'")),
+            other => return Err(format!("unsupported: entry type '{other}'")),
         }
     }
     let digest = integrity_digest(password, &buf);
@@ -362,6 +374,11 @@ mod tests {
             key_usage: vec![],
             extended_key_usage: vec![],
             labels: vec![],
+            not_before: String::new(),
+            not_after: String::new(),
+            crl_distribution_points: vec![],
+            ocsp_urls: vec![],
+            ca_issuer_urls: vec![],
         };
         let kp = crate::ops::generate_key_pair(&input, None).unwrap();
         let der = entry::chain_der(&kp).unwrap();
@@ -388,6 +405,32 @@ mod tests {
             }
             assert_eq!(decode(&bytes, "wrong", &HashMap::new()).unwrap_err(), WRONG_PASSWORD);
         }
+    }
+
+    #[test]
+    fn jceks_aliases_are_stored_in_lower_case() {
+        let mut entry = sample_entries().remove(0);
+        entry.alias = "API".into();
+        for kind in [Kind::Jks, Kind::Jceks] {
+            let bytes = encode(std::slice::from_ref(&entry), "pw", kind).unwrap();
+            let back = decode(&bytes, "pw", &HashMap::new()).unwrap();
+            assert_eq!(back[0].alias, "api", "{kind:?}");
+        }
+    }
+
+    #[test]
+    fn a_distinct_key_password_survives_save() {
+        let mut entry = sample_entries().remove(0);
+        entry.key_password = Some("keypass99".into());
+        let bytes = encode(std::slice::from_ref(&entry), "storepass", Kind::Jks).unwrap();
+        let locked = decode(&bytes, "storepass", &HashMap::new()).unwrap();
+        assert!(locked[0].locked, "the store password must not unwrap a distinct key password");
+        let mut kp = HashMap::new();
+        kp.insert("server".into(), "keypass99".into());
+        let opened = decode(&bytes, "storepass", &kp).unwrap();
+        assert!(!opened[0].locked);
+        assert_eq!(opened[0].key_password.as_deref(), Some("keypass99"));
+        assert_eq!(opened[0].private_key_pem, entry.private_key_pem);
     }
 
     #[test]

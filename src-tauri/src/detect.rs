@@ -109,6 +109,33 @@ fn examine_der(bytes: &[u8], password: Option<&str>, format: &str) -> Res<Detect
         }
         return Ok(r);
     }
+    if keystore::looks_like_bks_v2(bytes) {
+        r.kind = "keystore".into();
+        r.title = "BKS keystore".into();
+        r.format = "BKS".into();
+        r.keystore_format = Some("BKS".into());
+        r.summary = "Bouncy Castle BKS v2 keystore (read-only). Open it from the Keystores page to inspect or convert to PKCS#12.".into();
+        if let Some(pw) = password.filter(|p| !p.is_empty()) {
+            match keystore::decode(bytes, pw, &Default::default()) {
+                Ok((_, entries)) => {
+                    r.summary = format!("{} entries: {}", entries.len(), entries.iter().map(|e| e.alias.as_str()).collect::<Vec<_>>().join(", "));
+                    r.certificates = entries.iter().filter_map(|e| e.certificate_chain.first().cloned()).collect();
+                }
+                Err(err) => r.warnings.push(err),
+            }
+        }
+        return Ok(r);
+    }
+    if let Some(kind) = keystore::detect_unsupported(bytes) {
+        let hint = kind.conversion_hint("your-keystore");
+        r.kind = "keystore".into();
+        r.title = format!("Bouncy Castle {} keystore", kind.name());
+        r.format = kind.store_type().into();
+        r.keystore_format = Some(kind.store_type().into());
+        r.summary = format!("Bouncy Castle {} keystore (unsupported). {hint}", kind.name());
+        r.warnings.push(hint);
+        return Ok(r);
+    }
     if x509_parser::parse_x509_certificate(bytes).is_ok() {
         return certificates_result(r, vec![bytes.to_vec()], format);
     }
@@ -159,14 +186,15 @@ fn examine_der(bytes: &[u8], password: Option<&str>, format: &str) -> Res<Detect
         return Ok(r);
     }
     if keys::split_spki(bytes).is_ok()
-        && let Ok(info) = key_info_public(bytes, "SubjectPublicKeyInfo") {
-            r.kind = "public_key".into();
-            r.title = "Public key".into();
-            r.format = format.into();
-            r.summary = format!("{} {}-bit public key", info.algorithm, info.key_size);
-            r.key = Some(info);
-            return Ok(r);
-        }
+        && let Ok(info) = key_info_public(bytes, "SubjectPublicKeyInfo")
+    {
+        r.kind = "public_key".into();
+        r.title = "Public key".into();
+        r.format = format.into();
+        r.summary = format!("{} {}-bit public key", info.algorithm, info.key_size);
+        r.key = Some(info);
+        return Ok(r);
+    }
     r.kind = "unknown".into();
     r.title = "Unrecognised data".into();
     r.format = "binary".into();
@@ -207,11 +235,16 @@ pub fn examine(bytes: &[u8], password: Option<&str>) -> Res<DetectionResult> {
                             r.key = Some(info);
                         }
                         None => {
-                            let alg = yasna::parse_der(&first.der, |r| r.read_sequence(|r| { let a = crate::pbe::read_algorithm_id(r.next())?; r.next().read_der()?; Ok(a) })).ok();
-                            r.summary = format!(
-                                "Protected with {}. Enter its password to inspect the key.",
-                                alg.as_ref().map(crate::pbe::describe_algorithm).unwrap_or_else(|| "an unknown scheme".into())
-                            );
+                            let alg = yasna::parse_der(&first.der, |r| {
+                                r.read_sequence(|r| {
+                                    let a = crate::pbe::read_algorithm_id(r.next())?;
+                                    r.next().read_der()?;
+                                    Ok(a)
+                                })
+                            })
+                            .ok();
+                            r.summary =
+                                format!("Protected with {}. Enter its password to inspect the key.", alg.as_ref().map(crate::pbe::describe_algorithm).unwrap_or_else(|| "an unknown scheme".into()));
                             r.key = Some(KeyInfo { kind: "private".into(), algorithm: "encrypted".into(), encrypted: true, format: "PKCS#8".into(), ..Default::default() });
                         }
                     }
@@ -249,9 +282,15 @@ pub fn examine(bytes: &[u8], password: Option<&str>) -> Res<DetectionResult> {
                 return Ok(r);
             }
             "DH PARAMETERS" => {
-                let bits = yasna::parse_der(&first.der, |r| r.read_sequence(|r| { let (p, _) = r.next().read_bigint_bytes()?; r.next().read_der()?; Ok(p) }))
-                    .map(|p| trim_leading_zeros(&p).len() * 8)
-                    .unwrap_or(0);
+                let bits = yasna::parse_der(&first.der, |r| {
+                    r.read_sequence(|r| {
+                        let (p, _) = r.next().read_bigint_bytes()?;
+                        r.next().read_der()?;
+                        Ok(p)
+                    })
+                })
+                .map(|p| trim_leading_zeros(&p).len() * 8)
+                .unwrap_or(0);
                 r.kind = "dh_params".into();
                 r.title = "Diffie-Hellman parameters (PKCS#3)".into();
                 r.format = "PEM".into();
@@ -294,24 +333,26 @@ pub fn examine(bytes: &[u8], password: Option<&str>) -> Res<DetectionResult> {
     }
     // OpenSSH public key line
     if let Some((kind, rest)) = trimmed.split_once(' ')
-        && (kind.starts_with("ssh-") || kind.starts_with("ecdsa-sha2-")) {
-            let blob = unb64(rest.split_whitespace().next().unwrap_or(""))?;
-            let mut r = base(bytes);
-            r.kind = "public_key".into();
-            r.title = "OpenSSH public key".into();
-            r.format = "OpenSSH".into();
-            let fp = format!("SHA256:{}", base64::Engine::encode(&base64::engine::general_purpose::STANDARD_NO_PAD, sha256(&blob)));
-            r.summary = format!("{kind} key, fingerprint {fp}");
-            r.key = Some(KeyInfo { kind: "public".into(), algorithm: kind.into(), format: "OpenSSH".into(), public_key_sha256: Some(fp), ..Default::default() });
-            return Ok(r);
-        }
+        && (kind.starts_with("ssh-") || kind.starts_with("ecdsa-sha2-"))
+    {
+        let blob = unb64(rest.split_whitespace().next().unwrap_or(""))?;
+        let mut r = base(bytes);
+        r.kind = "public_key".into();
+        r.title = "OpenSSH public key".into();
+        r.format = "OpenSSH".into();
+        let fp = format!("SHA256:{}", base64::Engine::encode(&base64::engine::general_purpose::STANDARD_NO_PAD, sha256(&blob)));
+        r.summary = format!("{kind} key, fingerprint {fp}");
+        r.key = Some(KeyInfo { kind: "public".into(), algorithm: kind.into(), format: "OpenSSH".into(), public_key_sha256: Some(fp), ..Default::default() });
+        return Ok(r);
+    }
     // Bare base64 of DER
     if let Ok(der) = unb64(trimmed)
-        && !der.is_empty() {
-            let mut r = examine_der(&der, password, "Base64 (DER)")?;
-            r.sha256 = colon_hex(&sha256(&der));
-            return Ok(r);
-        }
+        && !der.is_empty()
+    {
+        let mut r = examine_der(&der, password, "Base64 (DER)")?;
+        r.sha256 = colon_hex(&sha256(&der));
+        return Ok(r);
+    }
     let mut r = base(bytes);
     r.kind = "unknown".into();
     r.title = "Unrecognised text".into();
@@ -347,6 +388,11 @@ mod tests {
             key_usage: vec![],
             extended_key_usage: vec![],
             labels: vec![],
+            not_before: String::new(),
+            not_after: String::new(),
+            crl_distribution_points: vec![],
+            ocsp_urls: vec![],
+            ca_issuer_urls: vec![],
         };
         let e = crate::ops::generate_key_pair(&input, None).unwrap();
         let cert = examine(e.certificate_chain[0].pem.as_bytes(), None).unwrap();

@@ -5,7 +5,7 @@ use crate::keys;
 use crate::model::{ExportResult, KeystoreEntry, KeystoreFile};
 use crate::util::*;
 use crate::{cms, pbe, pkcs12};
-use base64::{engine::general_purpose::URL_SAFE_NO_PAD as B64URL, Engine};
+use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD as B64URL};
 use std::path::Path;
 
 /// Target identifiers accepted by [`export_entry`], with their default file extensions.
@@ -20,6 +20,7 @@ pub const TARGETS: &[(&str, &str)] = &[
     ("public_openssh", "pub"),
     ("public_jwk", "jwk.json"),
     ("private_pkcs8_pem", "key"),
+    ("private_traditional", "key"),
     ("private_pkcs8_encrypted", "key"),
     ("private_jwk", "jwk.json"),
     ("pkcs12", "p12"),
@@ -48,9 +49,7 @@ pub fn render(e: &KeystoreEntry, target: &str, password: Option<&str>) -> Res<(V
         }
         Ok(c)
     };
-    let need_password = || -> Res<&str> {
-        password.filter(|p| !p.is_empty()).ok_or_else(|| "a password is required for this export".to_string())
-    };
+    let need_password = || -> Res<&str> { password.filter(|p| !p.is_empty()).ok_or_else(|| "a password is required for this export".to_string()) };
     Ok(match target {
         "cert_pem" => (to_pem("CERTIFICATE", &chain()?[0]).into_bytes(), true, "X.509 certificate (PEM)".into()),
         "cert_der" => (chain()?[0].clone(), false, "X.509 certificate (DER)".into()),
@@ -80,6 +79,7 @@ pub fn render(e: &KeystoreEntry, target: &str, password: Option<&str>) -> Res<(V
             (serde_json::to_string_pretty(&jwk).unwrap().into_bytes(), true, "JSON Web Key (public)".into())
         }
         "private_pkcs8_pem" => (to_pem("PRIVATE KEY", &entry::private_key_der(e)?).into_bytes(), true, "Private key (unencrypted PKCS#8 PEM)".into()),
+        "private_traditional" => (entry::private_key(e)?.to_traditional_pem()?.into_bytes(), true, "Private key (PKCS#1 or SEC1 PEM)".into()),
         "private_pkcs8_encrypted" => {
             let der = pbe::encrypt_pkcs8(need_password()?, &entry::private_key_der(e)?, pbe::DEFAULT_ITERATIONS)?;
             (to_pem("ENCRYPTED PRIVATE KEY", &der).into_bytes(), true, "Private key (encrypted PKCS#8, AES-256)".into())
@@ -101,11 +101,7 @@ pub fn render(e: &KeystoreEntry, target: &str, password: Option<&str>) -> Res<(V
 pub fn export_entry(e: &KeystoreEntry, target: &str, path: &str, password: Option<&str>) -> Res<ExportResult> {
     let (bytes, is_text, format) = render(e, target, password)?;
     write_atomic(Path::new(path), &bytes)?;
-    let text = if is_text && !target.starts_with("private") && !target.starts_with("secret") {
-        Some(String::from_utf8_lossy(&bytes).to_string())
-    } else {
-        None
-    };
+    let text = if is_text && !target.starts_with("private") && !target.starts_with("secret") { Some(String::from_utf8_lossy(&bytes).to_string()) } else { None };
     Ok(ExportResult { path: path.to_string(), format, byte_length: bytes.len(), text })
 }
 
@@ -116,7 +112,9 @@ fn csv_field(s: &str) -> String {
 }
 
 pub fn inventory_csv(ks: &KeystoreFile) -> String {
-    let mut out = String::from("Alias,Type,Algorithm,Key size,Curve,Subject,Issuer,Serial,Created,Expires,Days remaining,SHA-256 fingerprint,Weak,Findings,Labels\n");
+    let mut out = String::from(
+        "Alias,Type,Algorithm,Key size,Curve,Subject,Issuer,Serial,Created,Expires,Days remaining,SHA-256 fingerprint,SPKI SHA-256,Chain length,Locked,EKU,Weak,Findings,Labels,Path,Format\n",
+    );
     let now = now_ts();
     for e in &ks.entries {
         let days = e.certificate_chain.first().map(|c| ((c.not_after - now).div_euclid(86_400)).to_string()).unwrap_or_default();
@@ -133,9 +131,15 @@ pub fn inventory_csv(ks: &KeystoreFile) -> String {
             e.expiry_date.clone(),
             days,
             e.sha256_fingerprint.clone(),
+            e.certificate_chain.first().map(|c| c.spki_sha256.clone()).unwrap_or_default(),
+            e.chain_length.to_string(),
+            if e.locked { "yes".into() } else { "no".into() },
+            e.certificate_chain.first().map(|c| c.extended_key_usage.join("; ")).unwrap_or_default(),
             if e.is_weak { "yes".into() } else { "no".into() },
             e.weak_reasons.join("; "),
             e.labels.join("; "),
+            ks.path.clone(),
+            ks.format.clone(),
         ];
         out.push_str(&row.iter().map(|f| csv_field(f)).collect::<Vec<_>>().join(","));
         out.push('\n');
@@ -170,6 +174,11 @@ mod tests {
             key_usage: vec![],
             extended_key_usage: vec![],
             labels: vec![],
+            not_before: String::new(),
+            not_after: String::new(),
+            crl_distribution_points: vec![],
+            ocsp_urls: vec![],
+            ca_issuer_urls: vec![],
         };
         let e = crate::ops::generate_key_pair(&input, None).unwrap();
         for (target, _) in TARGETS.iter().filter(|(t, _)| !t.starts_with("secret")) {

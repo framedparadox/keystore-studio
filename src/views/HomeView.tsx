@@ -48,7 +48,7 @@ const RecentFiles: React.FC = () => {
 };
 
 export const HomeView: React.FC = () => {
-  const { keystores, workspaces, setTab, selectKeystore, openFiles, setNewKeystoreOpen, vault, requestVaultUnlock, setActiveWorkspaceId, settings, desktop } = useStore();
+  const { keystores, workspaces, setTab, selectKeystore, openFiles, setNewKeystoreOpen, setBuildPkcs12Open, vault, requestVaultUnlock, setActiveWorkspaceId, settings, desktop } = useStore();
   const loaded = keystores.filter((k) => !k.sealed);
   const sealed = keystores.filter((k) => k.sealed);
   const flat = useMemo(() => flattenEntries(loaded), [loaded]);
@@ -112,11 +112,18 @@ export const HomeView: React.FC = () => {
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
           <Card className="lg:col-span-8">
             <CardHeader title="Get started" />
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {[
                 { icon: FolderOpen, title: "Open a keystore", text: "PKCS#12, JKS or JCEKS — enter its password to view and edit entries.", action: () => openFiles(), testId: "welcome-open" },
                 { icon: FilePlus2, title: "Create a keystore", text: "Start empty or with a fresh key pair and self-signed certificate.", action: () => setNewKeystoreOpen(true), testId: "welcome-new" },
                 { icon: SearchCode, title: "Examine", text: "Inspect a TLS server or decode a certificate, CSR, key or JWT.", action: () => setTab("examine"), testId: "welcome-examine" },
+                {
+                  icon: FolderArchive,
+                  title: "Create a PKCS#12",
+                  text: "Bundle a certificate and its private key into a password-protected .p12 or .pfx.",
+                  action: () => setBuildPkcs12Open(true),
+                  testId: "welcome-build-p12",
+                },
               ].map((a) => (
                 <button key={a.title} onClick={a.action} data-testid={a.testId} className="text-left rounded-card border border-line p-4 hover:border-brand hover:bg-brand-tint/50 transition cursor-pointer">
                   <a.icon className="w-5 h-5 text-brand mb-2" />
@@ -145,6 +152,9 @@ export const HomeView: React.FC = () => {
           <>
             <Button icon={FolderOpen} onClick={() => openFiles()}>
               Open…
+            </Button>
+            <Button icon={FolderArchive} onClick={() => setBuildPkcs12Open(true)} data-testid="home-build-p12">
+              Create PKCS#12…
             </Button>
             <Button variant="primary" icon={FilePlus2} onClick={() => setNewKeystoreOpen(true)}>
               New keystore

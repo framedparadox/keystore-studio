@@ -6,6 +6,7 @@
 //! The Tauri command layer lives in `commands` behind the default `tauri-app` feature. Building
 //! with `--no-default-features` gives the engine alone, which is how the fuzz targets link it.
 
+pub mod bks;
 pub mod cms;
 pub mod detect;
 pub mod dh;
@@ -33,4 +34,4 @@ pub mod x509;
 #[cfg(feature = "tauri-app")]
 mod commands;
 #[cfg(feature = "tauri-app")]
-pub use commands::{run, DataSource};
+pub use commands::{DataSource, run};

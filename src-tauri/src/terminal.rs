@@ -41,10 +41,7 @@ fn read_capped<R: Read + Send + 'static>(mut r: R) -> std::thread::JoinHandle<(V
 }
 
 pub fn run(command: &str, cwd: Option<String>, timeout_secs: u64) -> Res<TerminalOutput> {
-    let start_dir = cwd
-        .filter(|c| std::path::Path::new(c).is_dir())
-        .or_else(|| dirs::home_dir().map(|h| h.to_string_lossy().to_string()))
-        .unwrap_or_else(|| ".".to_string());
+    let start_dir = cwd.filter(|c| std::path::Path::new(c).is_dir()).or_else(|| dirs::home_dir().map(|h| h.to_string_lossy().to_string())).unwrap_or_else(|| ".".to_string());
 
     let mut cmd = if cfg!(windows) {
         let mut c = Command::new("cmd");
@@ -67,13 +64,7 @@ pub fn run(command: &str, cwd: Option<String>, timeout_secs: u64) -> Res<Termina
         c.env("PATH", parts.join(":"));
         c
     };
-    let mut child = cmd
-        .current_dir(&start_dir)
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|err| format!("failed to start shell: {err}"))?;
+    let mut child = cmd.current_dir(&start_dir).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().map_err(|err| format!("failed to start shell: {err}"))?;
     let out_handle = read_capped(child.stdout.take().unwrap());
     let err_handle = read_capped(child.stderr.take().unwrap());
 
@@ -110,14 +101,7 @@ pub fn run(command: &str, cwd: Option<String>, timeout_secs: u64) -> Res<Termina
     if timed_out {
         stderr.push_str(&format!("\n[xkeystore] command stopped after {timeout_secs}s (interactive or long-running commands are not supported)"));
     }
-    Ok(TerminalOutput {
-        stdout,
-        stderr,
-        code: status.and_then(|s| s.code()).unwrap_or(-1),
-        cwd: new_cwd,
-        timed_out,
-        truncated: out_trunc || err_trunc,
-    })
+    Ok(TerminalOutput { stdout, stderr, code: status.and_then(|s| s.code()).unwrap_or(-1), cwd: new_cwd, timed_out, truncated: out_trunc || err_trunc })
 }
 
 #[cfg(all(test, unix))]

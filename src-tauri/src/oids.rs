@@ -119,6 +119,10 @@ pub const EXT_KEY_USAGE: &[u64] = &[2, 5, 29, 15];
 pub const EXT_SUBJECT_ALT_NAME: &[u64] = &[2, 5, 29, 17];
 pub const EXT_BASIC_CONSTRAINTS: &[u64] = &[2, 5, 29, 19];
 pub const EXT_CRL_NUMBER: &[u64] = &[2, 5, 29, 20];
+pub const EXT_CRL_DISTRIBUTION_POINTS: &[u64] = &[2, 5, 29, 31];
+pub const EXT_AUTHORITY_INFO_ACCESS: &[u64] = &[1, 3, 6, 1, 5, 5, 7, 1, 1];
+pub const AD_OCSP: &[u64] = &[1, 3, 6, 1, 5, 5, 7, 48, 1];
+pub const AD_CA_ISSUERS: &[u64] = &[1, 3, 6, 1, 5, 5, 7, 48, 2];
 pub const EXT_CRL_REASON: &[u64] = &[2, 5, 29, 21];
 pub const EXT_AUTHORITY_KEY_ID: &[u64] = &[2, 5, 29, 35];
 pub const EXT_EXTENDED_KEY_USAGE: &[u64] = &[2, 5, 29, 37];
@@ -172,11 +176,7 @@ pub const DN_ATTRIBUTES: &[(&str, &[u64])] = &[
 ];
 
 pub fn dn_attribute_name(arcs: &[u64]) -> String {
-    DN_ATTRIBUTES
-        .iter()
-        .find(|(_, a)| *a == arcs)
-        .map(|(n, _)| n.to_string())
-        .unwrap_or_else(|| oid_str(arcs))
+    DN_ATTRIBUTES.iter().find(|(_, a)| *a == arcs).map(|(n, _)| n.to_string()).unwrap_or_else(|| oid_str(arcs))
 }
 
 pub fn dn_attribute_oid(name: &str) -> Option<Vec<u64>> {
@@ -190,11 +190,7 @@ pub fn dn_attribute_oid(name: &str) -> Option<Vec<u64>> {
         "SERIAL" => "SERIALNUMBER",
         other => other,
     };
-    DN_ATTRIBUTES
-        .iter()
-        .find(|(n, _)| *n == alias)
-        .map(|(_, a)| a.to_vec())
-        .or_else(|| parse_oid_str(name))
+    DN_ATTRIBUTES.iter().find(|(n, _)| *n == alias).map(|(_, a)| a.to_vec()).or_else(|| parse_oid_str(name))
 }
 
 pub fn extension_name(arcs: &[u64]) -> &'static str {

@@ -190,7 +190,7 @@ export interface Finding {
   detail: string;
 }
 
-export function findingsFor(entry: KeystoreEntry): Finding[] {
+export function findingsFor(entry: KeystoreEntry, ctx?: { format?: string; siblings?: KeystoreEntry[] }): Finding[] {
   const out: Finding[] = [];
   const days = daysUntilExpiry(entry);
   const status = expiryStatus(entry);
@@ -204,6 +204,22 @@ export function findingsFor(entry: KeystoreEntry): Finding[] {
   if (entry.entry_type === "KeyPair" && leaf && !leaf.self_signed && entry.chain_length === 1)
     out.push({ severity: "low", title: "Incomplete chain", detail: "The issuing CA certificate is not stored with this key; some clients cannot build the chain." });
   if (entry.locked) out.push({ severity: "low", title: "Key locked", detail: "The private key uses a separate key password and is unavailable until unlocked." });
+  if (ctx?.format === "JKS") out.push({ severity: "medium", title: "JKS store", detail: "JKS integrity is SHA-1 and the key wrap is proprietary. Save as PKCS#12." });
+  if (leaf && entry.entry_type !== "SecretKey" && leaf.extended_key_usage.some((u) => u.includes("Server")) && leaf.sans.length === 0)
+    out.push({ severity: "medium", title: "No subject alternative name", detail: "TLS clients match the hostname against the SAN, not the common name." });
+  if (leaf && leaf.extended_key_usage.some((u) => u.includes("Server"))) {
+    const life = Math.round((leaf.not_after - leaf.not_before) / 86_400);
+    if (life > 398) out.push({ severity: "low", title: "Long server lifetime", detail: `Valid for ${life} days. Public TLS certificates are capped at 398 days.` });
+  }
+  if (leaf?.is_ca && !leaf.self_signed && leaf.path_len == null)
+    out.push({ severity: "low", title: "Subordinate CA without a path length", detail: "Set a path length so this CA cannot issue further CAs without a limit." });
+  if (entry.entry_type === "TrustedCertificate" && leaf && !leaf.self_signed) {
+    const issuerOpen = ctx?.siblings?.some((s) => s.id !== entry.id && s.subject === entry.issuer);
+    if (!issuerOpen) out.push({ severity: "low", title: "Trust anchor not open", detail: "No open certificate has this issuer's subject." });
+  }
+  const ski = leaf?.subject_key_id;
+  if (ski && ctx?.siblings?.some((s) => s.id !== entry.id && s.certificate_chain[0]?.subject_key_id === ski))
+    out.push({ severity: "medium", title: "Duplicate subject key id", detail: "Another open entry has the same subject key identifier." });
   const order = { critical: 0, high: 1, medium: 2, low: 3 };
   return out.sort((a, b) => order[a.severity] - order[b.severity]);
 }

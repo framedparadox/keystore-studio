@@ -11,6 +11,7 @@ your machine except TLS handshakes you start from **Examine**.
 | **Keystores** | Open, create, edit and save **PKCS#12**, **JKS** and **JCEKS** files (keytool/OpenSSL compatible). Convert between formats and change passwords with *Save as…*. Key pairs, trusted certificates and secret keys. Per-key passwords (JKS/JCEKS) are preserved and can be unlocked. Undo/redo, cut/copy/paste between keystores, rename, labels, CSV inventory export. Unsaved-changes tracking with a guard on close/quit. |
 | **Entries** | Generate RSA (2048–4096), ECDSA (P-256/384/521) and Ed25519 key pairs with certificates that are self-signed or issued by any open CA; generate AES/HMAC/3DES secret keys; import trusted certificates (PEM/DER/PKCS#7, bundles), key pairs from PEM/DER (PKCS#8, encrypted PKCS#8, PKCS#1, SEC1) or from another keystore. Generate CSRs, install CA replies. |
 | **Export** | Certificate (PEM/DER), full chain, PKCS#7 (PEM/DER), PkiPath, public key (PEM, OpenSSH, JWK), private key (encrypted or plain PKCS#8, JWK), single-entry PKCS#12, secret key (hex, JWK). |
+| **Build a PKCS#12** | Bundle an existing certificate (or chain) and its private key into a passphrase-protected **.p12 / .pfx** in one step, without opening a keystore first — from the dashboard or the command palette. The input key may be encrypted (its own password is asked for separately), and it is matched against the certificate before anything is written. Readable by OpenSSL and `keytool`. |
 | **CA & Signing** | Sign CSRs (with CSR inspection and one-click installation into the matching key pair), issue v2 CRLs, CMS/PKCS#7 sign & verify (attached/detached), JWT sign & verify (RS/ES/EdDSA/HS), JAR signing (jarsigner-verifiable), **RFC 3161 trusted timestamps** on CMS and JAR signatures, DH parameters (RFC 7919 groups or freshly generated safe primes). |
 | **Examine** | Live TLS inspection (protocol, cipher, ALPN, chain, trust and hostname verdict against the OS trust store), decode anything (certificates, chains, CSRs, CRLs, keys, PKCS#7, JWTs, OpenSSH keys, keystores), compare two certificates. |
 | **Security audit** | Health score and findings (expired/expiring, weak keys and digests, deprecated ciphers, incomplete chains, self-signed servers), key rotation that keeps subject/SANs/usages and is re-issued by the original CA when it is open, same-key renewal, CSV report. |
@@ -39,6 +40,7 @@ authority's own certificate chain is not validated in-app — `openssl ts -verif
 `jarsigner -verify` do that.
 
 [IMPROVEMENT.md](IMPROVEMENT.md) explains why each gap exists and what is planned.
+[GAPS.md](GAPS.md) is the developer backlog: defects, missing certificate and keystore operations, and the todo list for tackling them.
 
 ## Development
 
@@ -60,6 +62,7 @@ pnpm typecheck          # TypeScript
 pnpm test               # frontend unit tests (Vitest)
 pnpm test:rust          # Rust unit tests + interop tests against keytool, jarsigner and openssl
 pnpm test:e2e           # builds the app and drives a full user journey via tauri-driver
+pnpm test:e2e:headless  # drives the real UI in headless Chrome against the real engine
 
 # What the CI lint job runs:
 cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
@@ -78,6 +81,20 @@ cargo deny --manifest-path src-tauri/Cargo.toml check    # advisories, licences,
   `xvfb-run -a`. It creates, saves, edits, signs, audits, restarts and restores a session, and
   verifies the written files with keytool/openssl. Native file dialogs are scripted only when the
   app is started with `XKEYSTORE_E2E=1`.
+- **End-to-end on macOS** (`e2e/eval-drive.mjs`) replaces the above, where `tauri-driver` has no
+  WKWebView backend. It drives the real window over a local bridge and needs no display
+  permissions. The binary **must** be built with the `custom-protocol` feature
+  (`pnpm tauri build --debug --no-bundle`, or `cargo build --features custom-protocol`); without
+  it the webview is pointed at `devUrl` and stays blank unless `pnpm dev` is running, and the
+  bridge exits saying so.
+- **End-to-end in a browser** (`e2e/headless-ui.mjs`, `pnpm test:e2e:headless`) is a lighter
+  alternative that needs no Tauri build at all — useful for iterating on UI code and for CI
+  without a WebKit runtime. It serves the production `dist/` bundle, points `window.__TAURI_INTERNALS__` at
+  `src-tauri/examples/ui_bridge.rs` (which calls the same engine functions as the Tauri commands),
+  and drives the real React UI in headless Chrome: it clicks the dashboard action, fills in a
+  certificate, key and passphrase, submits, and verifies the written `.p12` with `openssl` and
+  `keytool`. The webview and the IPC transport are the only things replaced; the UI code and the
+  crypto are the real ones. Needs Google Chrome.
 
 CI (`.github/workflows/ci.yml`) runs all of the above on Ubuntu.
 

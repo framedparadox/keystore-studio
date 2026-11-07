@@ -1,6 +1,6 @@
 //! Small shared helpers: encodings, digests, PEM handling and ASN.1 time encoding.
 
-use base64::{engine::general_purpose::STANDARD as B64, Engine};
+use base64::{Engine, engine::general_purpose::STANDARD as B64};
 use chrono::{DateTime, Datelike, TimeZone, Utc};
 use md5::Md5;
 use rand::RngCore;
@@ -164,10 +164,7 @@ pub fn pem_blocks(text: &str) -> Vec<PemBlock> {
 }
 
 pub fn to_pem(tag: &str, der: &[u8]) -> String {
-    pem::encode_config(
-        &pem::Pem::new(tag, der.to_vec()),
-        pem::EncodeConfig::new().set_line_ending(pem::LineEnding::LF),
-    )
+    pem::encode_config(&pem::Pem::new(tag, der.to_vec()), pem::EncodeConfig::new().set_line_ending(pem::LineEnding::LF))
 }
 
 /// True if `bytes` looks like printable text (PEM, JWT, base64, …) rather than binary DER.
@@ -176,8 +173,7 @@ pub fn looks_textual(bytes: &[u8]) -> bool {
         return false;
     }
     let sample = &bytes[..bytes.len().min(4096)];
-    std::str::from_utf8(sample).is_ok()
-        && sample.iter().all(|&b| b == b'\n' || b == b'\r' || b == b'\t' || (0x20..0x7F).contains(&b) || b >= 0x80)
+    std::str::from_utf8(sample).is_ok() && sample.iter().all(|&b| b == b'\n' || b == b'\r' || b == b'\t' || (0x20..0x7F).contains(&b) || b >= 0x80)
 }
 
 pub fn ts_to_datetime(ts: i64) -> DateTime<Utc> {
@@ -200,11 +196,7 @@ pub fn now_ts() -> i64 {
 /// (RFC 5280 §4.1.2.5).
 pub fn asn1_time_der(ts: i64) -> Vec<u8> {
     let dt = ts_to_datetime(ts);
-    let (tag, body) = if (1950..2050).contains(&dt.year()) {
-        (0x17u8, dt.format("%y%m%d%H%M%SZ").to_string())
-    } else {
-        (0x18u8, dt.format("%Y%m%d%H%M%SZ").to_string())
-    };
+    let (tag, body) = if (1950..2050).contains(&dt.year()) { (0x17u8, dt.format("%y%m%d%H%M%SZ").to_string()) } else { (0x18u8, dt.format("%Y%m%d%H%M%SZ").to_string()) };
     let mut out = vec![tag, body.len() as u8];
     out.extend_from_slice(body.as_bytes());
     out
@@ -226,13 +218,7 @@ pub fn trim_leading_zeros(bytes: &[u8]) -> &[u8] {
 
 /// Parses a hex serial number typed by a user ("01:AB:cd", "0x01abcd", "01 ab cd").
 pub fn parse_hex_serial(input: &str) -> Res<Vec<u8>> {
-    let cleaned: String = input
-        .trim()
-        .trim_start_matches("0x")
-        .trim_start_matches("0X")
-        .chars()
-        .filter(|c| !matches!(c, ':' | ' ' | '-'))
-        .collect();
+    let cleaned: String = input.trim().trim_start_matches("0x").trim_start_matches("0X").chars().filter(|c| !matches!(c, ':' | ' ' | '-')).collect();
     if cleaned.is_empty() {
         return Err("serial number is empty".into());
     }
@@ -250,6 +236,14 @@ pub fn write_atomic(path: &std::path::Path, data: &[u8]) -> Res<()> {
     let file_name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| "file".into());
     let tmp = dir.join(format!(".{file_name}.{}.tmp", uuid::Uuid::new_v4().simple()));
     {
+        #[cfg(unix)]
+        let mut f = {
+            use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+            let f = std::fs::OpenOptions::new().write(true).create(true).truncate(true).mode(0o600).open(&tmp).map_err(|err| format!("cannot write {}: {err}", path.display()))?;
+            let _ = f.set_permissions(std::fs::Permissions::from_mode(0o600));
+            f
+        };
+        #[cfg(not(unix))]
         let mut f = std::fs::File::create(&tmp).map_err(|err| format!("cannot write {}: {err}", path.display()))?;
         f.write_all(data).map_err(|err| format!("cannot write {}: {err}", path.display()))?;
         f.sync_all().ok();
@@ -261,10 +255,7 @@ pub fn write_atomic(path: &std::path::Path, data: &[u8]) -> Res<()> {
 }
 
 pub fn file_name_of(path: &str) -> String {
-    std::path::Path::new(path)
-        .file_name()
-        .map(|n| n.to_string_lossy().to_string())
-        .unwrap_or_else(|| path.to_string())
+    std::path::Path::new(path).file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| path.to_string())
 }
 
 #[cfg(test)]
@@ -332,10 +323,8 @@ mod tests {
         // The input that crashed the `keys` fuzz target: an indefinite-length construction whose
         // nested header declares a length near usize::MAX, which overflowed yasna's
         // `self.pos + length` before its bounds check.
-        let crash = [
-            0x30, 0x80, 0x30, 0x80, 0x06, 0x08, 0x00, 0x3e, 0x10, 0x00, 0x84, 0x25, 0x02, 0x30, 0x30, 0x88, 0xff, 0xff, 0xff, 0xff, 0xff,
-            0xff, 0xff, 0xff, 0xff, 0xff, 0x3e, 0x00, 0x00, 0x21, 0x0c,
-        ];
+        let crash =
+            [0x30, 0x80, 0x30, 0x80, 0x06, 0x08, 0x00, 0x3e, 0x10, 0x00, 0x84, 0x25, 0x02, 0x30, 0x30, 0x88, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x3e, 0x00, 0x00, 0x21, 0x0c];
         assert!(check_der_lengths(&crash).is_err());
     }
 

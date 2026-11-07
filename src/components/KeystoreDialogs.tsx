@@ -3,9 +3,9 @@ import { FilePlus2, FolderOpen, KeyRound, Lock, Save, ShieldCheck } from "lucide
 import { useStore } from "../state/store";
 import { api, errorMessage } from "../lib/api";
 import { FILTERS, baseName, pickSavePath, safeFileStem, withExtension } from "../lib/files";
-import { FORMAT_EXTENSION, FORMAT_INFO, canHoldSecretKeys } from "../lib/keystore";
+import { FORMAT_EXTENSION, FORMAT_INFO, saveProblems } from "../lib/keystore";
 import { KEYSTORE_FORMATS, type GenerateKeyPairInput, type KeystoreFormat } from "../types/crypto";
-import { Alert, Button, Checkbox, Modal, PasswordInput, Select, Spinner, TextInput, passwordStrength, useToast } from "./ui";
+import { Alert, Button, Checkbox, Modal, PasswordInput, Select, Spinner, TextArea, TextInput, passwordStrength, useToast } from "./ui";
 
 /** "Remember in vault" checkbox that explains how to enable it when the vault is unavailable. */
 export const RememberPassword: React.FC<{ checked: boolean; onChange: (v: boolean) => void }> = ({ checked, onChange }) => {
@@ -45,17 +45,27 @@ const StrengthHint: React.FC<{ password: string }> = ({ password }) => {
 export const OpenPasswordDialog: React.FC = () => {
   const { pendingOpen, submitOpenPassword, cancelOpen, settings } = useStore();
   const [password, setPassword] = useState("");
+  const [keyPasswords, setKeyPasswords] = useState("");
   const [remember, setRemember] = useState(settings.rememberPasswordsByDefault);
   const [busy, setBusy] = useState(false);
   useEffect(() => {
     setPassword("");
+    setKeyPasswords("");
     setBusy(false);
   }, [pendingOpen?.path]);
   if (!pendingOpen) return null;
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setBusy(true);
-    await submitOpenPassword(password, remember);
+    const extra: Record<string, string> = {};
+    for (const line of keyPasswords.split(/\n/)) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith("#")) continue;
+      const cut = trimmed.includes("=") ? trimmed.indexOf("=") : trimmed.indexOf(" ");
+      if (cut <= 0) continue;
+      extra[trimmed.slice(0, cut).trim()] = trimmed.slice(cut + 1).trim();
+    }
+    await submitOpenPassword(password, remember, extra);
     setBusy(false);
   };
   return (
@@ -84,6 +94,7 @@ export const OpenPasswordDialog: React.FC = () => {
           This is a <strong className="text-ink">{FORMAT_INFO[pendingOpen.format as KeystoreFormat]?.label ?? pendingOpen.format}</strong> keystore. Enter its store password.
         </p>
         <PasswordInput label="Keystore password" value={password} onChange={setPassword} autoFocus data-testid="open-password" error={pendingOpen.error} />
+        <TextArea label="Key passwords" value={keyPasswords} onChange={(e) => setKeyPasswords(e.target.value)} rows={3} placeholder={"alias=key-password\nother alias=another"} hint="Optional. One alias and its key password per line, when a key does not use the store password." />
         <RememberPassword checked={remember} onChange={setRemember} />
       </form>
     </Modal>
@@ -97,27 +108,23 @@ export const SaveDialog: React.FC = () => {
   const [password, setPassword] = useState("");
   const [confirmPw, setConfirmPw] = useState("");
   const [remember, setRemember] = useState(false);
+  const [mac, setMac] = useState<"pkcs12" | "pbmac1">("pkcs12");
+  const [force, setForce] = useState(false);
   const [busy, setBusy] = useState(false);
   const current = ks ? getPassword(ks.id) ?? "" : "";
 
   useEffect(() => {
     if (!ks) return;
-    setFormat(ks.format);
+    setFormat(ks.format === "JKS" || ks.format === "BKS" ? "PKCS12" : ks.format);
+    setMac("pkcs12");
+    setForce(false);
     setPassword(current);
     setConfirmPw(current);
     setRemember(settings.rememberPasswordsByDefault);
     setBusy(false);
   }, [pendingSave?.keystoreId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const problems = useMemo(() => {
-    if (!ks) return [];
-    const p: string[] = [];
-    const secrets = ks.entries.filter((e) => e.entry_type === "SecretKey").length;
-    if (!canHoldSecretKeys(format) && secrets) p.push(`${FORMAT_INFO[format].label} cannot store secret keys; ${secrets} secret key(s) would be lost. Choose PKCS#12 or JCEKS.`);
-    const locked = ks.entries.filter((e) => e.locked).length;
-    if (locked && format !== ks.format) p.push(`${locked} entr${locked === 1 ? "y is" : "ies are"} locked by a separate key password and can only be saved back to ${ks.format}. Unlock them first.`);
-    return p;
-  }, [ks, format]);
+  const problems = useMemo(() => (ks ? saveProblems(ks.entries, ks.format, format) : []), [ks, format]);
 
   if (!pendingSave || !ks) return null;
   const mismatch = password !== confirmPw;
@@ -131,7 +138,7 @@ export const SaveDialog: React.FC = () => {
     }
     if (!path) return;
     setBusy(true);
-    await completeSave({ path, password, format, remember });
+    await completeSave({ path, password, format, remember, mac: format === "PKCS12" ? mac : undefined, force });
     setBusy(false);
   };
   return (
@@ -166,7 +173,21 @@ export const SaveDialog: React.FC = () => {
           <PasswordInput label="Store password" value={password} onChange={setPassword} hint={<StrengthHint password={password} />} data-testid="save-password" />
           <PasswordInput label="Confirm password" value={confirmPw} onChange={setConfirmPw} error={mismatch && confirmPw ? "Passwords do not match" : undefined} data-testid="save-password-confirm" />
         </div>
-        {format !== "PKCS12" && <p className="text-[12px] text-faint">In {FORMAT_INFO[format].label} every private key is protected with this same password.</p>}
+        {!password && <p className="text-[12px] text-faint">A store password is required. An empty password is rejected so the file is never saved unprotected.</p>}
+        {format === "PKCS12" && (
+          <Select label="Integrity MAC" value={mac} onChange={(e) => setMac(e.target.value as "pkcs12" | "pbmac1")} hint="PBKDF2 iteration count is 10,000. PBMAC1 needs a reader from OpenSSL 3.4 or newer. The legacy MAC is the default.">
+            <option value="pkcs12">Legacy PKCS#12 MAC (compatible)</option>
+            <option value="pbmac1">PBMAC1 / PBKDF2-HMAC-SHA256</option>
+          </Select>
+        )}
+        {(ks.format === "JKS" || ks.format === "BKS") && (
+          <Alert tone="info" title={ks.format === "JKS" ? "JKS uses SHA-1" : "BKS is read-only"}>
+            {ks.format === "JKS"
+              ? "PKCS#12 is selected so you can write a new file and leave the original JKS in place. Pick the original path only if you mean to replace it."
+              : "The entries can be written as PKCS#12. This does not modify the BKS file unless you choose that same path."}
+          </Alert>
+        )}
+        <Checkbox checked={force} onChange={setForce} label="Override if the file changed on disk" hint="A .bak of the previous bytes is written beside the file either way." />
         <RememberPassword checked={remember} onChange={setRemember} />
         {problems.map((p) => (
           <Alert key={p} tone="danger">
@@ -417,7 +438,7 @@ export const KeyPasswordDialog: React.FC<{
       }
     >
       <PasswordInput label="Key password" value={pw} onChange={setPw} error={error ?? undefined} autoFocus />
-      <p className="text-[12px] text-faint mt-3">After unlocking, saving re-protects the key with the store password.</p>
+      <p className="text-[12px] text-faint mt-3">After unlocking, saving preserves this key's separate password.</p>
     </Modal>
   );
 };

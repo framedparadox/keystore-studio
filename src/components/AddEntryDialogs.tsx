@@ -1,19 +1,20 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { FolderOpen, KeyRound, Lock, ShieldCheck, Import, FileKey2 } from "lucide-react";
+import { FolderOpen, KeyRound, Lock, ShieldCheck, Import, FileKey2, FolderArchive } from "lucide-react";
 import type { GenerateKeyPairInput, KeystoreEntry, KeystoreFile, OpenKeystore } from "../types/crypto";
 import { api, errorMessage } from "../lib/api";
-import { FILTERS, baseName, pickFile } from "../lib/files";
-import { EXTENDED_KEY_USAGES, KEY_USAGES, aliasTaken, canHoldSecretKeys, cnOf, isCaEntry, splitList, ENTRY_TYPE_LABEL } from "../lib/keystore";
+import { FILTERS, baseName, pickFile, pickSavePath, safeFileStem } from "../lib/files";
+import { EXTENDED_KEY_USAGES, KEY_USAGES, aliasTaken, canHoldSecretKeys, cnOf, isCaEntry, profileUsages, pkcs12BuildReady, splitList, ENTRY_TYPE_LABEL, type CertProfileName } from "../lib/keystore";
 import { useStore } from "../state/store";
+import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import { Alert, Badge, Button, Checkbox, Modal, PasswordInput, Select, Spinner, TextArea, TextInput, useToast } from "./ui";
 
-type Profile = "server" | "client" | "codesign" | "ca" | "custom";
+type Profile = CertProfileName | "custom";
 
-const PROFILES: Record<Exclude<Profile, "custom">, { label: string; isCa: boolean; ku: string[]; eku: string[] }> = {
-  server: { label: "TLS server", isCa: false, ku: ["digitalSignature", "keyEncipherment"], eku: ["serverAuth", "clientAuth"] },
-  client: { label: "TLS client / mTLS", isCa: false, ku: ["digitalSignature", "keyEncipherment"], eku: ["clientAuth"] },
-  codesign: { label: "Code signing", isCa: false, ku: ["digitalSignature"], eku: ["codeSigning"] },
-  ca: { label: "Certificate authority", isCa: true, ku: ["digitalSignature", "keyCertSign", "cRLSign"], eku: [] },
+const PROFILE_LABELS: Record<CertProfileName, string> = {
+  server: "TLS server",
+  client: "TLS client / mTLS",
+  codesign: "Code signing",
+  ca: "Certificate authority",
 };
 
 /** CA key pairs from every loaded keystore that can issue certificates. */
@@ -22,7 +23,7 @@ export function useCaSigners() {
   return useMemo(() => keystores.flatMap((ks) => ks.entries.filter(isCaEntry).map((entry) => ({ entry, ks }))), [keystores]);
 }
 
-const FileOrText: React.FC<{
+export const FileOrText: React.FC<{
   label: string;
   filters: typeof FILTERS[keyof typeof FILTERS][];
   path: string | null;
@@ -84,23 +85,29 @@ export const GenerateKeyPairDialog: React.FC<{ keystore: OpenKeystore; open: boo
   const [useFullDn, setUseFullDn] = useState(false);
   const [sans, setSans] = useState("");
   const [days, setDays] = useState(365);
+  const [notBefore, setNotBefore] = useState("");
+  const [notAfter, setNotAfter] = useState("");
+  const [crlUrl, setCrlUrl] = useState("");
+  const [ocspUrl, setOcspUrl] = useState("");
+  const [caIssuerUrl, setCaIssuerUrl] = useState("");
   const [signer, setSigner] = useState("");
   const [profile, setProfile] = useState<Profile>("server");
   const [isCa, setIsCa] = useState(false);
   const [pathLen, setPathLen] = useState("");
-  const [ku, setKu] = useState<string[]>(PROFILES.server.ku);
-  const [eku, setEku] = useState<string[]>(PROFILES.server.eku);
+  const [ku, setKu] = useState<string[]>(() => profileUsages("server", "ECDSA").ku);
+  const [eku, setEku] = useState<string[]>(() => profileUsages("server", "ECDSA").eku);
   const [labels, setLabels] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const applyProfile = (p: Profile) => {
+  const applyProfile = (p: Profile, spec = keySpec) => {
     setProfile(p);
     if (p !== "custom") {
-      setIsCa(PROFILES[p].isCa);
-      setKu(PROFILES[p].ku);
-      setEku(PROFILES[p].eku);
-      if (PROFILES[p].isCa) setDays((d) => (d < 1825 ? 3650 : d));
+      const usage = profileUsages(p, spec.split(":")[0]);
+      setIsCa(usage.isCa);
+      setKu(usage.ku);
+      setEku(usage.eku);
+      if (usage.isCa) setDays((d) => (d < 1825 ? 3650 : d));
     }
   };
 
@@ -147,11 +154,17 @@ export const GenerateKeyPairDialog: React.FC<{ keystore: OpenKeystore; open: boo
         key_usage: ku,
         extended_key_usage: eku,
         labels: splitList(labels),
+        not_before: notBefore,
+        not_after: notAfter,
+        crl_distribution_points: splitList(crlUrl),
+        ocsp_urls: splitList(ocspUrl),
+        ca_issuer_urls: splitList(caIssuerUrl),
       };
       const issuer = signers.find((s) => s.entry.id === signer)?.entry ?? null;
       const entry = await api.generateKeyPair(input, issuer);
-      addEntries(keystore.id, [entry]);
-      toast.success(`Generated ${entry.algorithm} key pair '${entry.alias}'${issuer ? ` signed by ${issuer.alias}` : " (self-signed)"}.`);
+      const [stored] = addEntries(keystore.id, [entry]);
+      const note = entry.validity_note ? ` ${entry.validity_note}` : "";
+      toast.success(`Generated ${entry.algorithm} key pair '${stored?.alias ?? entry.alias}'${issuer ? ` signed by ${issuer.alias}` : " (self-signed)"}.${note}`);
       onClose();
     } catch (err) {
       setError(errorMessage(err));
@@ -190,7 +203,16 @@ export const GenerateKeyPairDialog: React.FC<{ keystore: OpenKeystore; open: boo
         <div className="space-y-4">
           <TextInput label="Alias" value={alias} onChange={(e) => setAlias(e.target.value)} error={aliasError} placeholder="e.g. api-server" autoFocus data-testid="kp-alias" />
           <div className="grid grid-cols-2 gap-3">
-            <Select label="Key" value={keySpec} onChange={(e) => setKeySpec(e.target.value)} data-testid="kp-key">
+            <Select
+              label="Key"
+              value={keySpec}
+              onChange={(e) => {
+                const next = e.target.value;
+                setKeySpec(next);
+                if (profile !== "custom") applyProfile(profile, next);
+              }}
+              data-testid="kp-key"
+            >
               <optgroup label="Elliptic curve">
                 <option value="ECDSA:P-256">ECDSA P-256 (recommended)</option>
                 <option value="ECDSA:P-384">ECDSA P-384</option>
@@ -214,6 +236,15 @@ export const GenerateKeyPairDialog: React.FC<{ keystore: OpenKeystore; open: boo
             )}
           </div>
           {algorithm === "RSA" && <TextInput label="Validity (days)" type="number" min={1} max={36500} value={days} onChange={(e) => setDays(Number(e.target.value))} />}
+          <div className="grid grid-cols-2 gap-3">
+            <TextInput label="Not before" type="date" value={notBefore} onChange={(e) => setNotBefore(e.target.value)} hint="Optional. Otherwise the certificate starts now." />
+            <TextInput label="Not after" type="date" value={notAfter} onChange={(e) => setNotAfter(e.target.value)} hint="Optional. Overrides the day count." />
+          </div>
+          <TextInput label="CRL distribution point" value={crlUrl} onChange={(e) => setCrlUrl(e.target.value)} placeholder="http://ca.example/crl.pem" />
+          <div className="grid grid-cols-2 gap-3">
+            <TextInput label="OCSP URL (AIA)" value={ocspUrl} onChange={(e) => setOcspUrl(e.target.value)} placeholder="http://ocsp.example" />
+            <TextInput label="CA Issuers URL (AIA)" value={caIssuerUrl} onChange={(e) => setCaIssuerUrl(e.target.value)} placeholder="http://ca.example/ca.crt" />
+          </div>
           <Select label="Signed by" value={signer} onChange={(e) => setSigner(e.target.value)} hint={signers.length ? "Pick a CA from any open keystore, or self-sign." : "No CA key pairs are open; the certificate will be self-signed."} data-testid="kp-signer">
             <option value="">Self-signed</option>
             {signers.map((s) => (
@@ -223,9 +254,9 @@ export const GenerateKeyPairDialog: React.FC<{ keystore: OpenKeystore; open: boo
             ))}
           </Select>
           <Select label="Certificate profile" value={profile} onChange={(e) => applyProfile(e.target.value as Profile)}>
-            {Object.entries(PROFILES).map(([k, p]) => (
+            {(Object.entries(PROFILE_LABELS) as [CertProfileName, string][]).map(([k, label]) => (
               <option key={k} value={k}>
-                {p.label}
+                {label}
               </option>
             ))}
             <option value="custom">Custom</option>
@@ -626,6 +657,165 @@ export const ImportFromKeystoreDialog: React.FC<{ keystore: OpenKeystore; open: 
           })}
         </ul>
       )}
+    </Modal>
+  );
+};
+
+// ------------------------------------------------------------------ build a PKCS#12 from files
+
+/**
+ * Builds a .p12/.pfx straight from a certificate, its private key and a passphrase, without
+ * needing an open keystore. The engine matches the key to the certificate before writing, so a
+ * mismatched pair is reported here rather than producing a file that no tool will accept.
+ */
+export const BuildPkcs12Dialog: React.FC<{ open: boolean; onClose: () => void }> = ({ open, onClose }) => {
+  const toast = useToast();
+  const [alias, setAlias] = useState("");
+  const [certPath, setCertPath] = useState<string | null>(null);
+  const [certText, setCertText] = useState("");
+  const [keyPath, setKeyPath] = useState<string | null>(null);
+  const [keyText, setKeyText] = useState("");
+  const [keyPw, setKeyPw] = useState("");
+  const [pass, setPass] = useState("");
+  const [pass2, setPass2] = useState("");
+  const [mac, setMac] = useState<"pkcs12" | "pbmac1">("pkcs12");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [done, setDone] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (open) {
+      setAlias("");
+      setCertPath(null);
+      setCertText("");
+      setKeyPath(null);
+      setKeyText("");
+      setKeyPw("");
+      setPass("");
+      setPass2("");
+      setMac("pkcs12");
+      setError(null);
+      setDone(null);
+    }
+  }, [open]);
+  if (!open) return null;
+
+  const hasCert = !!certPath || !!certText.trim();
+  const hasKey = !!keyPath || !!keyText.trim();
+  const mismatch = !!pass2 && pass !== pass2;
+  const ready = pkcs12BuildReady({ hasCertificate: hasCert, hasKey, passphrase: pass, confirm: pass2 });
+
+  const submit = async () => {
+    setError(null);
+    setDone(null);
+    const stem = alias.trim() || (certPath ? baseName(certPath).replace(/\.[^.]+$/, "") : "certificate");
+    const path = await pickSavePath("Save PKCS#12", `${safeFileStem(stem)}.p12`, [FILTERS.keystores]).catch(() => null);
+    if (!path) return;
+    setBusy(true);
+    try {
+      const res = await api.buildPkcs12({
+        path,
+        key: keyPath ? { path: keyPath } : { text: keyText },
+        certificate: certPath ? { path: certPath } : certText.trim() ? { text: certText } : null,
+        keyPassword: keyPw || null,
+        passphrase: pass,
+        alias: alias.trim() || null,
+        mac,
+      });
+      setDone(res.path);
+      toast.success(`Wrote ${baseName(res.path)} (${res.byte_length.toLocaleString()} bytes). Open it with the passphrase you just set.`, {
+        label: "Show in folder",
+        onClick: () => void revealItemInDir(res.path).catch(() => undefined),
+      });
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Modal
+      open
+      busy={busy}
+      onClose={onClose}
+      icon={FolderArchive}
+      size="lg"
+      title="Create PKCS#12 (.p12 / .pfx)"
+      description="Bundle a certificate and its private key into one password-protected file."
+      testId="build-p12-dialog"
+      footer={
+        <>
+          <Button onClick={onClose}>{done ? "Close" : "Cancel"}</Button>
+          <Button variant="primary" onClick={submit} disabled={busy || !ready} data-testid="build-p12-submit">
+            {busy && <Spinner />} Create…
+          </Button>
+        </>
+      }
+    >
+      <div className="space-y-4">
+        <FileOrText
+          label="Certificate (or full chain)"
+          filters={[FILTERS.certificates]}
+          path={certPath}
+          setPath={setCertPath}
+          text={certText}
+          setText={setCertText}
+          placeholder="-----BEGIN CERTIFICATE-----"
+          testId="build-p12-cert"
+        />
+        <FileOrText
+          label="Private key"
+          filters={[FILTERS.keys]}
+          path={keyPath}
+          setPath={setKeyPath}
+          text={keyText}
+          setText={setKeyText}
+          placeholder="-----BEGIN PRIVATE KEY-----"
+          testId="build-p12-key"
+        />
+        <PasswordInput
+          label="Password of the private key (only if it is encrypted)"
+          value={keyPw}
+          onChange={setKeyPw}
+          data-testid="build-p12-keypw"
+        />
+        <div className="grid grid-cols-2 gap-3">
+          <PasswordInput label="Passphrase for the new file" value={pass} onChange={setPass} data-testid="build-p12-pass" />
+          <PasswordInput
+            label="Confirm passphrase"
+            value={pass2}
+            onChange={setPass2}
+            error={mismatch ? "Passphrases do not match" : undefined}
+            data-testid="build-p12-pass-confirm"
+          />
+        </div>
+        <TextInput
+          label="Alias (friendly name)"
+          value={alias}
+          onChange={(e) => setAlias(e.target.value)}
+          placeholder="Defaults to the certificate file name"
+          data-testid="build-p12-alias"
+        />
+        <Select
+          label="Integrity MAC"
+          value={mac}
+          onChange={(e) => setMac(e.target.value as "pkcs12" | "pbmac1")}
+          hint="The legacy MAC is read by every tool. PBMAC1 needs OpenSSL 3.4 or newer."
+        >
+          <option value="pkcs12">Legacy PKCS#12 MAC (compatible)</option>
+          <option value="pbmac1">PBMAC1 (RFC 9579)</option>
+        </Select>
+        {error && <Alert tone="danger">{error}</Alert>}
+        {done && (
+          <Alert tone="success" title="PKCS#12 created">
+            <span className="font-mono text-[12px] break-all">{done}</span>
+          </Alert>
+        )}
+        <Alert tone="info">
+          The key is matched against the certificate before anything is written. The file holds private key material — protect it with a strong passphrase.
+        </Alert>
+      </div>
     </Modal>
   );
 };
