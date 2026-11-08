@@ -657,6 +657,99 @@ async function run() {
     if (!list.includes("standalone.e2e.test")) throw new Error(`unexpected subject:\n${list}`);
   });
 
+  await step("renew a CA-signed key whose CA has its own key password", async () => {
+    // A JKS whose CA key has a separate key password, and a leaf the CA issued. Built with keytool,
+    // the way a Java user would have it, so the engine reads it exactly as it reads a real file.
+    const SEP = path.join(WORK, "sep.jks");
+    const SP = "sepstore1";
+    const CAPW = "capass-1";
+    const svcCsr = path.join(WORK, "svc.csr");
+    const svcCrt = path.join(WORK, "svc.crt");
+    const rootCrt = path.join(WORK, "sep-root.crt");
+    sh("keytool", ["-genkeypair", "-alias", "rootca", "-keyalg", "RSA", "-keysize", "2048", "-dname", "CN=Sep Root CA", "-ext", "bc=ca:true", "-validity", "365", "-storetype", "JKS", "-keystore", SEP, "-storepass", SP, "-keypass", CAPW]);
+    sh("keytool", ["-genkeypair", "-alias", "svc", "-keyalg", "EC", "-groupname", "secp256r1", "-dname", "CN=svc.sep.test", "-storetype", "JKS", "-keystore", SEP, "-storepass", SP, "-keypass", SP]);
+    sh("keytool", ["-certreq", "-alias", "svc", "-keystore", SEP, "-storepass", SP, "-keypass", SP, "-file", svcCsr]);
+    sh("keytool", ["-gencert", "-alias", "rootca", "-keystore", SEP, "-storepass", SP, "-keypass", CAPW, "-infile", svcCsr, "-outfile", svcCrt, "-validity", "90", "-ext", "san=dns:svc.sep.test"]);
+    sh("keytool", ["-exportcert", "-alias", "rootca", "-keystore", SEP, "-storepass", SP, "-file", rootCrt, "-rfc"]);
+    sh("keytool", ["-importcert", "-noprompt", "-alias", "root-trust", "-file", rootCrt, "-keystore", SEP, "-storepass", SP]);
+    sh("keytool", ["-importcert", "-noprompt", "-alias", "svc", "-file", svcCrt, "-keystore", SEP, "-storepass", SP, "-keypass", SP]);
+    const originalPem = sh("keytool", ["-exportcert", "-rfc", "-alias", "svc", "-keystore", SEP, "-storepass", SP]);
+
+    await queue("open", SEP);
+    await click("header-open");
+    // Opening probes the file first, so the password dialog appears a moment after the click.
+    const probeStart = Date.now();
+    while (Date.now() - probeStart < 15000 && !(await js(`return !!document.querySelector('[data-testid="open-password"]')`))) await sleep(100);
+    await setField("open-password", SP);
+    await click("open-submit");
+    // "Opened sep.jks: … 1 key(s) need a separate key password" — consumed here so later toasts are read fresh.
+    const opened = await toast();
+    if (!opened.includes("Opened sep.jks") || !opened.includes("need a separate key password")) throw new Error(opened);
+
+    await nav("scanner");
+    await click("renew-svc");
+    const askStart = Date.now();
+    while (Date.now() - askStart < 8000 && !(await js(`return !!document.querySelector('[data-testid="unlock-key-dialog"]')`))) await sleep(100);
+    if (!(await js(`return !!document.querySelector('[data-testid="unlock-key-dialog"]')`))) {
+      const why = await js(`const el = document.querySelector('[data-testid^="toast-"]'); return el ? el.innerText : "(no toast)"`);
+      throw new Error(`renewing did not ask for a key password; toast: ${why}`);
+    }
+    // The store password unlocks svc; the CA still needs its own password, so the dialog asks again.
+    await setField("unlock-key-password", SP);
+    await click("unlock-key-submit");
+    const partial = await toast();
+    if (!partial.includes("still need")) throw new Error(`expected the partial-unlock notice, got: ${partial}`);
+    await setField("unlock-key-password", CAPW);
+    await click("unlock-key-submit");
+    const t = await toast(60000);
+    if (!t.includes("Renewed 'svc'")) throw new Error(t);
+
+    // Save in place, then check the file: the key is the same, the certificate is new, and the CA issued it.
+    await press("s", { ctrlKey: true });
+    const saved = await toast();
+    if (!saved.includes("Saved sep.jks")) throw new Error(saved);
+    const renewedPem = sh("keytool", ["-exportcert", "-rfc", "-alias", "svc", "-keystore", SEP, "-storepass", SP]);
+    const pubkey = (pem) => {
+      const f = path.join(WORK, `pub-${fs.readdirSync(WORK).length}.pem`);
+      fs.writeFileSync(f, pem);
+      return sh("openssl", ["x509", "-in", f, "-noout", "-pubkey"]);
+    };
+    if (pubkey(originalPem) !== pubkey(renewedPem)) throw new Error("renewal changed the key pair; it must keep it");
+    if (originalPem === renewedPem) throw new Error("the certificate on disk did not change");
+    const rootPem = path.join(WORK, "sep-root-check.pem");
+    fs.writeFileSync(rootPem, sh("keytool", ["-exportcert", "-rfc", "-alias", "root-trust", "-keystore", SEP, "-storepass", SP]));
+    const renewedFile = path.join(WORK, "svc-renewed.pem");
+    fs.writeFileSync(renewedFile, renewedPem);
+    const verify = sh("openssl", ["verify", "-CAfile", rootPem, renewedFile]);
+    if (!verify.includes(": OK")) throw new Error(verify);
+  });
+
+  await step("settings: a number field can be cleared and retyped, and never drops the warning window below critical", async () => {
+    await nav("settings");
+    await click("settings-tab-general");
+    const valueOf = (id) => js(`return document.querySelector(${q(`[data-testid="${id}"]`)}).value`);
+    const blur = (id) => js(`const el = document.querySelector(${q(`[data-testid="${id}"]`)}); el.dispatchEvent(new FocusEvent("focusout", { bubbles: true })); return true;`);
+
+    // Clearing the field must leave it empty so the next digits can be typed. (Snapping to the minimum made "30" read "13".)
+    await setField("settings-critical-days", "");
+    if ((await valueOf("settings-critical-days")) !== "") throw new Error(`clearing the critical field filled it with "${await valueOf("settings-critical-days")}"`);
+    await setField("settings-critical-days", "4");
+    await setField("settings-critical-days", "45");
+    await blur("settings-critical-days");
+    if ((await valueOf("settings-critical-days")) !== "45") throw new Error(`critical days shows "${await valueOf("settings-critical-days")}", expected 45`);
+
+    // The warning window is clamped to at least the critical window, so 20 becomes 45 once the field is left.
+    await setField("settings-warning-days", "20");
+    await blur("settings-warning-days");
+    if ((await valueOf("settings-warning-days")) !== "45") throw new Error(`warning days shows "${await valueOf("settings-warning-days")}", expected 45`);
+
+    // Restore defaults brings the section back to 30 and 90.
+    await clickButton("Restore defaults");
+    await sleep(200);
+    if ((await valueOf("settings-critical-days")) !== "30") throw new Error(`restore did not reset critical days: ${await valueOf("settings-critical-days")}`);
+    if ((await valueOf("settings-warning-days")) !== "90") throw new Error(`restore did not reset warning days: ${await valueOf("settings-warning-days")}`);
+  });
+
   await step("command palette navigates", async () => {
     await press("k", { ctrlKey: true });
     await setField("palette-input", "Go to Settings");

@@ -20,22 +20,27 @@ interface Row {
 const SEVERITY_TONE = { critical: "danger", high: "danger", medium: "warning", low: "neutral" } as const;
 const SEVERITY_RANK = { critical: 0, high: 1, medium: 2, low: 3 } as const;
 
-const RotateDialog: React.FC<{ row: Row | null; onClose: () => void }> = ({ row, onClose }) => {
+/** The entry a dialog acts on, by id: looked up from the store each render, never a snapshot. */
+type Target = { ksId: string; entryId: string };
+
+const RotateDialog: React.FC<{ target: Target | null; onClose: () => void }> = ({ target, onClose }) => {
   const { keystores, replaceEntry } = useStore();
   const toast = useToast();
   const [spec, setSpec] = useState("ECDSA:P-256");
   const [busy, setBusy] = useState(false);
-  const issuer = useMemo(() => (row ? findIssuingCa(row.entry, keystores) : null), [row, keystores]);
-  if (!row) return null;
-  const leaf = row.entry.certificate_chain[0];
+  const ks = target ? keystores.find((k) => k.id === target.ksId) : undefined;
+  const entry = ks?.entries.find((e) => e.id === target?.entryId);
+  const issuer = useMemo(() => (entry ? findIssuingCa(entry, keystores) : null), [entry, keystores]);
+  if (!ks || !entry) return null;
+  const leaf = entry.certificate_chain[0];
   const selfSigned = !!leaf?.self_signed;
   const run = async () => {
     setBusy(true);
     try {
       const [alg, param] = spec.split(":");
-      const rotated = await api.rotateKey(row.entry, alg, alg === "RSA" ? Number(param) : 0, alg === "ECDSA" ? param : null, issuer);
-      replaceEntry(row.ks.id, { ...rotated, id: row.entry.id, labels: row.entry.labels });
-      toast.success(`Rotated '${row.entry.alias}' to ${rotated.algorithm} ${rotated.key_size}-bit${issuer ? `, re-issued by ${issuer.alias}` : " (self-signed)"}. Save ${row.ks.name} to keep it.`);
+      const rotated = await api.rotateKey(entry, alg, alg === "RSA" ? Number(param) : 0, alg === "ECDSA" ? param : null, issuer);
+      replaceEntry(ks.id, { ...rotated, id: entry.id, labels: entry.labels });
+      toast.success(`Rotated '${entry.alias}' to ${rotated.algorithm} ${rotated.key_size}-bit${issuer ? `, re-issued by ${issuer.alias}` : " (self-signed)"}. Save ${ks.name} to keep it.`);
       onClose();
     } catch (err) {
       toast.error(errorMessage(err));
@@ -49,7 +54,7 @@ const RotateDialog: React.FC<{ row: Row | null; onClose: () => void }> = ({ row,
       busy={busy}
       onClose={onClose}
       icon={RotateCcw}
-      title={`Rotate key of ${row.entry.alias}`}
+      title={`Rotate key of ${entry.alias}`}
       description="Generates a new key and certificate with the same subject, SANs, usages and lifetime."
       footer={
         <>
@@ -74,7 +79,7 @@ const RotateDialog: React.FC<{ row: Row | null; onClose: () => void }> = ({ row,
           <Alert tone="success">The issuing CA '{issuer.alias}' ({keystores.find((ks) => ks.entries.some((e) => e.id === issuer.id))?.name}) is open; the new certificate will be issued by it.</Alert>
         ) : (
           <Alert tone="warning" title="Issuing CA not open">
-            The certificate was issued by {cnOf(row.entry.issuer)}, which is not in any open keystore. The new certificate will be self-signed — afterwards generate a CSR for it and have your CA sign it.
+            The certificate was issued by {cnOf(entry.issuer)}, which is not in any open keystore. The new certificate will be self-signed — afterwards generate a CSR for it and have your CA sign it.
           </Alert>
         )}
       </div>
@@ -83,10 +88,10 @@ const RotateDialog: React.FC<{ row: Row | null; onClose: () => void }> = ({ row,
 };
 
 export const ScannerView: React.FC = () => {
-  const { keystores, replaceEntry, settings, openFiles, setTab, ensureKeyAccess } = useStore();
+  const { keystores, replaceEntry, settings, openFiles, setTab, ensureKeyAccess, currentKeystores } = useStore();
   const toast = useToast();
   const [filter, setFilter] = useState<"issues" | "all">("issues");
-  const [rotate, setRotate] = useState<Row | null>(null);
+  const [rotate, setRotate] = useState<Target | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [chainNotes, setChainNotes] = useState<string[]>([]);
 
@@ -98,24 +103,31 @@ export const ScannerView: React.FC = () => {
   const incomplete = rows.filter((r) => r.findings.some((f) => f.title === "Incomplete chain")).length;
   const sealed = keystores.filter((k) => k.sealed).length;
 
-  /** Renewing uses the entry's key and the issuing CA's key, so both must be unlocked first. */
-  const renewUnlocked = (r: Row) => {
+  /**
+   * Runs `then` once the entry's key and the key of its issuing CA are usable (each asks for its key
+   * password when it is locked). `then` gets only ids: the entries are read again after the unlock.
+   */
+  const withSigningAccess = (r: Row, then: () => void) => {
     const ca = findIssuingCa(r.entry, keystores);
     const caKs = ca ? keystores.find((k) => k.entries.some((e) => e.id === ca.id)) : undefined;
-    if (!ca || !caKs) return void renew(r);
-    if (caKs.id === r.ks.id) return ensureKeyAccess(r.ks.id, [r.entry.id, ca.id], () => void renew(r));
-    ensureKeyAccess(r.ks.id, [r.entry.id], () => ensureKeyAccess(caKs.id, [ca.id], () => void renew(r)));
+    if (!ca || !caKs) return ensureKeyAccess(r.ks.id, [r.entry.id], then);
+    if (caKs.id === r.ks.id) return ensureKeyAccess(r.ks.id, [r.entry.id, ca.id], then);
+    ensureKeyAccess(r.ks.id, [r.entry.id], () => ensureKeyAccess(caKs.id, [ca.id], then));
   };
 
   /** Renew the certificate keeping the key: CSR → sign with the open issuing CA → install reply. */
-  const renew = async (r: Row) => {
-    const ca = findIssuingCa(r.entry, keystores);
-    if (!ca) return toast.error(`The issuing CA (${cnOf(r.entry.issuer)}) is not open. Generate a CSR from the entry and send it to your CA instead.`);
-    setBusyId(r.entry.id);
+  const renew = async (ksId: string, entryId: string) => {
+    const all = currentKeystores();
+    const ks = all.find((k) => k.id === ksId);
+    const entry = ks?.entries.find((e) => e.id === entryId);
+    if (!ks || !entry) return;
+    const ca = findIssuingCa(entry, all);
+    if (!ca) return toast.error(`The issuing CA (${cnOf(entry.issuer)}) is not open. Generate a CSR from the entry and send it to your CA instead.`);
+    setBusyId(entry.id);
     try {
-      const leaf = r.entry.certificate_chain[0];
-      const term = renewalTerm(r.entry);
-      const csr = await api.generateCsr(r.entry, {});
+      const leaf = entry.certificate_chain[0];
+      const term = renewalTerm(entry);
+      const csr = await api.generateCsr(entry, {});
       const signed = await api.signCsr(
         {
           csr_pem: csr.csr_pem,
@@ -133,9 +145,9 @@ export const ScannerView: React.FC = () => {
         },
         ca
       );
-      const updated = await api.importCaReply(r.entry, { text: signed.chain_pem });
-      replaceEntry(r.ks.id, { ...updated, id: r.entry.id, labels: r.entry.labels });
-      toast.success(`Renewed '${r.entry.alias}' until ${signed.certificate.valid_to} (same key).${signed.validity_note ? ` ${signed.validity_note}` : ""} Save ${r.ks.name} to keep it.`);
+      const updated = await api.importCaReply(entry, { text: signed.chain_pem });
+      replaceEntry(ks.id, { ...updated, id: entry.id, labels: entry.labels });
+      toast.success(`Renewed '${entry.alias}' until ${signed.certificate.valid_to} (same key).${signed.validity_note ? ` ${signed.validity_note}` : ""} Save ${ks.name} to keep it.`);
     } catch (err) {
       toast.error(errorMessage(err));
     } finally {
@@ -226,14 +238,15 @@ export const ScannerView: React.FC = () => {
       align: "right",
       width: "220px",
       cell: (r) =>
-        r.entry.entry_type === "KeyPair" && !r.entry.locked ? (
+        // Every key pair gets the actions, including one with its own password: the click asks for the password first.
+        r.entry.entry_type === "KeyPair" ? (
           <div className="inline-flex items-center gap-1.5">
             {!r.entry.certificate_chain[0]?.self_signed && (
-              <Button size="sm" icon={RefreshCw} disabled={busyId === r.entry.id} onClick={() => renewUnlocked(r)} title={renewalTerm(r.entry).note}>
+              <Button size="sm" icon={RefreshCw} disabled={busyId === r.entry.id} onClick={() => withSigningAccess(r, () => void renew(r.ks.id, r.entry.id))} title={renewalTerm(r.entry).note} data-testid={`renew-${r.entry.alias}`}>
                 Renew
               </Button>
             )}
-            <Button size="sm" icon={RotateCcw} onClick={() => ensureKeyAccess(r.ks.id, [r.entry.id], () => setRotate(r))} data-testid={`rotate-${r.entry.alias}`}>
+            <Button size="sm" icon={RotateCcw} onClick={() => withSigningAccess(r, () => setRotate({ ksId: r.ks.id, entryId: r.entry.id }))} data-testid={`rotate-${r.entry.alias}`}>
               Rotate key
             </Button>
           </div>
@@ -288,9 +301,9 @@ export const ScannerView: React.FC = () => {
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
         <Card className="lg:col-span-4 lg:row-span-2 flex flex-col">
           <CardHeader title="Health score" subtitle={`${rows.length} entries in ${keystores.length - sealed} keystores`} icon={ShieldCheck} />
-          <div className="flex-1 flex items-center gap-6">
+          <div className="flex-1 flex flex-wrap items-center gap-x-6 gap-y-4">
             <ScoreRing value={sum.healthScore} tone={scoreTone} size={128} label="Health score" />
-            <ul className="flex-1 space-y-3 text-[12.5px]">
+            <ul className="flex-1 min-w-[140px] space-y-3 text-[13px]">
               <li className="flex justify-between">
                 <span className="text-muted">Healthy</span>
                 <span className="font-semibold text-ink tabular-nums">{rows.length - withIssues.length}</span>
@@ -347,7 +360,7 @@ export const ScannerView: React.FC = () => {
           }
         />
       </Card>
-      <RotateDialog row={rotate} onClose={() => setRotate(null)} />
+      <RotateDialog target={rotate} onClose={() => setRotate(null)} />
     </Page>
   );
 };

@@ -256,7 +256,7 @@ export const CaReplyDialog: React.FC<{ keystore: OpenKeystore; entry: KeystoreEn
             Choose file…
           </Button>
           {path && (
-            <span className="text-[12.5px] font-mono text-muted truncate">
+            <span className="text-[13px] font-mono text-muted truncate">
               {path}{" "}
               <button className="text-brand cursor-pointer" onClick={() => setPath(null)}>
                 (clear)
@@ -355,14 +355,14 @@ export const LabelsDialog: React.FC<{ keystore: OpenKeystore; entry: KeystoreEnt
       <div className="space-y-3">
         <div className="flex flex-wrap gap-1.5 min-h-7">
           {labels.map((l) => (
-            <span key={l} className="inline-flex items-center gap-1 h-6 pl-2 pr-1 rounded-[5px] bg-brand-tint text-brand-deep text-[12px] font-medium">
+            <span key={l} className="inline-flex items-center gap-1 h-6 pl-2 pr-1 rounded-control bg-brand-tint text-brand-deep text-[12px] font-medium">
               {l}
               <button aria-label={`Remove ${l}`} className="p-0.5 hover:text-danger cursor-pointer" onClick={() => setLabels(labels.filter((x) => x !== l))}>
                 <X className="w-3 h-3" />
               </button>
             </span>
           ))}
-          {labels.length === 0 && <span className="text-[12.5px] text-subtle">No labels yet</span>}
+          {labels.length === 0 && <span className="text-[13px] text-subtle">No labels yet</span>}
         </div>
         <form
           onSubmit={(e) => {
@@ -379,7 +379,7 @@ export const LabelsDialog: React.FC<{ keystore: OpenKeystore; entry: KeystoreEnt
         {suggestions.length > 0 && (
           <div className="flex flex-wrap gap-1.5">
             {suggestions.map((s) => (
-              <button key={s} onClick={() => add(s)} className="h-6 px-2 rounded-[5px] border border-line text-[12px] text-muted hover:bg-surface-2 cursor-pointer">
+              <button key={s} onClick={() => add(s)} className="h-6 px-2 rounded-control border border-line text-[12px] text-muted hover:bg-surface-2 cursor-pointer">
                 + {s}
               </button>
             ))}
@@ -526,7 +526,7 @@ export const EntryInspector: React.FC<{
             {findings.length > 0 && (
               <ul className="space-y-1.5">
                 {findings.map((f, i) => (
-                  <li key={i} className="flex items-start gap-2 text-[12.5px]">
+                  <li key={i} className="flex items-start gap-2 text-[13px]">
                     <AlertTriangle className={clsx("w-3.5 h-3.5 mt-0.5 shrink-0", f.severity === "critical" || f.severity === "high" ? "text-danger" : "text-warning")} />
                     <span>
                       <strong className="text-ink font-semibold">{f.title}.</strong> <span className="text-muted">{f.detail}</span>
@@ -538,7 +538,7 @@ export const EntryInspector: React.FC<{
             {leaf ? (
               <CertificateDetails cert={leaf} />
             ) : (
-              <table className="w-full border border-line rounded-card overflow-hidden border-separate border-spacing-0 text-[12.5px]">
+              <table className="w-full border border-line rounded-card overflow-hidden border-separate border-spacing-0 text-[13px]">
                 <tbody>
                   {[
                     ["Algorithm", entry.algorithm],

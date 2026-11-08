@@ -471,7 +471,7 @@ export const UnlockKeysDialog: React.FC = () => {
             : "Unless the key was given its own password, this is the keystore password. Keys stay unlocked until you lock them or close the keystore."}
         </p>
         {!one && locked.length > 1 && (
-          <ul className="max-h-36 overflow-y-auto rounded-control border border-line divide-y divide-line text-[12.5px]">
+          <ul className="max-h-36 overflow-y-auto rounded-control border border-line divide-y divide-line text-[13px]">
             {locked.map((e) => (
               <li key={e.id} className="px-3 py-1.5 flex items-center gap-2">
                 <Lock className="w-3 h-3 text-warning shrink-0" />

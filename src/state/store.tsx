@@ -135,6 +135,11 @@ interface Store {
   cancelKeyUnlock: () => void;
   /** Unlocks the locked keys among `entryIds` that `password` opens. */
   unlockKeys: (keystoreId: string, entryIds: string[], password: string) => Promise<UnlockOutcome>;
+  /**
+   * The keystores as they are right now. A callback passed to `ensureKeyAccess` runs after the
+   * unlock, but the entries it closed over were read before it, so it must look them up again here.
+   */
+  currentKeystores: () => OpenKeystore[];
   /** Locks key pairs again (all of the keystore's when `entryIds` is omitted). */
   lockKeys: (keystoreId: string, entryIds?: string[]) => void;
   // file workflows
@@ -999,6 +1004,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     pendingKeyUnlock,
     cancelKeyUnlock: () => setPendingKeyUnlock(null),
     unlockKeys,
+    currentKeystores: () => keystoresRef.current,
     lockKeys,
     openFiles,
     pendingOpen,

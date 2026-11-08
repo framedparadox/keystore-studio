@@ -171,7 +171,7 @@ export const Sidebar: React.FC = () => {
               title={`${c.title} — ${c.short}`}
               data-testid={`nav-convert-${c.id}`}
               className={clsx(
-                "w-full h-7 rounded-control flex items-center gap-2 px-2 text-[12.5px] transition cursor-pointer",
+                "w-full h-7 rounded-control flex items-center gap-2 px-2 text-[13px] transition cursor-pointer",
                 active ? "bg-surface-3 text-ink font-semibold" : "text-muted font-medium hover:bg-surface-2 hover:text-ink"
               )}
             >

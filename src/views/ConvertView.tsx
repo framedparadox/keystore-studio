@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import clsx from "clsx";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import { ArrowLeft, ArrowRight, CheckCircle2, FileOutput, FolderOpen, Lock, Repeat, Sparkles, Unlock } from "lucide-react";
-import type { ConvertResult, DataSource, DetectionResult, KeystoreFile, KeystoreFormat, OpenKeystore, PemBundleOptions } from "../types/crypto";
+import type { ConvertResult, DataSource, DetectionResult, KeystoreEntry, KeystoreFile, KeystoreFormat, OpenKeystore, PemBundleOptions } from "../types/crypto";
 import { KEYSTORE_FORMATS } from "../types/crypto";
 import { api, errorMessage } from "../lib/api";
 import { FILTERS, baseName, pickFile, pickSavePath, type FileFilter } from "../lib/files";
@@ -21,7 +21,7 @@ const Step: React.FC<{ n: number; title: string; hint?: React.ReactNode; childre
   <section className="space-y-3">
     <div className="flex items-baseline gap-2">
       <span className="w-5 h-5 rounded-full bg-surface-3 text-[11px] font-semibold text-muted flex items-center justify-center shrink-0 tabular-nums">{n}</span>
-      <h3 className="text-[13.5px] font-semibold text-ink">{title}</h3>
+      <h3 className="text-[14px] font-semibold text-ink">{title}</h3>
       {hint && <span className="text-[12px] text-faint">{hint}</span>}
     </div>
     <div className="pl-7">{children}</div>
@@ -60,7 +60,7 @@ const Detected: React.FC<{ result: DetectionResult | null; error: string | null 
   if (error) return <p className="text-[12px] text-danger mt-2" data-testid="convert-detected-error">Not recognised: {error}</p>;
   if (!result) return null;
   return (
-    <div className="mt-2 flex items-start gap-2 text-[12.5px]" data-testid="convert-detected">
+    <div className="mt-2 flex items-start gap-2 text-[13px]" data-testid="convert-detected">
       <Sparkles className="w-3.5 h-3.5 text-brand mt-0.5 shrink-0" />
       <div className="min-w-0">
         <span className="font-medium text-ink">{result.title}</span> <Badge>{result.format}</Badge>
@@ -116,13 +116,13 @@ const ResultPanel: React.FC<{ runner: ReturnType<typeof useRunner>; empty: strin
   const r = runner.result;
   return (
     <Card className="space-y-3" data-testid="convert-result">
-      <h3 className="text-[13.5px] font-semibold text-ink">Result</h3>
+      <h3 className="text-[14px] font-semibold text-ink">Result</h3>
       {runner.error && (
         <Alert tone="danger" title="Could not convert">
           <span data-testid="convert-error">{runner.error}</span>
         </Alert>
       )}
-      {!r && !runner.error && <p className="text-[12.5px] text-faint">{empty}</p>}
+      {!r && !runner.error && <p className="text-[13px] text-faint">{empty}</p>}
       {r && (
         <>
           {r.path ? (
@@ -144,7 +144,7 @@ const ResultPanel: React.FC<{ runner: ReturnType<typeof useRunner>; empty: strin
               Nothing was written. Use “Convert & save” to write a file.
             </Alert>
           )}
-          <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-[12.5px]">
+          <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-[13px]">
             <div>
               <dt className="text-faint">Format</dt>
               <dd className="text-ink font-medium" data-testid="convert-format">
@@ -159,7 +159,7 @@ const ResultPanel: React.FC<{ runner: ReturnType<typeof useRunner>; empty: strin
             </div>
           </dl>
           {r.notes.length > 0 && (
-            <ul className="space-y-1 text-[12.5px] text-muted" data-testid="convert-notes">
+            <ul className="space-y-1 text-[13px] text-muted" data-testid="convert-notes">
               {r.notes.map((n) => (
                 <li key={n} className="flex items-start gap-1.5">
                   <CheckCircle2 className="w-3.5 h-3.5 mt-0.5 text-subtle shrink-0" />
@@ -392,7 +392,7 @@ const EncodingPanel: React.FC = () => {
                 <span className="text-faint">{toDer ? "The PEM armour is removed." : "The data is base64-encoded and wrapped in a PEM label."}</span>
               </div>
             ) : (
-              <p className="text-[12.5px] text-faint">Chosen from the input: PEM becomes DER, DER (or bare base64) becomes PEM.</p>
+              <p className="text-[13px] text-faint">Chosen from the input: PEM becomes DER, DER (or bare base64) becomes PEM.</p>
             )}
             {!toDer && (
               <Select className="mt-3" label="PEM label" value={label} onChange={(e) => setLabel(e.target.value)} hint="Leave on automatic unless the content is something xkeystore does not recognise.">
@@ -561,7 +561,7 @@ function useKeystoreSource() {
       )}
       {error && <Alert tone="danger">{error}</Alert>}
       {source && (
-        <div className="text-[12.5px] text-muted flex flex-wrap items-center gap-2" data-testid="convert-ks-summary">
+        <div className="text-[13px] text-muted flex flex-wrap items-center gap-2" data-testid="convert-ks-summary">
           <Badge tone="brand">{FORMAT_INFO[source.ks.format].label}</Badge>
           <span>
             {source.ks.entries.length} {source.ks.entries.length === 1 ? "entry" : "entries"}
@@ -699,7 +699,7 @@ const KeystorePanel: React.FC = () => {
 // ======================================================================= keystore -> PEM
 
 const ExtractPanel: React.FC = () => {
-  const { ensureKeyAccess, isKeyLocked } = useStore();
+  const { ensureKeyAccess, isKeyLocked, currentKeystores } = useStore();
   const runner = useRunner();
   const { source, ui } = useKeystoreSource();
   const [certs, setCerts] = useState<PemBundleOptions["certificates"]>("chain");
@@ -717,7 +717,13 @@ const ExtractPanel: React.FC = () => {
   const pwError = keys === "encrypted" && pw2 && pw !== pw2 ? "Passwords do not match" : undefined;
   const ready = chosen.length > 0 && (certs !== "none" || keys !== "none") && (keys !== "encrypted" || (!!pw && pw === pw2));
   const options: PemBundleOptions = { certificates: certs, keys, password: keys === "encrypted" ? pw : null, annotate };
-  const convert = (out: string | null) => api.entriesToPem(chosen, options, out);
+  /** Read again at call time: a key unlocked by `withKeys` is not in `chosen` as it was rendered. */
+  const freshChosen = (): KeystoreEntry[] => {
+    const appKs = source?.fromApp ? currentKeystores().find((k) => k.id === source.fromApp!.id) : undefined;
+    if (!appKs) return chosen;
+    return [...appKs.entries].sort(byTypeThenAlias).filter((e) => !picked || picked.has(e.id));
+  };
+  const convert = (out: string | null) => api.entriesToPem(freshChosen(), options, out);
   const withKeys = (fn: () => void) => (needUnlock.length && source?.fromApp ? ensureKeyAccess(source.fromApp.id, needUnlock.map((e) => e.id), fn) : fn());
 
   return (
@@ -754,13 +760,13 @@ const ExtractPanel: React.FC = () => {
                           }}
                         />
                         <EntryIcon type={e.entry_type} size="sm" locked={e.entry_type === "KeyPair" ? (source.fromApp ? isKeyLocked(e) : e.locked) : e.locked || undefined} />
-                        <span className="text-[12.5px] text-ink truncate flex-1">{e.alias}</span>
+                        <span className="text-[13px] text-ink truncate flex-1">{e.alias}</span>
                         <span className="text-[11.5px] text-faint shrink-0">{entryTypeName(e)}</span>
                       </label>
                     </li>
                   );
                 })}
-                {entries.length === 0 && <li className="px-3 py-2 text-[12.5px] text-faint">This keystore is empty.</li>}
+                {entries.length === 0 && <li className="px-3 py-2 text-[13px] text-faint">This keystore is empty.</li>}
               </ul>
             </Step>
           )}
@@ -837,8 +843,8 @@ const Pkcs12Panel: React.FC = () => {
       side={
         <>
           <Card className="space-y-2">
-            <h3 className="text-[13.5px] font-semibold text-ink">How it works</h3>
-            <ul className="text-[12.5px] text-muted space-y-1.5 list-disc pl-4">
+            <h3 className="text-[14px] font-semibold text-ink">How it works</h3>
+            <ul className="text-[13px] text-muted space-y-1.5 list-disc pl-4">
               <li>The certificate can be a whole chain; extra certificates are ordered above the leaf.</li>
               <li>An encrypted private key needs its password; the passphrase protects the new file.</li>
               <li>The key must match the certificate, or nothing is written.</li>
@@ -869,20 +875,24 @@ const Overview: React.FC = () => {
     <Page>
       <PageHeader title="Convert" description="Change the format of certificates, keys and keystores. Everything runs locally; nothing leaves this computer." />
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-        {CONVERTERS.map((c) => {
+        {CONVERTERS.map((c, i) => {
           const Icon = CONVERTER_ICONS[c.id];
+          // Seven tiles leave the last one alone on its row. It takes the full row, with its From/To beside it.
+          const last = i === CONVERTERS.length - 1;
+          const spanMd = last && CONVERTERS.length % 2 === 1;
+          const spanXl = last && CONVERTERS.length % 3 === 1;
           return (
-            <Card key={c.id} interactive onClick={() => openConverter(c.id)} data-testid={`convert-tile-${c.id}`} className="flex flex-col gap-3" role="button" tabIndex={0} onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && openConverter(c.id)}>
-              <div className="flex items-start gap-3">
+            <Card key={c.id} interactive onClick={() => openConverter(c.id)} data-testid={`convert-tile-${c.id}`} className={clsx("flex flex-col gap-3", spanMd && "md:col-span-2", spanXl && "xl:col-span-3 xl:flex-row xl:items-center xl:gap-8")} role="button" tabIndex={0} onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && openConverter(c.id)}>
+              <div className={clsx("flex items-start gap-3", spanXl && "xl:flex-1")}>
                 <span className="w-9 h-9 rounded-card bg-brand-tint text-brand flex items-center justify-center shrink-0">
                   <Icon className="w-[18px] h-[18px]" />
                 </span>
                 <div className="min-w-0">
                   <h3 className="text-[14px] font-semibold text-ink">{c.title}</h3>
-                  <p className="text-[12.5px] text-faint mt-0.5">{c.description}</p>
+                  <p className="text-[13px] text-faint mt-0.5">{c.description}</p>
                 </div>
               </div>
-              <dl className="mt-auto grid grid-cols-[auto_1fr] gap-x-2 gap-y-0.5 text-[12px]">
+              <dl className={clsx("mt-auto grid grid-cols-[auto_1fr] gap-x-2 gap-y-0.5 text-[12px]", spanXl && "xl:mt-0 xl:w-96 xl:shrink-0")}>
                 <dt className="text-subtle">From</dt>
                 <dd className="text-ink-2 truncate" title={c.from}>
                   {c.from}

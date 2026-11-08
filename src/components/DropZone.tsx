@@ -40,8 +40,8 @@ export const DropOverlay: React.FC<{ visible: boolean }> = ({ visible }) =>
     <div className="pointer-events-none fixed inset-0 z-[80] flex items-center justify-center bg-brand/10 border-4 border-dashed border-brand">
       <div className="rounded-panel bg-surface shadow-pop px-8 py-6 text-center">
         <UploadCloud className="w-8 h-8 text-brand mx-auto mb-2" />
-        <div className="text-[15px] font-semibold text-ink">Drop to open</div>
-        <div className="text-[12.5px] text-faint mt-1">Keystores open on the Keystores page; certificates, keys, CSRs and CRLs open in Examine; JARs in CA & Signing.</div>
+        <div className="text-[14px] font-semibold text-ink">Drop to open</div>
+        <div className="text-[13px] text-faint mt-1">Keystores open on the Keystores page; certificates, keys, CSRs and CRLs open in Examine; JARs in CA & Signing.</div>
       </div>
     </div>
   ) : null;
@@ -62,7 +62,7 @@ export const DropZone: React.FC<{ onClick: () => void; className?: string }> = (
     <span className="w-10 h-10 rounded-card border border-line bg-surface shadow-card flex items-center justify-center mb-3">
       <UploadCloud className="w-5 h-5 text-muted" />
     </span>
-    <p className="text-[13.5px] font-semibold text-ink">
+    <p className="text-[14px] font-semibold text-ink">
       <span className="text-brand">Click to open</span> or drop files anywhere
     </p>
     <p className="text-[12px] text-faint mt-1 max-w-xs">.p12 .pfx .jks .jceks .pem .crt .cer .der .csr .crl .key .p7b .jar</p>

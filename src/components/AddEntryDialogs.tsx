@@ -51,7 +51,7 @@ export const FileOrText: React.FC<{
       </Button>
     </div>
     {path ? (
-      <div className="flex items-center gap-2 rounded-control border border-line bg-surface-2 px-3 h-9 text-[12.5px]">
+      <div className="flex items-center gap-2 rounded-control border border-line bg-surface-2 px-3 h-9 text-[13px]">
         <span className="font-mono truncate flex-1" title={path}>
           {path}
         </span>
@@ -68,7 +68,7 @@ export const FileOrText: React.FC<{
 // ----------------------------------------------------------------------------- key pair
 
 export const GenerateKeyPairDialog: React.FC<{ keystore: OpenKeystore; open: boolean; onClose: () => void; presetCa?: boolean }> = ({ keystore, open, onClose, presetCa }) => {
-  const { addEntries, ensureKeyAccess } = useStore();
+  const { addEntries, ensureKeyAccess, currentKeystores } = useStore();
   const toast = useToast();
   const signers = useCaSigners();
   const [alias, setAlias] = useState("");
@@ -166,7 +166,8 @@ export const GenerateKeyPairDialog: React.FC<{ keystore: OpenKeystore; open: boo
         ocsp_urls: splitList(ocspUrl),
         ca_issuer_urls: splitList(caIssuerUrl),
       };
-      const issuer = signers.find((s) => s.entry.id === signer)?.entry ?? null;
+      // Read the CA again: after an unlock, the list from this render still shows its key as locked.
+      const issuer = currentKeystores().flatMap((ks) => ks.entries).find((e) => e.id === signer && isCaEntry(e)) ?? null;
       const entry = await api.generateKeyPair(input, issuer);
       const [stored] = addEntries(keystore.id, [entry]);
       const note = entry.validity_note ? ` ${entry.validity_note}` : "";
@@ -645,7 +646,7 @@ export const ImportFromKeystoreDialog: React.FC<{ keystore: OpenKeystore; open: 
             >
               Choose keystore…
             </Button>
-            {path && <span className="font-mono text-[12.5px] text-muted truncate">{path}</span>}
+            {path && <span className="font-mono text-[13px] text-muted truncate">{path}</span>}
           </div>
           <PasswordInput label="Its password" value={pw} onChange={setPw} />
           {error && <Alert tone="danger">{error}</Alert>}

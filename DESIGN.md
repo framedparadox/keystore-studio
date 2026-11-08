@@ -28,6 +28,15 @@ Page title 22px semibold · card title 14px semibold · body 13px · table heade
 caption/badge 11–12px · code `font-mono`. KPI values 28px semibold; one hero figure per page at most.
 Number columns use `tabular-nums`; standalone big numbers do not.
 
+Four more sizes are in use, each for one role only: dialog and error titles 16px semibold · StatStrip figures 18px
+semibold · the score ring's figure 30px semibold (the page's hero figure) · the sidebar wordmark 15px semibold. Any other
+size is a bug: use the scale above.
+
+## 4a. Shape
+Radii come from the theme only: `rounded-control` (6px) for buttons, inputs, badges, chips and rows; `rounded-card`
+(10px) for cards and tiles; `rounded-panel` (12px) for dialogs. The small keycaps and the legend swatches use Tailwind's
+`rounded-sm` (4px) and `rounded-xs` (2px). No other arbitrary radius.
+
 ## 5. Components
 Build pages from `src/components/ui.tsx`:
 

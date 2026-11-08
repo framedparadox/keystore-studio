@@ -64,12 +64,39 @@ const CardGrid: React.FC<{ children: React.ReactNode }> = ({ children }) => <div
 /** A card that spans the full row on wide content. */
 const WideCard: React.FC<{ className?: string; children: React.ReactNode }> = ({ className, children }) => <Card className={`space-y-4 @3xl:col-span-2 ${className ?? ""}`}>{children}</Card>;
 
-const Group: React.FC<{ title: string; children: React.ReactNode }> = ({ title, children }) => (
-  <div className="space-y-3 pt-4 border-t border-line">
-    <h3 className="text-[12px] font-semibold uppercase tracking-[0.06em] text-faint">{title}</h3>
-    {children}
-  </div>
-);
+/**
+ * A numeric setting that lets the user clear the field and retype. The typed text is shown as-is
+ * while focused and clamped to [min, max] on every change; the clamped value is what gets stored.
+ * (Showing the stored value during typing turned an empty field into the minimum, so "30" became "13".)
+ */
+const DraftNumber: React.FC<Omit<React.InputHTMLAttributes<HTMLInputElement>, "value" | "onChange" | "min" | "max" | "type"> & {
+  label: string;
+  hint?: string;
+  value: number;
+  min: number;
+  max: number;
+  onCommit: (value: number) => void;
+}> = ({ value, min, max, onCommit, onBlur, ...rest }) => {
+  const [draft, setDraft] = useState<string | null>(null);
+  return (
+    <TextInput
+      {...rest}
+      type="number"
+      min={min}
+      max={max}
+      value={draft ?? String(value)}
+      onChange={(e) => {
+        setDraft(e.target.value);
+        const n = Number(e.target.value);
+        if (e.target.value.trim() !== "" && Number.isFinite(n)) onCommit(Math.min(max, Math.max(min, Math.round(n))));
+      }}
+      onBlur={(e) => {
+        setDraft(null);
+        onBlur?.(e);
+      }}
+    />
+  );
+};
 
 /** Top navigation: one button per section, arrow keys move between them, a dot marks sections changed from defaults. */
 const SettingsNav: React.FC<{ active: SectionId; onSelect: (id: SectionId) => void; settings: Settings }> = ({ active, onSelect, settings }) => {
@@ -151,7 +178,6 @@ export const SettingsView: React.FC = () => {
     setSection(id);
   };
   const def = SECTIONS.find((s) => s.id === section)!;
-  const num = (v: string, min: number, max: number) => Math.min(max, Math.max(min, Number(v) || min));
 
   /** Restores the defaults for one section's keys only. */
   const restore = (keys: (keyof Settings)[], label: string) => {
@@ -183,8 +209,8 @@ export const SettingsView: React.FC = () => {
             <Card className="space-y-4">
               <CardHeader title="Expiry warnings" subtitle="When certificates and keys are flagged." icon={ShieldCheck} className="!mb-0" />
               <div className="grid grid-cols-2 gap-3">
-                <TextInput label="Critical (days)" type="number" min={1} value={settings.criticalDays} onChange={(e) => updateSettings({ criticalDays: num(e.target.value, 1, 365) })} hint="Shown red" />
-                <TextInput label="Warning (days)" type="number" min={1} value={settings.warningDays} onChange={(e) => updateSettings({ warningDays: Math.max(settings.criticalDays, num(e.target.value, 1, 1095)) })} hint="Shown amber. Never lower than critical." />
+                <DraftNumber data-testid="settings-critical-days" label="Critical (days)" min={1} max={365} value={settings.criticalDays} onCommit={(v) => updateSettings({ criticalDays: v })} hint="Shown red" />
+                <DraftNumber data-testid="settings-warning-days" label="Warning (days)" min={1} max={1095} value={settings.warningDays} onCommit={(v) => updateSettings({ warningDays: Math.max(settings.criticalDays, v) })} hint="Shown amber. Never lower than critical." />
               </div>
             </Card>
           </CardGrid>
@@ -264,7 +290,7 @@ export const SettingsView: React.FC = () => {
                 <code className="font-mono">-storepass</code>).
               </p>
               <div className="grid grid-cols-1 @md:grid-cols-[minmax(0,16rem)_auto] gap-4 items-end">
-                <TextInput label="Stop commands after (seconds)" type="number" min={5} max={3600} value={settings.terminalTimeoutSecs} onChange={(e) => updateSettings({ terminalTimeoutSecs: num(e.target.value, 5, 3600) })} />
+                <DraftNumber data-testid="settings-terminal-timeout" label="Stop commands after (seconds)" min={5} max={3600} value={settings.terminalTimeoutSecs} onCommit={(v) => updateSettings({ terminalTimeoutSecs: v })} />
                 <div>
                   <Button icon={TerminalSquare} onClick={() => open()}>
                     Open terminal
@@ -370,7 +396,7 @@ export const SettingsView: React.FC = () => {
                 All cryptography runs locally in the bundled Rust engine. Nothing is sent over the network except the TLS handshakes you start from Examine and optional RFC 3161
                 timestamp requests when signing.
               </p>
-              <ul className="grid grid-cols-1 @3xl:grid-cols-2 gap-x-8 gap-y-1.5 text-[12.5px]">
+              <ul className="grid grid-cols-1 @3xl:grid-cols-2 gap-x-8 gap-y-1.5 text-[13px]">
                 {ENGINE.map((p) => (
                   <li key={p} className="flex items-start gap-2 text-ink-2">
                     <CheckCircle2 className="w-3.5 h-3.5 mt-0.5 text-success shrink-0" />
@@ -391,16 +417,16 @@ export const SettingsView: React.FC = () => {
       {/* The container query measures the content column, which shrinks when the sidebar is open. */}
       <div className="@container">
         <SettingsNav active={section} onSelect={select} settings={settings} />
-        <div role="tabpanel" id={`settings-panel-${section}`} aria-labelledby={`settings-tab-${section}`} className="max-w-5xl min-w-0">
-          {/* Toolbar for the whole section. The reset is per section, so it lives here rather than on one card. */}
-          <div className="flex items-center justify-between gap-3 mb-4 min-h-8">
-            <p className="text-[12px] text-faint">{changed ? "Some settings in this section differ from the defaults." : ""}</p>
-            {changed && (
+        <div role="tabpanel" id={`settings-panel-${section}`} aria-label={def.label} className="max-w-5xl min-w-0">
+          {/* Toolbar for the whole section. The reset is per section, so it lives here rather than on one card. Shown only when something differs, so an unchanged section has no empty band above its cards. */}
+          {changed && (
+            <div className="flex items-center justify-between gap-3 mb-4">
+              <p className="text-[12px] text-faint">Some settings in this section differ from the defaults.</p>
               <Button size="sm" variant="ghost" icon={RotateCcw} onClick={() => restore(def.keys, def.label)}>
                 Restore defaults
               </Button>
-            )}
-          </div>
+            </div>
+          )}
           {body}
         </div>
       </div>

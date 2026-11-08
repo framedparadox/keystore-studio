@@ -66,7 +66,7 @@ function useTimestamping() {
 const TimestampBadge: React.FC<{ ts?: TimestampInfo | null }> = ({ ts }) => {
   if (!ts) return null;
   return (
-    <div className="rounded-control border border-line bg-surface p-2.5 text-[12.5px] space-y-1" data-testid="timestamp-info">
+    <div className="rounded-control border border-line bg-surface p-2.5 text-[13px] space-y-1" data-testid="timestamp-info">
       <div className="flex items-center gap-2">
         <Badge tone={ts.valid ? "success" : "danger"} icon={ts.valid ? Clock : XCircle}>
           {ts.valid ? "Timestamped" : "Timestamp invalid"}
@@ -175,7 +175,7 @@ const FileOrPaste: React.FC<{ label: string; path: string | null; setPath: (p: s
       </Button>
     </div>
     {path ? (
-      <div className="flex items-center gap-2 rounded-control border border-line bg-surface-2 px-3 h-9 text-[12.5px]">
+      <div className="flex items-center gap-2 rounded-control border border-line bg-surface-2 px-3 h-9 text-[13px]">
         <span className="font-mono truncate flex-1" title={path}>
           {path}
         </span>
@@ -210,7 +210,7 @@ const usageLabels = (ids: string[] | undefined, dict: { id: string; label: strin
 };
 
 const SignCsrTool: React.FC = () => {
-  const { keystores, replaceEntry, addEntries, activeKeystore, ensureKeyAccess } = useStore();
+  const { keystores, replaceEntry, addEntries, activeKeystore, ensureKeyAccess, currentKeystores } = useStore();
   const toast = useToast();
   const saveText = useSaveText();
   const cas = useSigners(isCaEntry);
@@ -303,14 +303,17 @@ const SignCsrTool: React.FC = () => {
 
   const install = () => {
     // Installing a reply changes the key pair, so it needs the key unlocked like any other use.
-    if (match) ensureKeyAccess(match.ks.id, [match.entry.id], () => void installReply());
+    if (match) ensureKeyAccess(match.ks.id, [match.entry.id], () => void installReply(match.ks.id, match.entry.id));
   };
-  const installReply = async () => {
-    if (!result || !match) return;
+  /** Takes ids, not the entry: the key may have been unlocked since `match` was read. */
+  const installReply = async (ksId: string, entryId: string) => {
+    const ks = currentKeystores().find((k) => k.id === ksId);
+    const entry = ks?.entries.find((e) => e.id === entryId);
+    if (!result || !ks || !entry) return;
     try {
-      const updated = await api.importCaReply(match.entry, { text: result.chain_pem });
-      replaceEntry(match.ks.id, { ...updated, id: match.entry.id, labels: match.entry.labels });
-      toast.success(`Installed the certificate into '${match.entry.alias}' (${match.ks.name}). Save the keystore to keep it.`);
+      const updated = await api.importCaReply(entry, { text: result.chain_pem });
+      replaceEntry(ks.id, { ...updated, id: entry.id, labels: entry.labels });
+      toast.success(`Installed the certificate into '${entry.alias}' (${ks.name}). Save the keystore to keep it.`);
       setMatch(null);
     } catch (err) {
       toast.error(errorMessage(err));
@@ -323,7 +326,7 @@ const SignCsrTool: React.FC = () => {
         <SignerSelect label="Issuing CA" candidates={cas} value={caId} onChange={setCaId} emptyHint="Open a keystore that contains a CA key pair (or generate one with Add entry → Generate CA key pair)." testId="csr-ca" />
         <FileOrPaste label="Certificate signing request" path={path} setPath={setPath} text={text} setText={setText} placeholder="-----BEGIN CERTIFICATE REQUEST-----" filters={[FILTERS.csr]} testId="sign-csr-input" />
         {info && (
-          <div className="rounded-control border border-line bg-surface p-3 text-[12.5px] space-y-1">
+          <div className="rounded-control border border-line bg-surface p-3 text-[13px] space-y-1">
             <div className="flex items-center gap-2">
               {info.signature_valid ? <Badge tone="success" icon={CheckCircle2}>Signature valid</Badge> : <Badge tone="danger" icon={XCircle}>Signature invalid</Badge>}
               <span className="text-muted">
@@ -588,7 +591,7 @@ const CrlTool: React.FC = () => {
           )}
           <ul className="mt-2 space-y-1.5 max-h-48 overflow-y-auto">
             {revoked.map((r) => (
-              <li key={r.serial_number} className="flex items-center justify-between gap-2 px-3 py-2 rounded-control border border-line bg-surface text-[12.5px]">
+              <li key={r.serial_number} className="flex items-center justify-between gap-2 px-3 py-2 rounded-control border border-line bg-surface text-[13px]">
                 <span className="min-w-0">
                   <span className="block font-mono text-ink truncate">{r.serial_number}</span>
                   <span className="text-faint">
@@ -600,7 +603,7 @@ const CrlTool: React.FC = () => {
                 </button>
               </li>
             ))}
-            {revoked.length === 0 && <li className="text-[12.5px] text-subtle">No revoked certificates — the CRL will be empty, which is valid.</li>}
+            {revoked.length === 0 && <li className="text-[13px] text-subtle">No revoked certificates — the CRL will be empty, which is valid.</li>}
           </ul>
         </div>
         <Button variant="primary" className="w-full" onClick={generate} disabled={busy || !ca} data-testid="crl-generate">
@@ -619,7 +622,7 @@ const CrlTool: React.FC = () => {
                 CRL #{result.crl_number} · {result.signature_algorithm}
               </span>
             </div>
-            <table className="w-full text-[12.5px] border border-line rounded-card overflow-hidden border-separate border-spacing-0">
+            <table className="w-full text-[13px] border border-line rounded-card overflow-hidden border-separate border-spacing-0">
               <tbody>
                 {[
                   ["Issuer", result.issuer],
@@ -734,7 +737,7 @@ const CmsTool: React.FC = () => {
               {verified.message}
             </Alert>
             {verified.signers.map((s, i) => (
-              <div key={i} className="rounded-control border border-line bg-surface p-3 text-[12.5px] space-y-1">
+              <div key={i} className="rounded-control border border-line bg-surface p-3 text-[13px] space-y-1">
                 <div className="font-semibold text-ink">{s.subject || "Unknown signer"}</div>
                 <div className="text-faint">
                   {s.signature_algorithm} / {s.digest_algorithm}

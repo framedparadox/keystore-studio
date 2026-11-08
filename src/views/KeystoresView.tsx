@@ -154,7 +154,7 @@ const DiffDialog: React.FC<{ keystore: OpenKeystore; others: OpenKeystore[]; tex
         {keystore.path && <Button size="sm" onClick={() => onPick("disk")} data-testid="diff-disk">File on disk</Button>}
         {others.map((o) => <Button key={o.id} size="sm" onClick={() => onPick(o)}>{o.name}</Button>)}
       </div>
-      {text && <pre className="text-[12.5px] whitespace-pre-wrap font-mono" data-testid="diff-result">{text}</pre>}
+      {text && <pre className="text-[13px] whitespace-pre-wrap font-mono" data-testid="diff-result">{text}</pre>}
     </div>
   </Modal>
 );
@@ -258,7 +258,7 @@ const KeystoreNavigator: React.FC<{
         {keystores.length === 0 && (
           <div className="px-3 py-6 text-center">
             <FolderArchive className="w-5 h-5 text-subtle mx-auto" />
-            <p className="text-[12.5px] text-faint mt-2">No keystores open.</p>
+            <p className="text-[13px] text-faint mt-2">No keystores open.</p>
             <div className="mt-3 flex justify-center gap-1.5">
               <Button size="sm" icon={FolderOpen} onClick={() => openFiles()}>
                 Open…
@@ -269,7 +269,7 @@ const KeystoreNavigator: React.FC<{
             </div>
           </div>
         )}
-        {keystores.length > 0 && rows.length === 0 && <p className="px-3 py-6 text-center text-[12.5px] text-faint">Nothing matches “{query}”.</p>}
+        {keystores.length > 0 && rows.length === 0 && <p className="px-3 py-6 text-center text-[13px] text-faint">Nothing matches “{query}”.</p>}
         {rows.map(({ k, entries, entryHits }) => {
           const active = k.id === activeId;
           const open = expanded.has(k.id) || entryHits > 0;
@@ -342,7 +342,7 @@ const KeystoreNavigator: React.FC<{
                       return (
                         <React.Fragment key={e.id}>
                           {header && (
-                            <div className="px-2 pt-1.5 pb-0.5 text-[10.5px] font-semibold uppercase tracking-[0.06em] text-subtle">
+                            <div className="px-2 pt-1.5 pb-0.5 text-[11px] font-semibold uppercase tracking-[0.06em] text-subtle">
                               {ENTRY_TYPE_LABEL[e.entry_type]}s · {k.entries.filter((x) => x.entry_type === e.entry_type).length}
                             </div>
                           )}
@@ -355,7 +355,7 @@ const KeystoreNavigator: React.FC<{
                             title={`${entryTypeName(e)}${locked ? " (locked)" : ""} — ${e.alias}`}
                             data-testid={`tree-entry-${e.alias}`}
                             className={clsx(
-                              "w-full h-8 flex items-center gap-2 px-1.5 rounded-control text-left text-[12.5px] cursor-pointer",
+                              "w-full h-8 flex items-center gap-2 px-1.5 rounded-control text-left text-[13px] cursor-pointer",
                               focused ? "bg-surface-3 text-ink font-medium" : "text-ink-2 hover:bg-surface-2"
                             )}
                           >
@@ -384,7 +384,7 @@ const KeystoreNavigator: React.FC<{
 
         {recent.length > 0 && (
           <div className="pt-3">
-            <div className="px-2 pb-1 text-[10.5px] font-semibold uppercase tracking-[0.06em] text-subtle flex items-center gap-1.5">
+            <div className="px-2 pb-1 text-[11px] font-semibold uppercase tracking-[0.06em] text-subtle flex items-center gap-1.5">
               <History className="w-3 h-3" /> Recent, not open
             </div>
             {recent.map((f) => (
@@ -393,7 +393,7 @@ const KeystoreNavigator: React.FC<{
                 type="button"
                 onClick={() => openFiles([f.path])}
                 title={f.path}
-                className="w-full h-8 flex items-center gap-2 px-2 rounded-control text-left text-[12.5px] text-muted hover:bg-surface-2 hover:text-ink cursor-pointer"
+                className="w-full h-8 flex items-center gap-2 px-2 rounded-control text-left text-[13px] text-muted hover:bg-surface-2 hover:text-ink cursor-pointer"
               >
                 <FolderArchive className="w-3.5 h-3.5 text-subtle shrink-0" />
                 <span className="truncate flex-1">{f.name}</span>

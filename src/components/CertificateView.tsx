@@ -18,10 +18,10 @@ export const ValidityBadge: React.FC<{ cert: CertificateInfo }> = ({ cert }) => 
 const Row: React.FC<{ label: string; value?: React.ReactNode; copy?: string; mono?: boolean }> = ({ label, value, copy, mono }) =>
   value === undefined || value === null || value === "" ? null : (
     <tr>
-      <th scope="row" className="w-[30%] align-top text-left font-medium text-faint bg-surface-2 border-b border-line px-3.5 py-2.5 text-[12.5px]">
+      <th scope="row" className="w-[30%] align-top text-left font-medium text-faint bg-surface-2 border-b border-line px-3.5 py-2.5 text-[13px]">
         {label}
       </th>
-      <td className={clsx("align-top border-b border-line px-3.5 py-2.5 text-ink break-all select-text", mono ? "font-mono text-[11.5px]" : "text-[12.5px]")}>
+      <td className={clsx("align-top border-b border-line px-3.5 py-2.5 text-ink break-all select-text", mono ? "font-mono text-[11.5px]" : "text-[13px]")}>
         <div className="flex items-start justify-between gap-2">
           <span className="min-w-0">{value}</span>
           {copy && <CopyButton value={copy} label={`Copy ${label}`} />}
@@ -118,7 +118,7 @@ export const ChainView: React.FC<{
               <div className="px-4 pb-4 space-y-3">
                 <CertificateDetails cert={c} />
                 <details>
-                  <summary className="cursor-pointer text-[12.5px] font-medium text-brand">Extensions ({c.extensions.length})</summary>
+                  <summary className="cursor-pointer text-[13px] font-medium text-brand">Extensions ({c.extensions.length})</summary>
                   <div className="mt-2">
                     <ExtensionsList cert={c} />
                   </div>
@@ -151,7 +151,7 @@ export const WarningList: React.FC<{ warnings: string[] }> = ({ warnings }) =>
   warnings.length ? (
     <ul className="space-y-1.5">
       {warnings.map((w) => (
-        <li key={w} className="flex items-start gap-2 text-[12.5px] text-warning">
+        <li key={w} className="flex items-start gap-2 text-[13px] text-warning">
           <AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0" /> <span className="text-ink-2">{w}</span>
         </li>
       ))}

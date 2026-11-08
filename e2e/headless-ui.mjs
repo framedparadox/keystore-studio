@@ -268,6 +268,10 @@ async function run() {
     await driver.executeScript("arguments[0].click()", el);
   };
   const exists = async (css) => (await driver.findElements(By.css(css))).length > 0;
+  const clickButton = (text) => driver.executeScript(
+    `const el = [...document.querySelectorAll("button")].find((b) => !b.disabled && b.innerText.replace(/\\s+/g, " ").trim().includes(${JSON.stringify(text)}));
+     if (!el) throw new Error("no button: " + ${JSON.stringify(text)});
+     el.click(); return true;`);
   const certPem = () => fs.readFileSync(path.join(WORK, "ui-cert.pem"), "utf8");
 
   await step("a key pair read from a file opens locked and needs its key password", async () => {
@@ -275,7 +279,8 @@ async function run() {
     sh("keytool", ["-genkeypair", "-alias", "web", "-keyalg", "RSA", "-keysize", "2048", "-dname", "CN=web.nav.test", "-storetype", "PKCS12", "-keystore", P12, "-storepass", P12_PW]);
     sh("keytool", ["-importcert", "-noprompt", "-alias", "anchor", "-file", path.join(WORK, "ui-cert.pem"), "-storetype", "PKCS12", "-keystore", P12, "-storepass", P12_PW]);
     await driver.executeScript(`window.__xksStub.open.push(${JSON.stringify(P12)});`);
-    await click("ks-open");
+    // Only one keystore is open here, so the navigator (and its own Open button) is not rendered yet.
+    await click("header-open");
     await setField("open-password", P12_PW);
     await click("open-submit");
     // Both keystores are listed in the navigator, with this one's entries under it.
@@ -297,6 +302,10 @@ async function run() {
     await click("unlock-key-submit");
     await driver.wait(until.elementLocated(byTest("entry-inspector")), 10000);
     if (await exists('[data-entry-type="KeyPair"][data-locked="true"]')) throw new Error("the key pair still shows locked");
+    // The inspector must show the key as usable: a stale, pre-unlock snapshot would still say "Private key locked".
+    await driver.wait(async () => !(await driver.findElement(By.tagName("body")).getText()).includes("Private key locked"), 3000, "the inspector still says the private key is locked after unlocking").catch(async (err) => {
+      throw new Error(`${err.message}: the inspector was opened from a snapshot taken before the key was unlocked`);
+    });
     await driver.actions().sendKeys("\uE00C").perform();
   });
 
@@ -411,6 +420,38 @@ async function run() {
     if ((pem.match(/BEGIN CERTIFICATE/g) ?? []).length !== 2) throw new Error(`expected 2 certificates:\n${pem}`);
     sh("openssl", ["pkey", "-in", out, "-noout"]);
     sh("openssl", ["x509", "-in", out, "-noout"]);
+  });
+
+  await step("the inspector opened from a workspace shows a key as unlocked once its own password is entered", async () => {
+    // A JCEKS key with its own password, opened fresh so it is locked by the engine, not just by the session.
+    const WS = path.join(WORK, "ws.jks");
+    sh("keytool", ["-genkeypair", "-alias", "ws-key", "-keyalg", "EC", "-groupname", "secp256r1", "-dname", "CN=ws.test", "-storetype", "JCEKS", "-keystore", WS, "-storepass", "wsstore1", "-keypass", "wskey-pw1"]);
+    await driver.executeScript(`window.__xksStub.open.push(${JSON.stringify(WS)});`);
+    await click("header-open");
+    await driver.wait(until.elementLocated(byTest("open-password")), 15000);
+    await setField("open-password", "wsstore1");
+    await click("open-submit");
+    await waitText("ws-key", 15000);
+
+    await click("nav-workspaces");
+    await click("workspace-new");
+    await setField("workspace-name", "Locked review");
+    await click("workspace-save");
+    await click("workspace-assign");
+    await driver.executeScript(`const el = [...document.querySelectorAll("button[aria-pressed]")].find((b) => [...b.querySelectorAll("span")].some((s) => s.textContent.trim() === "ws-key"));
+       if (!el) throw new Error("no picker row for ws-key"); el.click(); return true;`);
+    await clickButton("Done");
+
+    const inspect = await driver.wait(until.elementLocated(By.css('[aria-label="Inspect"]')), 10000);
+    await driver.executeScript("arguments[0].click()", inspect);
+    await driver.wait(until.elementLocated(byTest("unlock-key-dialog")), 10000);
+    await setField("unlock-key-password", "wskey-pw1");
+    await click("unlock-key-submit");
+    await driver.wait(until.elementLocated(byTest("entry-inspector")), 10000);
+    // The inspector must reflect the unlock: a copy taken before it would still carry the locked alert.
+    const text = await driver.findElement(By.tagName("body")).getText();
+    if (text.includes("Private key locked")) throw new Error("the inspector still says the key is locked after the unlock");
+    await driver.actions().sendKeys("\uE00C").perform();
   });
 }
 

@@ -133,10 +133,7 @@ pub fn certificates(data: &[u8], target: &str, order: bool) -> Res<Output> {
         "pem" => (certs.iter().map(|c| to_pem("CERTIFICATE", c)).collect::<String>().into_bytes(), true, "X.509 certificate (PEM)", "pem", n),
         "der" => {
             if n > 1 {
-                notes.push(format!(
-                    "A DER file holds one certificate, so only the first ({}) was written. Choose PEM or PKCS#7 to keep all {n}.",
-                    subject_cn(&certs[0])
-                ));
+                notes.push(format!("A DER file holds one certificate, so only the first ({}) was written. Choose PEM or PKCS#7 to keep all {n}.", subject_cn(&certs[0])));
             }
             (certs[0].clone(), false, "X.509 certificate (DER)", "cer", 1)
         }
@@ -399,11 +396,7 @@ pub fn encoding(data: &[u8], label: Option<&str>) -> Res<Output> {
         if let Some(first) = blocks.first() {
             let mut notes = Vec::new();
             if blocks.len() > 1 {
-                notes.push(format!(
-                    "Found {} PEM blocks; a DER file holds one, so only the first ({}) was converted.",
-                    blocks.len(),
-                    first.tag
-                ));
+                notes.push(format!("Found {} PEM blocks; a DER file holds one, so only the first ({}) was converted.", blocks.len(), first.tag));
             }
             return Ok(Output {
                 bytes: first.der.clone(),
@@ -423,15 +416,7 @@ pub fn encoding(data: &[u8], label: Option<&str>) -> Res<Output> {
         Some(l) => l,
         None => detect_der_label(&der).ok_or("could not tell what this data holds; choose the PEM label")?.to_string(),
     };
-    Ok(Output {
-        bytes: to_pem(&tag, &der).into_bytes(),
-        text: true,
-        sensitive: tag.contains("PRIVATE KEY"),
-        format: format!("PEM ({tag})"),
-        extension: "pem",
-        count: 1,
-        notes: Vec::new(),
-    })
+    Ok(Output { bytes: to_pem(&tag, &der).into_bytes(), text: true, sensitive: tag.contains("PRIVATE KEY"), format: format!("PEM ({tag})"), extension: "pem", count: 1, notes: Vec::new() })
 }
 
 fn der_extension(tag: &str) -> &'static str {

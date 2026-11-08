@@ -39,7 +39,11 @@ export const ENTRY_TYPE_LABEL: Record<EntryType, string> = {
   SecretKey: "Secret key",
 };
 
-export const isCaEntry = (e: KeystoreEntry) => e.entry_type === "KeyPair" && !e.locked && !!e.certificate_chain[0]?.is_ca;
+/**
+ * A key pair whose certificate is a CA. A CA whose key has its own password still counts: it is open,
+ * and its key is unlocked on use through ensureKeyAccess. Excluding it made the app say "not open".
+ */
+export const isCaEntry = (e: KeystoreEntry) => e.entry_type === "KeyPair" && !!e.certificate_chain[0]?.is_ca;
 
 /** Type label for one entry: trusted certificates that are CAs read "CA certificate". */
 export const entryTypeName = (e: Pick<KeystoreEntry, "entry_type" | "certificate_chain">) =>

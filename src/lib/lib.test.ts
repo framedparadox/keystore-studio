@@ -10,6 +10,7 @@ import {
   entryMatches,
   entryTypeName,
   findIssuingCa,
+  isCaEntry,
   isKeyLocked,
   keyPasswordMatches,
   normalizeEntries,
@@ -194,6 +195,21 @@ describe("keystore helpers", () => {
     expect(findIssuingCa(leaf, [ks([ca, other, leaf])])?.alias).toBe("root");
     leaf.certificate_chain[0].authority_key_id = "ccdd";
     expect(findIssuingCa(leaf, [ks([ca, other, leaf])])?.alias).toBe("other");
+  });
+
+  it("still finds an issuing CA whose key has its own password", () => {
+    // Regression: a locked CA was dropped from the issuer search and reported as "not open".
+    const ca = entry("root", { selfSigned: true });
+    ca.certificate_chain[0].is_ca = true;
+    ca.certificate_chain[0].subject_key_id = "AA:BB";
+    ca.private_key_pem = null;
+    ca.locked = true;
+    const leaf = entry("web", { selfSigned: false });
+    leaf.issuer = ca.subject;
+    leaf.certificate_chain[0].issuer = ca.subject;
+    leaf.certificate_chain[0].authority_key_id = "aa:bb";
+    expect(isCaEntry(ca)).toBe(true);
+    expect(findIssuingCa(leaf, [ks([ca, leaf])])?.alias).toBe("root");
   });
 
   it("extracts CNs and splits lists", () => {

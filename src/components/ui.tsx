@@ -168,7 +168,7 @@ export const Badge: React.FC<{
 }> = ({ tone = "neutral", dot, icon: Icon, className, children }) => (
   <span
     className={clsx(
-      "inline-flex items-center gap-1 h-5 px-1.5 rounded-[5px] border text-[11px] font-medium whitespace-nowrap",
+      "inline-flex items-center gap-1 h-5 px-1.5 rounded-control border text-[11px] font-medium whitespace-nowrap",
       badgeTones[tone],
       className
     )}
@@ -254,7 +254,7 @@ export const KpiCard: React.FC<{
       )}
     >
       <div className="flex items-center justify-between gap-2">
-        <span className="text-[12.5px] font-medium text-faint">{label}</span>
+        <span className="text-[13px] font-medium text-faint">{label}</span>
         {Icon && (
           <span className={clsx("w-7 h-7 rounded-control flex items-center justify-center", kpiIconTones[tone])}>
             <Icon className="w-4 h-4" />
@@ -346,7 +346,7 @@ export const SegmentedBar: React.FC<{
         {parts.map((p) => (
           <li key={p.key} className="flex items-center justify-between gap-2 text-[12px]">
             <span className="flex items-center gap-1.5 text-muted min-w-0">
-              <span className={clsx("w-2 h-2 rounded-[2px] shrink-0", p.fill ?? meterFill[p.tone])} />
+              <span className={clsx("w-2 h-2 rounded-xs shrink-0", p.fill ?? meterFill[p.tone])} />
               <span className="truncate">{p.label}</span>
             </span>
             <span className="font-semibold text-ink tabular-nums">{p.value}</span>
@@ -507,7 +507,7 @@ export function Segmented<T extends string>({
             aria-selected={active}
             onClick={() => onChange(o.value)}
             className={clsx(
-              "h-7 px-2.5 rounded-[5px] text-[12.5px] font-medium inline-flex items-center gap-1.5 transition cursor-pointer whitespace-nowrap",
+              "h-7 px-2.5 rounded-control text-[13px] font-medium inline-flex items-center gap-1.5 transition cursor-pointer whitespace-nowrap",
               active ? "bg-surface text-ink shadow-card" : "text-faint hover:text-ink"
             )}
           >
@@ -783,7 +783,7 @@ export const EmptyState: React.FC<{
       </span>
     )}
     <h4 className="text-[14px] font-semibold text-ink">{title}</h4>
-    {description && <p className="text-[12.5px] text-faint mt-1 max-w-sm">{description}</p>}
+    {description && <p className="text-[13px] text-faint mt-1 max-w-sm">{description}</p>}
     {action && <div className="mt-4 flex items-center gap-2">{action}</div>}
   </div>
 );
@@ -903,7 +903,7 @@ export const Modal: React.FC<{
             )}
             <div className="min-w-0">
               <h3 className="text-[16px] font-semibold text-ink leading-6">{title}</h3>
-              {description && <p className="text-[12.5px] text-faint mt-0.5">{description}</p>}
+              {description && <p className="text-[13px] text-faint mt-0.5">{description}</p>}
             </div>
           </div>
           <IconButton icon={X} label="Close" onClick={close} disabled={busy} />
@@ -972,7 +972,7 @@ export const ToastProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             <span className="flex-1 min-w-0 break-words">{t.msg}</span>
             {t.action && (
               <button
-                className="text-[12.5px] font-semibold text-brand hover:underline cursor-pointer shrink-0"
+                className="text-[13px] font-semibold text-brand hover:underline cursor-pointer shrink-0"
                 onClick={() => {
                   t.action!.onClick();
                   setItems((list) => list.filter((x) => x.id !== t.id));
@@ -1233,7 +1233,7 @@ export const passwordStrength = (pw: string): { score: number; label: string } =
 export const Spinner: React.FC<{ className?: string }> = ({ className }) => <Loader2 className={clsx("w-4 h-4 animate-spin", className)} aria-hidden />;
 
 export const Kbd: React.FC<{ children: React.ReactNode }> = ({ children }) => (
-  <kbd className="px-1.5 py-0.5 rounded-[4px] border border-line bg-surface-2 font-mono text-[11px] text-muted">{children}</kbd>
+  <kbd className="px-1.5 py-0.5 rounded-sm border border-line bg-surface-2 font-mono text-[11px] text-muted">{children}</kbd>
 );
 
 /* -------------------------------------------------------------------------- */

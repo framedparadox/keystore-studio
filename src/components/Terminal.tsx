@@ -57,7 +57,7 @@ export const TerminalHint: React.FC<{ command: string; label?: string }> = ({ co
       </code>
       <button
         onClick={() => open(command)}
-        className="inline-flex items-center gap-1 rounded-[4px] bg-surface/10 px-2 py-0.5 font-sans text-[11px] font-semibold text-white hover:bg-surface/20 cursor-pointer"
+        className="inline-flex items-center gap-1 rounded-sm bg-surface/10 px-2 py-0.5 font-sans text-[11px] font-semibold text-white hover:bg-surface/20 cursor-pointer"
       >
         <Play className="w-3 h-3" />
         {label}

@@ -79,7 +79,10 @@ export const WorkspacesView: React.FC = () => {
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerSearch, setPickerSearch] = useState("");
   const [editing, setEditing] = useState<{ ws: Workspace | null } | null>(null);
-  const [inspect, setInspect] = useState<{ entry: KeystoreEntry; ks: OpenKeystore } | null>(null);
+  // The inspector holds ids, not the entry: an unlock replaces the entry, and a stored copy would still show it locked.
+  const [inspect, setInspect] = useState<{ ksId: string; entryId: string } | null>(null);
+  const inspectKs = inspect ? keystores.find((k) => k.id === inspect.ksId) : undefined;
+  const inspectEntry = inspectKs?.entries.find((e) => e.id === inspect?.entryId);
   const [exporting, setExporting] = useState<KeystoreEntry | null>(null);
 
   const active = workspaces.find((w) => w.id === activeWorkspaceId) ?? workspaces[0] ?? null;
@@ -131,7 +134,7 @@ export const WorkspacesView: React.FC = () => {
       width: "120px",
       cell: (m) => (
         <div className="inline-flex items-center gap-0.5" onClick={(e) => e.stopPropagation()}>
-          {m.entry && <IconButton icon={Eye} label="Inspect" onClick={() => ensureKeyAccess(m.ks!.id, [m.entry!.id], () => setInspect({ entry: m.entry!, ks: m.ks! }))} />}
+          {m.entry && <IconButton icon={Eye} label="Inspect" onClick={() => ensureKeyAccess(m.ks!.id, [m.entry!.id], () => setInspect({ ksId: m.ks!.id, entryId: m.entry!.id }))} />}
           <IconButton
             icon={X}
             label="Remove from workspace"
@@ -198,7 +201,7 @@ export const WorkspacesView: React.FC = () => {
                       <span className={clsx("w-8 h-8 rounded-control flex items-center justify-center shrink-0", selected ? "bg-brand-tint text-brand" : "bg-surface-3 text-muted")}>
                         <Layers className="w-4 h-4" />
                       </span>
-                      <h3 className="text-[13.5px] font-semibold text-ink truncate">{ws.name}</h3>
+                      <h3 className="text-[14px] font-semibold text-ink truncate">{ws.name}</h3>
                     </div>
                     <div className="flex items-center gap-0.5 shrink-0" onClick={(e) => e.stopPropagation()}>
                       <Badge tone={ws.environment === "Production" ? "brand" : "neutral"}>{ws.environment}</Badge>
@@ -214,7 +217,7 @@ export const WorkspacesView: React.FC = () => {
                       />
                     </div>
                   </div>
-                  <p className="text-[12.5px] text-faint mt-2 line-clamp-2 min-h-[36px]">{ws.description || "No description"}</p>
+                  <p className="text-[13px] text-faint mt-2 line-clamp-2 min-h-[36px]">{ws.description || "No description"}</p>
                   <div className="flex items-center justify-between pt-3 mt-3 border-t border-line text-[12px] text-faint">
                     <span>
                       <strong className="text-ink font-semibold">{ws.entryIds.length}</strong> entries
@@ -247,7 +250,7 @@ export const WorkspacesView: React.FC = () => {
                   columns={columns}
                   rows={visible}
                   rowKey={(m) => m.id}
-                  onRowClick={(m) => m.entry && setInspect({ entry: m.entry, ks: m.ks! })}
+                  onRowClick={(m) => m.entry && setInspect({ ksId: m.ks!.id, entryId: m.entry.id })}
                   initialSort={{ id: "exp", dir: "asc" }}
                   empty={
                     <EmptyState
@@ -319,10 +322,10 @@ export const WorkspacesView: React.FC = () => {
         </Modal>
       )}
 
-      {inspect && (
+      {inspect && inspectKs && inspectEntry && (
         <EntryInspector
-          keystore={inspect.ks}
-          entry={inspect.entry}
+          keystore={inspectKs}
+          entry={inspectEntry}
           onClose={() => setInspect(null)}
           onAction={(action, entry) => {
             if (action === "export") {
@@ -330,7 +333,7 @@ export const WorkspacesView: React.FC = () => {
               return;
             }
             // Other actions live on the Keystores page.
-            selectKeystore(inspect.ks.id);
+            selectKeystore(inspectKs.id);
             setInspect(null);
             setTab("keystores");
           }}

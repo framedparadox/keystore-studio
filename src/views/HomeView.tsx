@@ -29,7 +29,7 @@ import type { KeystoreFormat, OpenKeystore } from "../types/crypto";
 
 const RecentFiles: React.FC = () => {
   const { recentFiles, openFiles, keystores } = useStore();
-  if (!recentFiles.length) return <p className="text-[12.5px] text-subtle">Files you open appear here.</p>;
+  if (!recentFiles.length) return <p className="text-[13px] text-subtle">Files you open appear here.</p>;
   return (
     <ul className="divide-y divide-line -mx-1">
       {recentFiles.slice(0, 6).map((f) => {
@@ -170,11 +170,13 @@ export const HomeView: React.FC = () => {
                   action: () => setBuildPkcs12Open(true),
                   testId: "welcome-build-p12",
                 },
+                // Six tiles fill the two-column grid. Five left the last one alone on its row.
+                { icon: ShieldCheck, title: "Security audit", text: "Find expired, weak and expiring keys and certificates across every open keystore.", action: () => setTab("scanner"), testId: "welcome-audit" },
               ].map((a) => (
                 <button key={a.title} onClick={a.action} data-testid={a.testId} className="text-left rounded-card border border-line p-4 hover:border-brand hover:bg-brand-tint/50 transition cursor-pointer">
                   <a.icon className="w-5 h-5 text-brand mb-2" />
                   <div className="text-[14px] font-semibold text-ink">{a.title}</div>
-                  <div className="text-[12.5px] text-faint mt-1">{a.text}</div>
+                  <div className="text-[13px] text-faint mt-1">{a.text}</div>
                 </button>
               ))}
             </div>
@@ -250,7 +252,7 @@ export const HomeView: React.FC = () => {
                   ["at-risk", "At risk", "danger"],
                 ] as const
               ).map(([k, label, tone]) => (
-                <div key={k} className="flex items-center justify-between text-[12.5px]">
+                <div key={k} className="flex items-center justify-between text-[13px]">
                   <Badge tone={tone} dot>
                     {label}
                   </Badge>
@@ -268,7 +270,7 @@ export const HomeView: React.FC = () => {
             ].map(([k, v]) => (
               <div key={k} className="bg-surface px-3.5 py-3">
                 <dt className="text-[11.5px] text-faint">{k}</dt>
-                <dd className="text-[15px] font-semibold text-ink mt-0.5">{v}</dd>
+                <dd className="text-[14px] font-semibold text-ink mt-0.5">{v}</dd>
               </div>
             ))}
           </dl>
@@ -396,7 +398,7 @@ export const HomeView: React.FC = () => {
         <Card padded={false} className="lg:col-span-4 overflow-hidden">
           <CardHeader bordered title="Workspaces" subtitle={`${workspaces.length} collections`} icon={Layers} />
           {workspaces.length === 0 ? (
-            <div className="p-5 text-[12.5px] text-faint">
+            <div className="p-5 text-[13px] text-faint">
               Group entries across keystores by project or audit.{" "}
               <button className="text-brand font-medium cursor-pointer" onClick={() => setTab("workspaces")}>
                 Create a workspace

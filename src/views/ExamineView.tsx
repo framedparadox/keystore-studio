@@ -74,7 +74,7 @@ const TlsPanel: React.FC = () => {
       {error && <Alert tone="danger" title="Connection failed">{error}</Alert>}
       {result && (
         <div className="space-y-4" data-testid="tls-result">
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-[12.5px]">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-[13px]">
             {[
               ["Endpoint", `${result.host}:${result.port}`],
               ["Address", result.address],
@@ -192,7 +192,7 @@ const DecodePanel: React.FC = () => {
           </Button>
         </div>
         {path ? (
-          <div className="flex items-center gap-2 rounded-control border border-line bg-surface-2 px-3 h-9 text-[12.5px]">
+          <div className="flex items-center gap-2 rounded-control border border-line bg-surface-2 px-3 h-9 text-[13px]">
             <span className="font-mono truncate flex-1" title={path}>
               {path}
             </span>
@@ -243,7 +243,7 @@ const DecodePanel: React.FC = () => {
             )}
             {result.csr && (
               <div className="space-y-3">
-                <table className="w-full text-[12.5px] border border-line rounded-card overflow-hidden border-separate border-spacing-0 bg-surface">
+                <table className="w-full text-[13px] border border-line rounded-card overflow-hidden border-separate border-spacing-0 bg-surface">
                   <tbody>
                     {[
                       ["Subject", result.csr.subject],
@@ -263,7 +263,7 @@ const DecodePanel: React.FC = () => {
               </div>
             )}
             {result.crl && (
-              <div className="space-y-2 text-[12.5px]">
+              <div className="space-y-2 text-[13px]">
                 <div className="text-muted">
                   Issuer <span className="font-mono text-ink">{result.crl.issuer}</span> · this update {result.crl.this_update} · next update {result.crl.next_update}
                   {result.crl.crl_number && ` · CRL #${result.crl.crl_number}`}
@@ -283,7 +283,7 @@ const DecodePanel: React.FC = () => {
             )}
             {result.key && (
               <div className="space-y-3">
-                <table className="w-full text-[12.5px] border border-line rounded-card overflow-hidden border-separate border-spacing-0 bg-surface">
+                <table className="w-full text-[13px] border border-line rounded-card overflow-hidden border-separate border-spacing-0 bg-surface">
                   <tbody>
                     {[
                       ["Type", `${result.key.kind} key${result.key.encrypted ? " (encrypted)" : ""}`],
@@ -305,7 +305,7 @@ const DecodePanel: React.FC = () => {
             )}
             {result.jwt && (
               <div className="space-y-3">
-                <div className="text-[12.5px] text-muted">
+                <div className="text-[13px] text-muted">
                   Issued {result.jwt.issued_at ?? "—"} · expires {result.jwt.expires_at ?? "never"} {result.jwt.expired && <Badge tone="danger">Expired</Badge>}
                 </div>
                 <div className="grid grid-cols-2 gap-3">
@@ -420,7 +420,7 @@ const ComparePanel: React.FC = () => {
             {l.issuer === r.subject && <Badge tone="brand">Left is issued by right</Badge>}
             {r.issuer === l.subject && <Badge tone="brand">Right is issued by left</Badge>}
           </div>
-          <div className="border border-line rounded-card overflow-hidden text-[12.5px] select-text">
+          <div className="border border-line rounded-card overflow-hidden text-[13px] select-text">
             {rows.map((row) => {
               const diff = row.l !== row.r;
               return (
