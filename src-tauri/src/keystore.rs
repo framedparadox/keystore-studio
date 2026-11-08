@@ -296,13 +296,31 @@ pub fn save(ks: &KeystoreFile, path: &str, password: &str, format: Format) -> Re
     save_with(ks, path, password, format, SavePolicy::default())
 }
 
+/// Whether `a` and `b` name the same file, also through symlinks and `..`.
+fn same_file(a: &str, b: &str) -> bool {
+    if a.is_empty() || b.is_empty() {
+        return false;
+    }
+    if a == b {
+        return true;
+    }
+    match (std::fs::canonicalize(a), std::fs::canonicalize(b)) {
+        (Ok(x), Ok(y)) => x == y,
+        _ => false,
+    }
+}
+
 pub fn save_with(ks: &KeystoreFile, path: &str, password: &str, format: Format, policy: SavePolicy) -> Res<usize> {
     if password.is_empty() {
         return Err("invalid: a keystore password is required. An empty password is rejected so a saved file is never left unprotected.".into());
     }
     let dest = Path::new(path);
     if dest.exists() {
+        // The "changed on disk" guard protects the file the keystore was read from. Saving as a
+        // different file that happens to exist is a plain overwrite the save dialog already
+        // confirmed; comparing that file's time with the source's would always fail.
         if !policy.force
+            && same_file(&ks.path, path)
             && let (Some(opened), Some(disk)) = (ks.source_mtime_ms, mtime_ms(dest))
             && disk != opened
         {
@@ -380,6 +398,34 @@ mod tests {
             assert_eq!(detect(data), None);
             assert_eq!(detect_unsupported(data), None, "{data:?} misdetected");
         }
+    }
+
+    #[test]
+    fn changed_on_disk_guard_applies_only_to_the_source_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let entry = crate::ops::generate_key_pair(&crate::ops::tests_support::input("k", "ECDSA", false), None).unwrap();
+        let source = dir.path().join("source.p12");
+        let other = dir.path().join("other.p12");
+        for p in [&source, &other] {
+            std::fs::write(p, encode(std::slice::from_ref(&entry), "pw123456", Format::Pkcs12).unwrap()).unwrap();
+        }
+        let mut ks = open(source.to_str().unwrap(), "pw123456", &HashMap::new()).unwrap();
+        // Give the other file a different time, as any second file would have.
+        std::fs::File::options().write(true).open(&other).unwrap().set_modified(std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1_000_000)).unwrap();
+        save(&ks, other.to_str().unwrap(), "pw123456", Format::Pkcs12).expect("saving as another existing file must not report it as changed on disk");
+
+        // The source itself changing after it was opened is still caught, and Override still works.
+        std::fs::File::options().write(true).open(&source).unwrap().set_modified(std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(2_000_000)).unwrap();
+        let err = save(&ks, source.to_str().unwrap(), "pw123456", Format::Pkcs12).unwrap_err();
+        assert!(err.starts_with("changed-on-disk:"), "{err}");
+        save_with(&ks, source.to_str().unwrap(), "pw123456", Format::Pkcs12, SavePolicy { force: true, ..Default::default() }).unwrap();
+
+        // A path spelled differently (here through `..`) is still the source file.
+        ks.source_mtime_ms = Some(1);
+        let indirect = dir.path().join("sub").join("..").join("source.p12");
+        std::fs::create_dir(dir.path().join("sub")).unwrap();
+        let err = save(&ks, indirect.to_str().unwrap(), "pw123456", Format::Pkcs12).unwrap_err();
+        assert!(err.starts_with("changed-on-disk:"), "{err}");
     }
 
     #[test]

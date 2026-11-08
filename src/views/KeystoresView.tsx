@@ -26,7 +26,6 @@ import {
   KeySquare,
   Layers,
   Lock,
-  LockOpen,
   MoreHorizontal,
   PanelLeftClose,
   PanelLeftOpen,
@@ -42,11 +41,11 @@ import {
   X,
 } from "lucide-react";
 import type { EntryType, KeystoreEntry, OpenKeystore } from "../types/crypto";
-import { api, errorMessage } from "../lib/api";
+import { api, classifyError, errorMessage } from "../lib/api";
 import { baseName, pickSavePath, safeFileStem, withExtension } from "../lib/files";
 import { ENTRY_TYPE_LABEL, ENTRY_TYPE_ORDER, FORMAT_INFO, byTypeThenAlias, canHoldSecretKeys, entryMatches, entryTypeName } from "../lib/keystore";
 import { diffEntries } from "../lib/diff";
-import { daysUntilExpiry, entryHealth, formatDuration, summarize } from "../lib/metrics";
+import { daysUntilExpiry, entryHealth, entryMix, formatDuration, summarize } from "../lib/metrics";
 import { useStore } from "../state/store";
 import {
   Alert,
@@ -62,9 +61,11 @@ import {
   Modal,
   PageHeader,
   PasswordInput,
+  PathText,
   SearchInput,
   Segmented,
   StatStrip,
+  TextInput,
   useConfirm,
   useToast,
 } from "../components/ui";
@@ -87,7 +88,6 @@ interface Clip {
 let clipboardMemory: Clip | null = null;
 
 const HEALTH_RANK = { "at-risk": 0, attention: 1, healthy: 2 } as const;
-const count = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 const NAV_HIDDEN_KEY = "xkeystore.keystoreNavHidden";
 /** Entries listed under one keystore before "Show more". */
 const TREE_PAGE = 100;
@@ -132,32 +132,172 @@ const ChangePasswordDialog: React.FC<{ keystore: OpenKeystore; onClose: () => vo
   );
 };
 
-const ChangeKeyPasswordDialog: React.FC<{ entry: KeystoreEntry; onClose: () => void; onSave: (password: string) => void }> = ({ entry, onClose, onSave }) => {
+const ChangeKeyPasswordDialog: React.FC<{ entry: KeystoreEntry; format: OpenKeystore["format"]; onClose: () => void; onSave: (password: string) => void }> = ({ entry, format, onClose, onSave }) => {
   const [pw, setPw] = useState("");
   const [pw2, setPw2] = useState("");
   const error = pw && pw.length < 6 ? "At least 6 characters" : pw2 && pw !== pw2 ? "Passwords do not match" : undefined;
+  const ready = !!pw && pw === pw2 && !error;
   return (
-    <Modal open onClose={onClose} icon={KeySquare} size="sm" title={`Key password for ${entry.alias}`} footer={<><Button onClick={onClose}>Cancel</Button><Button variant="primary" disabled={!pw || !!error} onClick={() => onSave(pw)} data-testid="keypw-submit">Save on next write</Button></>}>
-      <div className="space-y-3">
-        <PasswordInput label="New key password" value={pw} onChange={setPw} data-testid="keypw-new" />
+    <Modal
+      open
+      onClose={onClose}
+      icon={KeySquare}
+      size="sm"
+      title={`Key password for ${entry.alias}`}
+      footer={
+        <>
+          <Button onClick={onClose}>Cancel</Button>
+          <Button variant="primary" type="submit" form="keypw-form" disabled={!ready} data-testid="keypw-submit">
+            Save on next write
+          </Button>
+        </>
+      }
+    >
+      <form
+        id="keypw-form"
+        className="space-y-3"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (ready) onSave(pw);
+        }}
+      >
+        <PasswordInput label="New key password" value={pw} onChange={setPw} autoFocus data-testid="keypw-new" />
         <PasswordInput label="Confirm" value={pw2} onChange={setPw2} error={error} data-testid="keypw-confirm" />
-        <p className="text-[12px] text-faint">The store password still opens the file. This password wraps only this key, the way keytool -keypasswd does.</p>
-      </div>
+        {format === "PKCS12" ? (
+          <Alert tone="warning" title="Most tools expect one password in a PKCS#12">
+            OpenSSL and Java&apos;s keytool open a PKCS#12 with a single password for the file and its keys; with a separate key password they fail to read this key. Use it
+            only if every program that reads the file supports it, or save as JKS or JCEKS.
+          </Alert>
+        ) : (
+          <p className="text-[12px] text-faint">The store password still opens the file. This password wraps only this key, the way keytool -keypasswd does.</p>
+        )}
+      </form>
     </Modal>
   );
 };
 
-const DiffDialog: React.FC<{ keystore: OpenKeystore; others: OpenKeystore[]; text: string; onClose: () => void; onPick: (other: OpenKeystore | "disk") => void }> = ({ keystore, others, text, onClose, onPick }) => (
-  <Modal open onClose={onClose} icon={FileText} title={`Compare ${keystore.name}`} size="md" footer={<Button onClick={onClose}>Close</Button>}>
-    <div className="space-y-3">
-      <div className="flex flex-wrap gap-2">
-        {keystore.path && <Button size="sm" onClick={() => onPick("disk")} data-testid="diff-disk">File on disk</Button>}
-        {others.map((o) => <Button key={o.id} size="sm" onClick={() => onPick(o)}>{o.name}</Button>)}
+/** Adds one label to several entries at once. (window.prompt does nothing in the desktop webview.) */
+const BulkLabelDialog: React.FC<{ count: number; suggestions: string[]; onClose: () => void; onApply: (label: string) => void }> = ({ count, suggestions, onClose, onApply }) => {
+  const [label, setLabel] = useState("");
+  const submit = (value: string) => {
+    const v = value.trim();
+    if (!v) return;
+    onApply(v);
+    onClose();
+  };
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      icon={Tag}
+      size="sm"
+      title={`Label ${count} ${count === 1 ? "entry" : "entries"}`}
+      description="Labels are xkeystore metadata; they are not written into the keystore file."
+      testId="bulk-label-dialog"
+      footer={
+        <>
+          <Button onClick={onClose}>Cancel</Button>
+          <Button variant="primary" type="submit" form="bulk-label-form" disabled={!label.trim()} data-testid="bulk-label-submit">
+            Add label
+          </Button>
+        </>
+      }
+    >
+      <form
+        id="bulk-label-form"
+        className="space-y-3"
+        onSubmit={(e) => {
+          e.preventDefault();
+          submit(label);
+        }}
+      >
+        <TextInput label="Label" value={label} onChange={(e) => setLabel(e.target.value)} placeholder="e.g. production, pci, rotate-q3" autoFocus data-testid="bulk-label-input" />
+        {suggestions.length > 0 && (
+          <div className="flex flex-wrap gap-1.5" aria-label="Labels in use">
+            {suggestions.map((s) => (
+              <button key={s} type="button" onClick={() => submit(s)} className="h-6 px-2 rounded-control border border-line text-[12px] text-muted hover:bg-surface-2 cursor-pointer">
+                + {s}
+              </button>
+            ))}
+          </div>
+        )}
+      </form>
+    </Modal>
+  );
+};
+
+/** Aliases only in the open keystore, only in the one it is compared with, and in both but different. */
+type DiffResult = { against: string; onlyHere: string[]; onlyThere: string[]; changed: string[] };
+
+const DiffDialog: React.FC<{
+  keystore: OpenKeystore;
+  others: OpenKeystore[];
+  result: DiffResult | null;
+  error: string | null;
+  busy: boolean;
+  onClose: () => void;
+  onPick: (other: OpenKeystore | "disk") => void;
+}> = ({ keystore, others, result, error, busy, onClose, onPick }) => {
+  const rows: { label: string; items: string[]; tone: "success" | "danger" | "warning"; testId: string }[] = result
+    ? [
+        { label: `Only in ${keystore.name} (open here)`, items: result.onlyHere, tone: "success", testId: "diff-only-here" },
+        { label: `Only in ${result.against}`, items: result.onlyThere, tone: "danger", testId: "diff-only-there" },
+        { label: "In both, with a different certificate or key", items: result.changed, tone: "warning", testId: "diff-changed" },
+      ]
+    : [];
+  const same = result && !result.onlyHere.length && !result.onlyThere.length && !result.changed.length;
+  return (
+    <Modal open onClose={onClose} icon={FileText} title={`Compare ${keystore.name}`} description="Entries are matched by alias; a match with a different SHA-256 fingerprint is reported as changed." size="md" busy={busy} testId="diff-dialog" footer={<Button onClick={onClose}>Close</Button>}>
+      <div className="space-y-4">
+        <div>
+          <span className="label">Compare with</span>
+          <div className="flex flex-wrap gap-2">
+            {keystore.path && (
+              <Button size="sm" icon={FolderOpen} onClick={() => onPick("disk")} disabled={busy} data-testid="diff-disk">
+                The file on disk
+              </Button>
+            )}
+            {others.map((o) => (
+              <Button key={o.id} size="sm" icon={FolderArchive} onClick={() => onPick(o)} disabled={busy}>
+                {o.name}
+              </Button>
+            ))}
+            {!keystore.path && !others.length && <p className="text-[13px] text-faint">Save this keystore or open another one to compare against.</p>}
+          </div>
+        </div>
+        {error && <Alert tone="danger">{error}</Alert>}
+        {result && (
+          <div className="space-y-2" data-testid="diff-result">
+            {same ? (
+              <Alert tone="success" title={`Same entries as ${result.against}`}>
+                Every alias is in both, with the same fingerprint.
+              </Alert>
+            ) : (
+              <dl className="rounded-card border border-line divide-y divide-line">
+                {rows.map((r) => (
+                  <div key={r.label} className="px-3.5 py-2.5 flex items-start justify-between gap-3" data-testid={r.testId}>
+                    <dt className="text-[13px] text-muted">{r.label}</dt>
+                    <dd className="flex flex-wrap justify-end gap-1 min-w-0">
+                      {r.items.length ? (
+                        r.items.map((a) => (
+                          <Badge key={a} tone={r.tone}>
+                            {a}
+                          </Badge>
+                        ))
+                      ) : (
+                        <span className="text-[13px] text-faint">None</span>
+                      )}
+                    </dd>
+                  </div>
+                ))}
+              </dl>
+            )}
+          </div>
+        )}
       </div>
-      {text && <pre className="text-[13px] whitespace-pre-wrap font-mono" data-testid="diff-result">{text}</pre>}
-    </div>
-  </Modal>
-);
+    </Modal>
+  );
+};
 
 // ============================================================================ navigator
 
@@ -284,7 +424,7 @@ const KeystoreNavigator: React.FC<{
                   type="button"
                   onClick={() => toggle(k.id)}
                   aria-label={open ? `Collapse ${k.name}` : `Expand ${k.name}`}
-                  className="w-6 h-10 shrink-0 flex items-center justify-center text-subtle hover:text-ink cursor-pointer"
+                  className="w-6 h-10 shrink-0 flex items-center justify-center text-faint hover:text-ink cursor-pointer"
                 >
                   {open ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
                 </button>
@@ -342,7 +482,7 @@ const KeystoreNavigator: React.FC<{
                       return (
                         <React.Fragment key={e.id}>
                           {header && (
-                            <div className="px-2 pt-1.5 pb-0.5 text-[11px] font-semibold uppercase tracking-[0.06em] text-subtle">
+                            <div className="px-2 pt-1.5 pb-0.5 text-[11px] font-semibold uppercase tracking-[0.06em] text-faint">
                               {ENTRY_TYPE_LABEL[e.entry_type]}s · {k.entries.filter((x) => x.entry_type === e.entry_type).length}
                             </div>
                           )}
@@ -384,7 +524,7 @@ const KeystoreNavigator: React.FC<{
 
         {recent.length > 0 && (
           <div className="pt-3">
-            <div className="px-2 pb-1 text-[11px] font-semibold uppercase tracking-[0.06em] text-subtle flex items-center gap-1.5">
+            <div className="px-2 pb-1 text-[11px] font-semibold uppercase tracking-[0.06em] text-faint flex items-center gap-1.5">
               <History className="w-3 h-3" /> Recent, not open
             </div>
             {recent.map((f) => (
@@ -397,7 +537,7 @@ const KeystoreNavigator: React.FC<{
               >
                 <FolderArchive className="w-3.5 h-3.5 text-subtle shrink-0" />
                 <span className="truncate flex-1">{f.name}</span>
-                <span className="text-[11px] text-subtle shrink-0">{f.format}</span>
+                <span className="text-[11px] text-faint shrink-0">{f.format}</span>
               </button>
             ))}
           </div>
@@ -471,7 +611,8 @@ export const KeystoresView: React.FC = () => {
   const [selected, setSelected] = useState<string[]>([]);
   const [focusEntryId, setFocusEntryId] = useState<string | null>(null);
   const [diffOpen, setDiffOpen] = useState(false);
-  const [diffText, setDiffText] = useState("");
+  const [diff, setDiff] = useState<{ result: DiffResult | null; error: string | null; busy: boolean }>({ result: null, error: null, busy: false });
+  const [bulkLabelOpen, setBulkLabelOpen] = useState(false);
   const [clip, setClip] = useState<Clip | null>(clipboardMemory);
   useEffect(() => {
     clipboardMemory = clip;
@@ -479,6 +620,7 @@ export const KeystoresView: React.FC = () => {
   useEffect(() => {
     setSearch("");
     setLabelFilter("");
+    setTypeFilter("ALL");
     setSelected([]);
   }, [ks?.id]);
 
@@ -488,6 +630,15 @@ export const KeystoresView: React.FC = () => {
     () => entries.filter((e) => (typeFilter === "ALL" || e.entry_type === typeFilter) && (!labelFilter || e.labels.includes(labelFilter)) && entryMatches(e, search)),
     [entries, typeFilter, labelFilter, search]
   );
+  // Bulk actions act on what is selected and visible. An entry the filter now hides drops out of
+  // the selection, so "Delete 3" never removes entries that are no longer on screen.
+  useEffect(() => {
+    setSelected((cur) => {
+      const visible = new Set(filtered.map((e) => e.id));
+      const kept = cur.filter((id) => visible.has(id));
+      return kept.length === cur.length ? cur : kept;
+    });
+  }, [filtered]);
   const sum = summarize(entries);
   const lockedKeyPairs = entries.filter((e) => e.entry_type === "KeyPair" && isKeyLocked(e));
   const lockedOther = entries.filter((e) => e.entry_type !== "KeyPair" && e.locked);
@@ -552,17 +703,20 @@ export const KeystoresView: React.FC = () => {
     );
   }
 
-  const deleteWithConfirm = async (list: KeystoreEntry[]) => {
+  /** Resolves true when the entries were deleted, false when the user cancelled. */
+  const deleteWithConfirm = async (list: KeystoreEntry[]): Promise<boolean> => {
+    const names = list.slice(0, 5).map((e) => `'${e.alias}'`).join(", ") + (list.length > 5 ? ` and ${list.length - 5} more` : "");
     const ok = await confirm({
       title: list.length === 1 ? `Delete '${list[0].alias}'?` : `Delete ${list.length} entries?`,
-      message: `${list.length === 1 ? "The entry" : "They"} will be removed from ${ks.name}. You can undo with Ctrl+Z; the file changes only when you save.`,
+      message: `${list.length === 1 ? "The entry" : names} will be removed from ${ks.name}. You can undo with Ctrl+Z; the file changes only when you save.`,
       confirmLabel: "Delete",
       danger: true,
     });
-    if (ok !== true) return;
+    if (ok !== true) return false;
     deleteEntries(ks.id, list.map((e) => e.id));
     setDialog(null);
     toast.success(`Deleted ${list.length === 1 ? `'${list[0].alias}'` : `${list.length} entries`}.`, { label: "Undo", onClick: store.undo });
+    return true;
   };
 
   const copyEntries = (list: KeystoreEntry[], mode: "copy" | "cut") => {
@@ -575,14 +729,16 @@ export const KeystoresView: React.FC = () => {
     if (!clip) return;
     const blocked = clip.entries.filter((e) => e.entry_type === "SecretKey" && !canHoldSecretKeys(ks.format));
     if (blocked.length) {
-      toast.error(`${ks.format} cannot store secret keys; '${blocked[0].alias}' was not pasted.`);
+      toast.error(`${FORMAT_INFO[ks.format].label} cannot store secret keys; ${blocked.map((e) => `'${e.alias}'`).join(", ")} ${blocked.length === 1 ? "stays" : "stay"} on the clipboard.`);
     }
     const added = addEntries(
       ks.id,
       clip.entries.filter((e) => !blocked.includes(e))
     );
     if (added.length) toast.success(`Pasted ${added.map((a) => `'${a.alias}'`).join(", ")} into ${ks.name}.`);
-    if (clip.mode === "cut") setClip(null);
+    // A cut is used up by pasting it, except what could not be pasted here: it was already removed
+    // from its keystore, so dropping it from the clipboard would lose it.
+    if (clip.mode === "cut") setClip(blocked.length ? { ...clip, entries: blocked } : null);
   };
 
   /** Runs `then` once the key is usable. */
@@ -630,10 +786,10 @@ export const KeystoresView: React.FC = () => {
           ]
         : []),
       ...manageItems(entry),
-      { label: "Clone", icon: Copy, onSelect: () => { addEntries(ks.id, [entry]); toast.success(`Cloned '${entry.alias}'.`); } },
+      { label: "Clone", icon: Copy, onSelect: () => { addEntries(ks.id, [entry]); toast.success(`Cloned '${entry.alias}'.`); }, testId: "menu-clone" },
       { label: "Change key password…", icon: KeySquare, onSelect: () => setDialog({ kind: "keypw", entry }), testId: "menu-keypw", disabled: entry.entry_type === "TrustedCertificate" },
-      { label: "Copy", icon: Copy, onSelect: () => copyEntries([entry], "copy"), divider: true },
-      { label: "Cut", icon: Scissors, onSelect: () => copyEntries([entry], "cut") },
+      { label: "Copy", icon: Copy, onSelect: () => copyEntries([entry], "copy"), divider: true, testId: "menu-copy" },
+      { label: "Cut", icon: Scissors, onSelect: () => copyEntries([entry], "cut"), testId: "menu-cut" },
       ...(entry.entry_type === "KeyPair" && settings.requireKeyUnlock
         ? [{ label: "Lock key pair", hint: "Ask for the key password again", icon: Lock, onSelect: () => lockKeys(ks.id, [entry.id]), divider: true, testId: "menu-lock" }]
         : []),
@@ -641,10 +797,26 @@ export const KeystoresView: React.FC = () => {
     ];
   };
 
+  const allVisibleSelected = filtered.length > 0 && filtered.every((e) => selected.includes(e.id));
+  const someVisibleSelected = !allVisibleSelected && filtered.some((e) => selected.includes(e.id));
   const columns: Column<KeystoreEntry>[] = [
     {
       id: "pick",
-      header: "",
+      header: (
+        <input
+          type="checkbox"
+          aria-label={allVisibleSelected ? "Deselect all entries" : "Select all entries shown"}
+          title={allVisibleSelected ? "Deselect all" : "Select all shown"}
+          checked={allVisibleSelected}
+          disabled={!filtered.length}
+          ref={(el) => {
+            if (el) el.indeterminate = someVisibleSelected;
+          }}
+          onChange={() => setSelected(allVisibleSelected ? [] : filtered.map((e) => e.id))}
+          className="cursor-pointer align-middle"
+          data-testid="select-all"
+        />
+      ),
       width: "36px",
       cell: (e) => (
         <input
@@ -653,16 +825,20 @@ export const KeystoresView: React.FC = () => {
           checked={selected.includes(e.id)}
           onClick={(ev) => ev.stopPropagation()}
           onChange={() => setSelected((cur) => (cur.includes(e.id) ? cur.filter((id) => id !== e.id) : [...cur, e.id]))}
+          className="cursor-pointer align-middle"
+          data-testid={`select-${e.alias}`}
         />
       ),
     },
     { id: "alias", header: "Alias", width: "28%", sortValue: (e) => e.alias.toLowerCase(), cell: (e) => <EntryNameCell entry={e} /> },
-    { id: "type", header: "Type", width: "150px", sortValue: (e) => `${ENTRY_TYPE_ORDER[e.entry_type]}${e.alias.toLowerCase()}`, cell: (e) => <EntryTypeCell entry={e} /> },
-    { id: "alg", header: "Algorithm", sortValue: (e) => e.algorithm, cell: (e) => <AlgorithmCell entry={e} /> },
-    { id: "expiry", header: "Expires", width: "190px", sortValue: (e) => daysUntilExpiry(e), cell: (e) => <ExpiryCell entry={e} /> },
-    // The navigator takes about 300px, so the optional columns need a wider window while it shows.
-    { id: "status", header: "Status", hideBelow: navOff ? "xl" : "2xl", sortValue: (e) => HEALTH_RANK[entryHealth(e)], cell: (e) => <HealthBadge entry={e} /> },
-    ...(navOff ? [{ id: "labels", header: "Labels", hideBelow: "2xl" as const, cell: (e: KeystoreEntry) => <LabelList labels={e.labels} /> }] : []),
+    // Optional columns give way as the table narrows (the navigator and the sidebar take room the
+    // window size does not show), so the row actions are never cut off. The entry icon still shows
+    // the type and the lock when the Type column is hidden.
+    { id: "type", header: "Type", width: "140px", hideBelow: "sm", sortValue: (e) => `${ENTRY_TYPE_ORDER[e.entry_type]}${e.alias.toLowerCase()}`, cell: (e) => <EntryTypeCell entry={e} /> },
+    { id: "alg", header: "Algorithm", hideBelow: "lg", sortValue: (e) => e.algorithm, cell: (e) => <AlgorithmCell entry={e} /> },
+    { id: "expiry", header: "Expires", width: "180px", sortValue: (e) => daysUntilExpiry(e), cell: (e) => <ExpiryCell entry={e} /> },
+    { id: "status", header: "Status", hideBelow: "xl", sortValue: (e) => HEALTH_RANK[entryHealth(e)], cell: (e) => <HealthBadge entry={e} /> },
+    { id: "labels", header: "Labels", hideBelow: "2xl", cell: (e: KeystoreEntry) => <LabelList labels={e.labels} /> },
     {
       id: "actions",
       header: <span className="sr-only">Actions</span>,
@@ -767,7 +943,7 @@ export const KeystoresView: React.FC = () => {
               </span>
             }
             title={ks.name}
-            description={<span className="font-mono text-[12px] break-all">{ks.path || "In memory — use Save to write it to disk"}</span>}
+            description={ks.path ? <PathText path={ks.path} /> : "In memory — use Save to write it to disk"}
             actions={
               ks.sealed ? undefined : (
                 <>
@@ -794,7 +970,7 @@ export const KeystoresView: React.FC = () => {
               <EmptyState
                 icon={Lock}
                 title={`${ks.name} is locked`}
-                description={<span className="font-mono text-[12px] break-all">{ks.path}</span>}
+                description={<PathText path={ks.path} copy={false} />}
                 action={
                   <>
                     <Button variant="primary" icon={Unlock} onClick={() => unlockSealed(ks.id)} data-testid="unlock-sealed">
@@ -813,7 +989,7 @@ export const KeystoresView: React.FC = () => {
               <StatStrip
                 className="mb-4"
                 items={[
-                  { label: "Entries", value: sum.total, hint: `${count(sum.keyPairs, "key pair")} · ${count(sum.trusted, "certificate")} · ${count(sum.secrets, "secret key")}` },
+                  { label: "Entries", value: sum.total, hint: entryMix(sum) },
                   {
                     label: "Expiring soon",
                     value: sum.expiringWarning,
@@ -876,38 +1052,40 @@ export const KeystoresView: React.FC = () => {
                           Unlock
                         </Button>
                       )}
-                      <Button size="sm" icon={Trash2} onClick={() => void deleteWithConfirm(selectedEntries).then(() => setSelected([]))}>
+                      <Button size="sm" icon={Trash2} onClick={() => void deleteWithConfirm(selectedEntries).then((deleted) => deleted && setSelected([]))} data-testid="bulk-delete">
                         Delete
                       </Button>
                       <Button
                         size="sm"
                         icon={Download}
                         title="Certificates of the selected entries as one PEM file"
+                        data-testid="bulk-export"
                         onClick={async () => {
-                          const pem = selectedEntries.flatMap((e) => e.certificate_chain.map((c) => c.pem)).join("");
-                          if (!pem) return toast.error("The selection has no certificates to export.");
-                          const path = await pickSavePath("Export certificates", "selection.pem", [{ name: "PEM", extensions: ["pem"] }]).catch(() => null);
-                          if (!path) return;
-                          await api.writeTextFile(path, pem);
-                          toast.success(`Wrote certificates to ${path}.`);
+                          // A CA shared by several entries is written once.
+                          const seen = new Set<string>();
+                          const certs = selectedEntries.flatMap((e) => e.certificate_chain).filter((c) => c.pem && !seen.has(c.sha256_fingerprint) && seen.add(c.sha256_fingerprint));
+                          if (!certs.length) return toast.error("The selection has no certificates to export.");
+                          try {
+                            const path = await pickSavePath("Export certificates", "selection.pem", [{ name: "PEM", extensions: ["pem"] }]);
+                            if (!path) return;
+                            await api.writeTextFile(path, certs.map((c) => c.pem).join(""));
+                            toast.success(`Wrote ${certs.length} certificate${certs.length === 1 ? "" : "s"} to ${baseName(path)}.`, {
+                              label: "Show in folder",
+                              onClick: () => void revealItemInDir(path).catch(() => undefined),
+                            });
+                          } catch (err) {
+                            toast.error(errorMessage(err));
+                          }
                         }}
                       >
                         Export
                       </Button>
-                      <Button
-                        size="sm"
-                        icon={Tag}
-                        onClick={() => {
-                          const label = window.prompt("Label to add to the selected entries");
-                          if (!label?.trim()) return;
-                          for (const entry of selectedEntries) setEntryLabels(ks.id, entry.id, [...new Set([...entry.labels, label.trim()])]);
-                        }}
-                      >
+                      <Button size="sm" icon={Tag} onClick={() => setBulkLabelOpen(true)} data-testid="bulk-label">
                         Label
                       </Button>
                     </div>
                   )}
-                  <SearchInput value={search} onChange={setSearch} placeholder="Search alias, subject, serial, fingerprint" className="w-full sm:w-72" />
+                  <SearchInput value={search} onChange={setSearch} placeholder="Search entries…" label="Search by alias, subject, issuer, algorithm, serial or SHA-256 fingerprint" className="w-full sm:w-64" />
                 </div>
                 <DataTable<KeystoreEntry>
                   label={`Entries in ${ks.name}`}
@@ -998,7 +1176,7 @@ export const KeystoresView: React.FC = () => {
           }
         />
       )}
-      <ExportDialog entry={dialog?.kind === "export" ? current : null} onClose={() => setDialog(null)} />
+      <ExportDialog entry={dialog?.kind === "export" ? current : null} keystoreId={ks.id} onClose={() => setDialog(null)} />
       <CsrDialog entry={dialog?.kind === "csr" ? current : null} onClose={() => setDialog(null)} />
       <CaReplyDialog keystore={ks} entry={dialog?.kind === "reply" ? current : null} onClose={() => setDialog(null)} />
       <RenameDialog keystore={ks} entry={dialog?.kind === "rename" ? current : null} onClose={() => setDialog(null)} />
@@ -1013,6 +1191,7 @@ export const KeystoresView: React.FC = () => {
       {dialog?.kind === "keypw" && current && (
         <ChangeKeyPasswordDialog
           entry={current}
+          format={ks.format}
           onClose={() => setDialog(null)}
           onSave={(password) => {
             replaceEntry(ks.id, { ...current, key_password: password });
@@ -1025,16 +1204,48 @@ export const KeystoresView: React.FC = () => {
         <DiffDialog
           keystore={ks}
           others={keystores.filter((k) => k.id !== ks.id && !k.sealed)}
-          text={diffText}
-          onClose={() => { setDiffOpen(false); setDiffText(""); }}
+          result={diff.result}
+          error={diff.error}
+          busy={diff.busy}
+          onClose={() => {
+            setDiffOpen(false);
+            setDiff({ result: null, error: null, busy: false });
+          }}
           onPick={async (other) => {
-            const right = other === "disk" ? await api.openKeystore(ks.path, getPassword(ks.id) ?? "").catch((err) => { setDiffText(errorMessage(err)); return null; }) : other;
-            if (!right) return;
+            setDiff({ result: null, error: null, busy: true });
+            let right: { entries: KeystoreEntry[] };
+            if (other === "disk") {
+              try {
+                right = await api.openKeystore(ks.path, getPassword(ks.id) ?? "");
+              } catch (err) {
+                const wrongPassword = classifyError(err).kind === "wrong-password";
+                setDiff({
+                  result: null,
+                  busy: false,
+                  error: wrongPassword ? "The file on disk does not open with this keystore's password. If you changed the password, save first or compare after saving." : errorMessage(err),
+                });
+                return;
+              }
+            } else {
+              right = other;
+            }
+            // diffEntries(left, right): "added" is in right only, "removed" in left only.
             const d = diffEntries(
               ks.entries.map((e) => ({ alias: e.alias, fingerprint: e.sha256_fingerprint })),
-              right.entries.map((e) => ({ alias: e.alias, fingerprint: e.sha256_fingerprint })),
+              right.entries.map((e) => ({ alias: e.alias, fingerprint: e.sha256_fingerprint }))
             );
-            setDiffText([`Added: ${d.added.join(", ") || "—"}`, `Removed: ${d.removed.join(", ") || "—"}`, `Changed fingerprint: ${d.changed.join(", ") || "—"}`].join("\n"));
+            setDiff({ result: { against: other === "disk" ? "the file on disk" : other.name, onlyHere: d.removed, onlyThere: d.added, changed: d.changed }, error: null, busy: false });
+          }}
+        />
+      )}
+      {bulkLabelOpen && (
+        <BulkLabelDialog
+          count={selectedEntries.length}
+          suggestions={allLabels}
+          onClose={() => setBulkLabelOpen(false)}
+          onApply={(label) => {
+            for (const entry of selectedEntries) setEntryLabels(ks.id, entry.id, [...new Set([...entry.labels, label])]);
+            toast.success(`Added '${label}' to ${selectedEntries.length} ${selectedEntries.length === 1 ? "entry" : "entries"}.`);
           }}
         />
       )}

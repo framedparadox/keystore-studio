@@ -202,6 +202,46 @@ jobs:
           name: e2e-screenshots
           path: ${{ runner.temp }}/e2e-screenshots
 
+  e2e-headless:
+    # The production UI bundle in headless Chrome against the real engine (examples/ui_bridge.rs
+    # calls the same engine functions as the Tauri commands). It needs no WebKit and no display,
+    # so it covers what the WebDriver journey cannot reach cheaply: key locking on every path,
+    # stacked dialogs, focus, undo across opened files, Save As, bulk actions. Selenium Manager
+    # fetches a pinned Chrome for Testing build.
+    name: End-to-end (UI in headless Chrome)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    needs: [frontend]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # Built here so the suite's 90-second wait for the engine is not spent compiling it.
+      - run: cargo build --manifest-path src-tauri/Cargo.toml --example ui_bridge --no-default-features
+      - run: pnpm test:e2e:headless
+        env:
+          XKS_SCREENSHOTS: ${{ runner.temp }}/headless-screenshots
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: headless-screenshots
+          path: ${{ runner.temp }}/headless-screenshots
+          if-no-files-found: ignore
+
   bundle:
     # Proves the installers actually build on each platform. This is what catches a
     # platform-specific build break that `cargo test` misses, such as a missing icon format or a

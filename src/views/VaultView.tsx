@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useLayoutEffect, useState } from "react";
 import { Eye, EyeOff, FolderOpen, KeyRound, Lock, LockOpen, RotateCcw, ShieldCheck, Trash2 } from "lucide-react";
 import type { SecretSummary } from "../types/crypto";
 import { api, errorMessage, passwordSecretId } from "../lib/api";
@@ -14,7 +14,7 @@ const ChangeMasterKeyDialog: React.FC<{ open: boolean; onClose: () => void }> = 
   const [confirmKey, setConfirmKey] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  useEffect(() => {
+  useLayoutEffect(() => {
     setOldKey("");
     setNewKey("");
     setConfirmKey("");

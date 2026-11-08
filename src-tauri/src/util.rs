@@ -229,29 +229,64 @@ pub fn parse_hex_serial(input: &str) -> Res<Vec<u8>> {
 
 /// Writes `data` to `path` atomically (temp file in the same directory, then rename), so a crash
 /// or full disk never leaves a half-written keystore behind.
+///
+/// - A new file is created readable by its owner only (0600 on Unix). A file that already exists
+///   keeps its permission bits: a keystore that a service reads through its group (say 0640) must
+///   stay readable by that service after it is saved here.
+/// - A symlink is written through: its target is replaced, not the link. Replacing the link would
+///   leave the real file, the one other programs read, untouched.
+/// - The temp file never outlives a failed write; it may hold key material.
 pub fn write_atomic(path: &std::path::Path, data: &[u8]) -> Res<()> {
     use std::io::Write;
-    let dir = path.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or(std::path::Path::new("."));
+    let fail = |err: std::io::Error| format!("cannot write {}: {err}", path.display());
+    let target = match std::fs::symlink_metadata(path) {
+        Ok(meta) if meta.file_type().is_symlink() => resolve_link(path).map_err(fail)?,
+        _ => path.to_path_buf(),
+    };
+    let dir = target.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or(std::path::Path::new("."));
     std::fs::create_dir_all(dir).map_err(|err| format!("cannot create folder {}: {err}", dir.display()))?;
-    let file_name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| "file".into());
+    let file_name = target.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| "file".into());
     let tmp = dir.join(format!(".{file_name}.{}.tmp", uuid::Uuid::new_v4().simple()));
-    {
+    let existing = std::fs::metadata(&target).ok().map(|m| m.permissions());
+
+    let written = (|| -> std::io::Result<()> {
         #[cfg(unix)]
         let mut f = {
-            use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
-            let f = std::fs::OpenOptions::new().write(true).create(true).truncate(true).mode(0o600).open(&tmp).map_err(|err| format!("cannot write {}: {err}", path.display()))?;
-            let _ = f.set_permissions(std::fs::Permissions::from_mode(0o600));
-            f
+            use std::os::unix::fs::OpenOptionsExt;
+            std::fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(&tmp)?
         };
         #[cfg(not(unix))]
-        let mut f = std::fs::File::create(&tmp).map_err(|err| format!("cannot write {}: {err}", path.display()))?;
-        f.write_all(data).map_err(|err| format!("cannot write {}: {err}", path.display()))?;
-        f.sync_all().ok();
-    }
-    std::fs::rename(&tmp, path).map_err(|err| {
+        let mut f = std::fs::OpenOptions::new().write(true).create_new(true).open(&tmp)?;
+        f.write_all(data)?;
+        // Applied to the open file, after the data is in: the bytes are never readable by more
+        // than the owner until they are complete.
+        if let Some(perms) = existing {
+            f.set_permissions(perms)?;
+        }
+        f.sync_all()?;
+        Ok(())
+    })();
+    if let Err(err) = written.and_then(|()| std::fs::rename(&tmp, &target)) {
         let _ = std::fs::remove_file(&tmp);
-        format!("cannot write {}: {err}", path.display())
-    })
+        return Err(fail(err));
+    }
+    // Make the rename itself durable: until the directory entry reaches the disk, a power cut can
+    // bring back the old file (or none at all, for a new one).
+    #[cfg(unix)]
+    if let Ok(d) = std::fs::File::open(dir) {
+        let _ = d.sync_all();
+    }
+    Ok(())
+}
+
+/// The file a symlink points to. A dangling link resolves to where its target would be, so writing
+/// through it creates that file.
+fn resolve_link(path: &std::path::Path) -> std::io::Result<std::path::PathBuf> {
+    if let Ok(real) = std::fs::canonicalize(path) {
+        return Ok(real);
+    }
+    let link = std::fs::read_link(path)?;
+    Ok(if link.is_absolute() { link } else { path.parent().unwrap_or(std::path::Path::new(".")).join(link) })
 }
 
 pub fn file_name_of(path: &str) -> String {
@@ -286,6 +321,67 @@ mod tests {
         assert_eq!(blocks.len(), 2);
         assert_eq!(blocks[0].tag, "CERTIFICATE");
         assert_eq!(blocks[1].der, vec![4]);
+    }
+
+    fn temp_files_in(dir: &std::path::Path) -> Vec<String> {
+        std::fs::read_dir(dir).unwrap().filter_map(|e| e.ok()).map(|e| e.file_name().to_string_lossy().to_string()).filter(|n| n.ends_with(".tmp")).collect()
+    }
+
+    #[test]
+    fn atomic_write_replaces_content_and_leaves_no_temp_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("a.p12");
+        write_atomic(&p, b"one").unwrap();
+        write_atomic(&p, b"two").unwrap();
+        assert_eq!(std::fs::read(&p).unwrap(), b"two");
+        assert!(temp_files_in(dir.path()).is_empty());
+
+        // A failed write (here: the destination is a folder) must not leave its temp file, which
+        // may hold key material, lying next to it.
+        let folder = dir.path().join("taken");
+        std::fs::create_dir(&folder).unwrap();
+        std::fs::write(folder.join("inner"), b"x").unwrap();
+        assert!(write_atomic(&folder, b"secret").is_err());
+        assert!(temp_files_in(dir.path()).is_empty(), "a temp file survived a failed write");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn atomic_write_keeps_permissions_of_an_existing_file() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let mode = |p: &std::path::Path| std::fs::metadata(p).unwrap().permissions().mode() & 0o777;
+        let fresh = dir.path().join("new.p12");
+        write_atomic(&fresh, b"k").unwrap();
+        assert_eq!(mode(&fresh), 0o600, "a new keystore must be private to its owner");
+
+        // A keystore a service reads through its group stays readable by that group.
+        let shared = dir.path().join("shared.p12");
+        std::fs::write(&shared, b"old").unwrap();
+        std::fs::set_permissions(&shared, std::fs::Permissions::from_mode(0o640)).unwrap();
+        write_atomic(&shared, b"new").unwrap();
+        assert_eq!(mode(&shared), 0o640);
+        assert_eq!(std::fs::read(&shared).unwrap(), b"new");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn atomic_write_goes_through_symlinks() {
+        let dir = tempfile::tempdir().unwrap();
+        let real = dir.path().join("real.p12");
+        let link = dir.path().join("link.p12");
+        std::fs::write(&real, b"old").unwrap();
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+        write_atomic(&link, b"new").unwrap();
+        assert!(std::fs::symlink_metadata(&link).unwrap().file_type().is_symlink(), "the link was replaced by a file");
+        assert_eq!(std::fs::read(&real).unwrap(), b"new", "the file behind the link was not updated");
+
+        // A dangling link creates the file it points to.
+        let dangling = dir.path().join("dangling.p12");
+        std::os::unix::fs::symlink("created.p12", &dangling).unwrap();
+        write_atomic(&dangling, b"made").unwrap();
+        assert_eq!(std::fs::read(dir.path().join("created.p12")).unwrap(), b"made");
+        assert!(std::fs::symlink_metadata(&dangling).unwrap().file_type().is_symlink());
     }
 
     #[test]

@@ -22,14 +22,14 @@ import { useStore } from "../state/store";
 import { Alert, Badge, BarList, Button, Card, CardHeader, ColumnChart, DataTable, EmptyState, Kbd, KpiCard, Meter, Page, PageHeader, ScoreRing, SegmentedBar } from "../components/ui";
 import { EntryNameCell, ExpiryCell, HealthBadge } from "../components/entry";
 import { useTerminal } from "../components/Terminal";
-import { ageBuckets, algorithmMix, daysUntilExpiry, entryHealth, expiryBuckets, FlatEntry, flattenEntries, formatDuration, summarize } from "../lib/metrics";
+import { ageBuckets, algorithmMix, daysUntilExpiry, entryHealth, entryMix, expiryBuckets, FlatEntry, flattenEntries, formatDuration, summarize } from "../lib/metrics";
 import { DropZone } from "../components/DropZone";
 import { FORMAT_INFO } from "../lib/keystore";
 import type { KeystoreFormat, OpenKeystore } from "../types/crypto";
 
 const RecentFiles: React.FC = () => {
   const { recentFiles, openFiles, keystores } = useStore();
-  if (!recentFiles.length) return <p className="text-[13px] text-subtle">Files you open appear here.</p>;
+  if (!recentFiles.length) return <p className="text-[13px] text-faint">Files you open appear here.</p>;
   return (
     <ul className="divide-y divide-line -mx-1">
       {recentFiles.slice(0, 6).map((f) => {
@@ -213,7 +213,7 @@ export const HomeView: React.FC = () => {
       {sealedBanner}
 
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
-        <KpiCard label="Total entries" value={s.total} icon={KeyRound} tone="brand" hint={`${s.keyPairs} key pairs · ${s.trusted} certificates · ${s.secrets} secret keys`} onClick={() => setTab("keystores")} />
+        <KpiCard label="Total entries" value={s.total} icon={KeyRound} tone="brand" hint={entryMix(s)} onClick={() => setTab("keystores")} />
         <KpiCard
           label={`Expiring within ${settings.warningDays} days`}
           value={s.expiringWarning}
@@ -380,7 +380,7 @@ export const HomeView: React.FC = () => {
                 ),
               },
               { id: "fmt", header: "Format", sortValue: (k) => k.format, cell: (k) => <Badge>{FORMAT_INFO[k.format].label}</Badge> },
-              { id: "n", header: "Entries", align: "right", sortValue: (k) => k.entries.length, cell: (k) => (k.sealed ? <span className="text-subtle">—</span> : k.entries.length) },
+              { id: "n", header: "Entries", align: "right", sortValue: (k) => k.entries.length, cell: (k) => (k.sealed ? <span className="text-faint">—</span> : k.entries.length) },
               {
                 id: "risk",
                 header: "Issues",
@@ -388,7 +388,7 @@ export const HomeView: React.FC = () => {
                 sortValue: (k) => k.entries.filter((e) => entryHealth(e) !== "healthy").length,
                 cell: (k) => {
                   const n = k.entries.filter((e) => entryHealth(e) !== "healthy").length;
-                  return n ? <Badge tone="warning">{n}</Badge> : <span className="text-subtle">—</span>;
+                  return n ? <Badge tone="warning">{n}</Badge> : <span className="text-faint">—</span>;
                 },
               },
             ]}

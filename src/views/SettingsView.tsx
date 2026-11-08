@@ -209,7 +209,16 @@ export const SettingsView: React.FC = () => {
             <Card className="space-y-4">
               <CardHeader title="Expiry warnings" subtitle="When certificates and keys are flagged." icon={ShieldCheck} className="!mb-0" />
               <div className="grid grid-cols-2 gap-3">
-                <DraftNumber data-testid="settings-critical-days" label="Critical (days)" min={1} max={365} value={settings.criticalDays} onCommit={(v) => updateSettings({ criticalDays: v })} hint="Shown red" />
+                <DraftNumber
+                  data-testid="settings-critical-days"
+                  label="Critical (days)"
+                  min={1}
+                  max={365}
+                  value={settings.criticalDays}
+                  // The warning window always contains the critical one, so it moves up with it.
+                  onCommit={(v) => updateSettings({ criticalDays: v, warningDays: Math.max(settings.warningDays, v) })}
+                  hint="Shown red"
+                />
                 <DraftNumber data-testid="settings-warning-days" label="Warning (days)" min={1} max={1095} value={settings.warningDays} onCommit={(v) => updateSettings({ warningDays: Math.max(settings.criticalDays, v) })} hint="Shown amber. Never lower than critical." />
               </div>
             </Card>

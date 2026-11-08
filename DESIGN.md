@@ -8,12 +8,17 @@ All color comes from the `@theme` block in `src/index.css`. Use semantic utiliti
 
 | Role | Tokens |
 | --- | --- |
-| Text | `ink` (headings) · `ink-2` (body) · `muted` · `faint` (helper text) · `subtle` (icons, disabled) |
+| Text | `ink` (headings) · `ink-2` (body) · `muted` · `faint` (helper text, the quietest text allowed) · `subtle` (decorative icons, disabled, placeholders: **never text**, it is 2.6:1 on white) |
 | Surfaces | `chrome` (sidebar) · `canvas` (page) · `surface` (cards, tables) · `surface-2` / `surface-3` (table headers, wells, hover) |
 | Borders | `line` (default) · `line-strong` (inputs, dashed drop targets) |
 | Brand | `brand` (links, icons, focus) · `brand-deep` (primary buttons) · `brand-soft` (selected) · `brand-tint` (hover wash) |
-| Status | `success` / `warning` / `danger` (text), their `-tint` (badge backgrounds) and `-fill` (meters, bars); `serious-fill` sits between warning and danger in charts. Status color is only for status and always ships with an icon or label. |
+| Status | `success` / `warning` / `danger` (text, and the background of anything with white text or glyphs on it), their `-tint` (badge backgrounds) and `-fill` (meters, bars, dots: never behind text, white on them is under 4.5:1); `serious-fill` sits between warning and danger in charts. Status color is only for status and always ships with an icon or label. |
 | Terminal | `term-bg`, `term-fg` — the only dark surface in the app |
+
+### Contrast
+Text meets WCAG AA (4.5:1; 3:1 from 18.66px bold) against its real background, and icon-only
+controls meet 3:1. With the tokens above that means: `faint` or darker for any text, white only on
+`brand`, `brand-deep` or a status text tone. Disabled controls are exempt.
 
 ## 2. One accent
 `brand` is the only accent hue. Cards are not individually color-coded; icons are `text-brand`.
@@ -43,17 +48,22 @@ Build pages from `src/components/ui.tsx`:
 - Layout: `Page`, `PageHeader`, `Card`, `CardHeader`, `SectionLabel`
 - Actions: `Button` (primary / secondary / ghost / danger), `IconButton` (always labelled), `Menu` (dropdown rendered
   in a portal; flips upward near the bottom of the window, so table rows never clip it)
-- Data: `DataTable` (sortable columns, sticky header, footer, empty state), `DescriptionList`, `KeyValueTable`,
-  `Badge`, `EmptyState`, `CodeBlock` (with copy), `CopyButton`
+- Data: `DataTable` (sortable columns, sticky header, footer, empty state; `hideBelow` is measured on the table with a
+  container query, not on the window, so a navigator or the sidebar never pushes the row actions out of view),
+  `DescriptionList`, `KeyValueTable`, `Badge`, `EmptyState`, `CodeBlock` (with copy), `CopyButton`, `PathText` (a file
+  path on one line: the folder truncates, the file name stays, full path in the tooltip, copy button)
 - Figures: `KpiCard`, `StatStrip` (a row of small figures in one card, for a page header), `Meter`, `SegmentedBar`,
   `BarList`, `ColumnChart`, `ScoreRing`
 - Inputs: `TextInput`, `TextArea`, `Select`, `Checkbox`, `PasswordInput` (show/hide), `SearchInput`, `Segmented`,
   `OptionList` (radio rows with a hint and a tag, for choosing an output format), `Field`; the `.field` / `.label`
   classes for anything custom
 - Feedback: `Alert` (info / success / warning / danger), `Spinner`, `Kbd`
-- Overlays: `Modal` (pass `busy` while an operation runs so it cannot be dismissed), `useToast()` (app-wide,
-  optional action such as *Undo* or *Show in folder*), `useConfirm()` (promise-based; supports a third
-  "alternate" choice such as *Don't save*)
+- Overlays: `Modal` (pass `busy` while an operation runs so it cannot be dismissed; dialogs stack, and only the top one
+  answers Escape; focus is trapped inside and returns to the opener on close; the title labels the dialog),
+  `useToast()` (app-wide, optional action such as *Undo* or *Show in folder*; toasts sit below dialogs, so a dialog
+  that stays open after an action shows the outcome inline), `useConfirm()` (promise-based; supports a third
+  "alternate" choice such as *Don't save*; with `danger: true` the focus starts on Cancel), `Menu` items move with the
+  arrow keys, Home and End
 
 Certificates render with `src/components/CertificateView.tsx` (`CertificateDetails`, `ChainView`, `ExtensionsList`,
 `TrustBanner`, `WarningList`). Keystore entries use the atoms in `src/components/entry.tsx` (`EntryIcon`, `EntryNameCell`,
@@ -82,7 +92,12 @@ right (header, `StatStrip`, entry table). The navigator scrolls, so any number o
 - Every icon-only button has an `aria-label`; important controls carry a `data-testid` for the E2E suite.
 - Focus ring is global (`:focus-visible`); never remove it.
 - Destructive or overwriting actions confirm first (`useConfirm({ danger: true })`) and offer undo where possible.
-- Errors are shown where they happen (inline `Alert` in dialogs, `toast.error` otherwise) — never `alert()`.
+- Errors are shown where they happen (inline `Alert` in dialogs, `toast.error` otherwise). Never `alert()`, `confirm()`
+  or `prompt()`: WKWebView returns at once without showing anything; use `Modal` and `useConfirm()`.
+- A destructive choice is never the default: `useConfirm({ danger: true })` focuses Cancel, so Enter cannot delete,
+  overwrite or quit by accident.
+- A dialog that keeps its state while closed resets it in `useLayoutEffect` when it opens (or is keyed by what it
+  edits). A passive `useEffect` runs after the dialog is on screen and can wipe what was typed into it first.
 - Long operations show a `Spinner` and disable their trigger; dialogs pass `busy`.
 - Table rows are clickable and keyboard-focusable; row actions sit in the last column (quick icons + `Menu`).
 - Key pairs open locked (Settings can turn this off). Anything that uses a private key — inspect, export, copy, CSR,

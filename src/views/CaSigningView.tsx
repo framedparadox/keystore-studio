@@ -5,12 +5,20 @@ import { api, errorMessage } from "../lib/api";
 import { FILTERS, baseName, pickFile, pickSavePath, safeFileStem } from "../lib/files";
 import { EXTENDED_KEY_USAGES, KEY_USAGES, cnOf, isCaEntry, splitList } from "../lib/keystore";
 import { useStore } from "../state/store";
-import { Alert, Badge, Button, Card, Checkbox, CodeBlock, EmptyState, Page, PageHeader, Segmented, Select, Spinner, TextArea, TextInput, useToast } from "../components/ui";
+import { Alert, Badge, Button, Card, Checkbox, CodeBlock, Page, PageHeader, Segmented, Select, Spinner, TextArea, TextInput, useToast } from "../components/ui";
 import { CertificateDetails } from "../components/CertificateView";
 import { TerminalHint } from "../components/Terminal";
 import { useSaveText, useSavedToast } from "../components/EntryDialogs";
 
 type Tool = "csr" | "crl" | "cms" | "jwt" | "jar" | "dh";
+
+/*
+ * The last JAR request (a dropped or opened archive) each part acted on. Handled once, in module
+ * scope, because the page remounts every time it is shown: acting on the same request again made
+ * every later visit jump to "Sign JAR".
+ */
+let toolHandledNonce = 0;
+let jarInputHandledNonce = 0;
 
 interface Candidate {
   entry: KeystoreEntry;
@@ -189,11 +197,28 @@ const FileOrPaste: React.FC<{ label: string; path: string | null; setPath: (p: s
   </div>
 );
 
-const ResultPane: React.FC<{ children?: React.ReactNode; empty: string }> = ({ children, empty }) => (
-  <div className="lg:col-span-7 bg-surface-2 rounded-card p-5 border border-line min-h-[320px] select-text">
-    {children ?? <div className="h-full min-h-[280px] flex items-center justify-center text-center text-subtle text-[13px] px-6">{empty}</div>}
-  </div>
-);
+/**
+ * The right-hand result column. The hint shows until there is a result. It sits at the top: the
+ * column stretches to the height of the form beside it, and a vertically centred hint ended up
+ * below the fold. `children` like `{result && …}` can be `false`, which is not "nothing" to `??`.
+ */
+const ResultPane: React.FC<{ children?: React.ReactNode; empty: string }> = ({ children, empty }) => {
+  const hasContent = React.Children.toArray(children).length > 0;
+  return (
+    <div className="lg:col-span-7 bg-surface-2 rounded-card p-5 border border-line min-h-[320px] select-text">
+      {hasContent ? (
+        children
+      ) : (
+        <div className="pt-14 pb-8 px-6 flex flex-col items-center text-center" data-testid="result-empty">
+          <span className="w-10 h-10 rounded-card border border-line bg-surface shadow-card flex items-center justify-center text-muted mb-3" aria-hidden>
+            <FileCheck2 className="w-5 h-5" />
+          </span>
+          <p className="text-[13px] text-faint max-w-sm">{empty}</p>
+        </div>
+      )}
+    </div>
+  );
+};
 
 async function sha256OfPem(pemText: string): Promise<string> {
   const b64 = pemText.replace(/-----[^-]+-----/g, "").replace(/\s+/g, "");
@@ -539,7 +564,7 @@ const CrlTool: React.FC = () => {
             <Button icon={Plus} onClick={() => add(serial)} aria-label="Add serial" data-testid="crl-add" />
             <Button
               onClick={async () => {
-                const path = await pickFile("Open a CRL", [FILTERS.certificates]).catch(() => null);
+                const path = await pickFile("Open a CRL", [FILTERS.crl]).catch(() => null);
                 if (!path) return;
                 try {
                   const crl = await api.readCrl({ path });
@@ -603,7 +628,7 @@ const CrlTool: React.FC = () => {
                 </button>
               </li>
             ))}
-            {revoked.length === 0 && <li className="text-[13px] text-subtle">No revoked certificates — the CRL will be empty, which is valid.</li>}
+            {revoked.length === 0 && <li className="text-[13px] text-faint">No revoked certificates — the CRL will be empty, which is valid.</li>}
           </ul>
         </div>
         <Button variant="primary" className="w-full" onClick={generate} disabled={busy || !ca} data-testid="crl-generate">
@@ -863,7 +888,9 @@ const JarTool: React.FC = () => {
   const [result, setResult] = useState<JarSignResult | null>(null);
   const timestamping = useTimestamping();
   useEffect(() => {
-    if (jarRequest) setInput(jarRequest.path);
+    if (!jarRequest || jarRequest.nonce === jarInputHandledNonce) return;
+    jarInputHandledNonce = jarRequest.nonce;
+    setInput(jarRequest.path);
   }, [jarRequest]);
   const sign = async () => {
     if (!signer || !input) return;
@@ -986,9 +1013,11 @@ const DhTool: React.FC = () => {
 
 export const CaSigningView: React.FC = () => {
   const { jarRequest, keystores, openFiles } = useStore();
-  const [tool, setTool] = useState<Tool>("csr");
+  const [tool, setTool] = useState<Tool>(() => (jarRequest && jarRequest.nonce !== toolHandledNonce ? "jar" : "csr"));
   useEffect(() => {
-    if (jarRequest) setTool("jar");
+    if (!jarRequest || jarRequest.nonce === toolHandledNonce) return;
+    toolHandledNonce = jarRequest.nonce;
+    setTool("jar");
   }, [jarRequest]);
   const loaded = keystores.some((k) => !k.sealed && k.entries.length);
   return (

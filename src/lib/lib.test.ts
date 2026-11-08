@@ -1,6 +1,6 @@
 import { describe, expect, it, beforeEach } from "vitest";
 import type { KeystoreEntry, OpenKeystore } from "../types/crypto";
-import { daysUntilExpiry, entryHealth, expiryStatus, findingsFor, formatDuration, setThresholds, summarize } from "./metrics";
+import { daysUntilExpiry, entryHealth, entryMix, expiryStatus, findingsFor, formatDuration, plural, setThresholds, summarize } from "./metrics";
 import {
   aliasTaken,
   byTypeThenAlias,
@@ -26,6 +26,7 @@ import { csvField } from "./csv";
 import { diffEntries } from "./diff";
 import { classifyError } from "./api";
 import { baseName, dirName, safeFileStem, withExtension } from "./files";
+import { connectTarget, parseTlsTarget } from "./net";
 
 const DAY = 86_400;
 const now = () => Math.floor(Date.now() / 1000);
@@ -390,5 +391,72 @@ describe("conversion catalog", () => {
     expect(cliHint("extract", "leaf:pkcs8")).toContain("-clcerts -nodes");
     expect(cliHint("encoding", "der")).toContain("openssl asn1parse");
     expect(cliHint("encoding", "CERTIFICATE REQUEST")).toContain("openssl req -inform DER");
+  });
+});
+
+describe("review fixes", () => {
+  beforeEach(() => setThresholds(30, 90));
+
+  it("rounds durations to whole months before splitting off years", () => {
+    // 729 days used to read "1y": the leftover 364 days rounded to 12 months and were dropped.
+    expect(formatDuration(729)).toBe("2y");
+    expect(formatDuration(365)).toBe("1y");
+    expect(formatDuration(400)).toBe("1y 1m");
+    expect(formatDuration(3650)).toBe("10y");
+    expect(formatDuration(-729)).toBe("2y");
+  });
+
+  it("parses a TLS target the way the engine does", () => {
+    expect(parseTlsTarget("https://example.com:8443/x?y", 443)).toEqual({ host: "example.com", port: 8443 });
+    expect(parseTlsTarget("example.com", 443)).toEqual({ host: "example.com", port: 443 });
+    expect(parseTlsTarget("[::1]:9443", 443)).toEqual({ host: "::1", port: 9443 });
+    expect(parseTlsTarget("::1", 443)).toEqual({ host: "::1", port: 443 });
+    expect(parseTlsTarget("user@host.test:636", 443)).toEqual({ host: "host.test", port: 636 });
+    expect(parseTlsTarget("LDAPS://dir.test", 636)).toEqual({ host: "dir.test", port: 636 });
+    expect(parseTlsTarget("host:notaport", 443)).toBeNull();
+    expect(parseTlsTarget("host:70000", 443)).toBeNull();
+    expect(parseTlsTarget("  ", 443)).toBeNull();
+    expect(connectTarget({ host: "::1", port: 9443 })).toBe("[::1]:9443");
+    expect(connectTarget({ host: "example.com", port: 443 })).toBe("example.com:443");
+  });
+
+  it("suggests an openssl command that matches the input encoding", () => {
+    expect(cliHint("certificate", "pem")).toBe("openssl x509 -in certificate.der -inform DER -out certificate.pem");
+    expect(cliHint("certificate", "pem", "/c/leaf.cer")).toContain("-inform DER");
+    expect(cliHint("certificate", "pem", "/c/chain.pem")).toBe("openssl x509 -in /c/chain.pem -out certificate.pem");
+  });
+
+  it("neutralises CSV fields that start with a tab or carriage return", () => {
+    expect(csvField("\t=1+1")).toBe(`"'\t=1+1"`);
+    expect(csvField("\r=1+1")).toBe(`"'\r=1+1"`);
+    expect(csvField("CN=a")).toBe(`"CN=a"`);
+  });
+
+  it("flags a duplicate subject key id only when the keys differ", () => {
+    const withKey = (alias: string, ski: string, spki: string) => {
+      const e = entry(alias);
+      e.certificate_chain[0] = { ...e.certificate_chain[0], subject_key_id: ski, spki_sha256: spki };
+      return e;
+    };
+    const a = withKey("a", "AB:CD", "key-1");
+    // The same CA in a keystore and in a truststore: same key id, same key. Normal.
+    const copy = withKey("copy", "AB:CD", "key-1");
+    expect(findingsFor(a, { siblings: [a, copy] }).map((f) => f.title)).not.toContain("Duplicate subject key id");
+    // A different key claiming the same key id: chain building cannot tell them apart.
+    const clash = withKey("clash", "AB:CD", "key-2");
+    expect(findingsFor(a, { siblings: [a, clash] }).map((f) => f.title)).toContain("Duplicate subject key id");
+  });
+
+  it("reports a JKS store without marking every entry as needing action", () => {
+    const f = findingsFor(entry("a"), { format: "JKS" }).find((x) => x.title === "JKS store");
+    expect(f?.severity).toBe("low");
+  });
+
+  it("describes an inventory with correct plurals and without empty types", () => {
+    expect(plural(1, "secret key")).toBe("1 secret key");
+    expect(plural(2, "secret key")).toBe("2 secret keys");
+    expect(entryMix({ keyPairs: 6, trusted: 0, secrets: 1 })).toBe("6 key pairs · 1 secret key");
+    expect(entryMix({ keyPairs: 1, trusted: 3, secrets: 0 })).toBe("1 key pair · 3 certificates");
+    expect(entryMix({ keyPairs: 0, trusted: 0, secrets: 0 })).toBe("No entries");
   });
 });

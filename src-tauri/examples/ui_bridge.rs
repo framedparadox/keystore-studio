@@ -8,6 +8,23 @@ fn json_err(msg: &str) -> String {
     serde_json::json!({ "error": msg }).to_string()
 }
 
+/// A required argument, deserialised into the engine's own type.
+fn arg<T: serde::de::DeserializeOwned>(args: &serde_json::Value, k: &str) -> Result<T, String> {
+    serde_json::from_value(args.get(k).cloned().ok_or_else(|| format!("missing {k}"))?).map_err(|e| format!("bad {k}: {e}"))
+}
+
+/// An optional argument: absent or null is None.
+fn opt_arg<T: serde::de::DeserializeOwned>(args: &serde_json::Value, k: &str) -> Result<Option<T>, String> {
+    match args.get(k) {
+        None | Some(serde_json::Value::Null) => Ok(None),
+        Some(v) => serde_json::from_value(v.clone()).map(Some).map_err(|e| format!("bad {k}: {e}")),
+    }
+}
+
+fn to_json<T: serde::Serialize>(v: T) -> Result<serde_json::Value, String> {
+    serde_json::to_value(v).map_err(|e| e.to_string())
+}
+
 fn handle(cmd: &str, args: &serde_json::Value) -> Result<serde_json::Value, String> {
     let s = |k: &str| -> String { args.get(k).and_then(|v| v.as_str()).unwrap_or("").to_string() };
     // A DataSource from the UI: { path } or { text }.
@@ -61,16 +78,16 @@ fn handle(cmd: &str, args: &serde_json::Value) -> Result<serde_json::Value, Stri
         }
         // The three commands the keystore screens need: sniff a file, open it, save it.
         "probe_file" => {
+            // As probe_file in src/commands.rs: a keystore, else whatever examine recognises, so a
+            // dropped certificate is routed to Examine like it is in the app.
             let path = s("path");
             let head = std::fs::read(&path).map_err(|e| format!("cannot read {path}: {e}"))?;
             let fmt = xkeystore_lib::keystore::detect(&head).map(|f| f.name().to_string());
-            let probe = xkeystore_lib::model::FileProbe {
-                name: xkeystore_lib::util::file_name_of(&path),
-                size: head.len() as u64,
-                kind: if fmt.is_some() { "keystore".into() } else { "unknown".into() },
-                keystore_format: fmt,
-                path,
+            let kind = match &fmt {
+                Some(_) => "keystore".to_string(),
+                None => xkeystore_lib::detect::examine(&head, None).map(|r| r.kind).unwrap_or_else(|_| "unknown".into()),
             };
+            let probe = xkeystore_lib::model::FileProbe { name: xkeystore_lib::util::file_name_of(&path), size: head.len() as u64, kind, keystore_format: fmt, path };
             serde_json::to_value(probe).map_err(|e| e.to_string())
         }
         "open_keystore" => {
@@ -125,6 +142,52 @@ fn handle(cmd: &str, args: &serde_json::Value) -> Result<serde_json::Value, Stri
             xkeystore_lib::util::write_atomic(std::path::Path::new(&path), s("content").as_bytes())?;
             Ok(serde_json::Value::Null)
         }
+        // Entries: the same engine calls as the Tauri commands (see src/commands.rs).
+        "generate_key_pair" => {
+            let input: xkeystore_lib::model::GenerateKeyPairInput = arg(args, "input")?;
+            let issuer: Option<xkeystore_lib::model::KeystoreEntry> = opt_arg(args, "issuer")?;
+            let (entry, note) = xkeystore_lib::ops::issue_key_pair(&input, issuer.as_ref())?;
+            let mut value = serde_json::to_value(entry).map_err(|e| e.to_string())?;
+            if let (Some(note), Some(obj)) = (note, value.as_object_mut()) {
+                obj.insert("validity_note".into(), note.into());
+            }
+            Ok(value)
+        }
+        "generate_secret_key" => to_json(xkeystore_lib::ops::generate_secret_key(&arg(args, "input")?)?),
+        "import_trusted_certificates" => {
+            let existing: Vec<String> = arg(args, "existingAliases")?;
+            to_json(xkeystore_lib::ops::import_trusted_certificates(&s("alias"), &source("data")?, &existing)?)
+        }
+        "generate_csr" => to_json(xkeystore_lib::ops::generate_csr(&arg(args, "entry")?, &arg(args, "options")?)?),
+        "import_ca_reply" => to_json(xkeystore_lib::ops::import_ca_reply(&arg(args, "entry")?, &source("reply")?)?),
+        "sign_csr" => to_json(xkeystore_lib::ops::sign_csr(&arg(args, "input")?, &arg(args, "caEntry")?)?),
+        "inspect_csr" => to_json(xkeystore_lib::x509::parse_csr(&xkeystore_lib::x509::csr_der_from_bytes(&source("data")?)?)?),
+        "rotate_key" => {
+            let issuer: Option<xkeystore_lib::model::KeystoreEntry> = opt_arg(args, "issuer")?;
+            let curve = args.get("curve").and_then(|v| v.as_str()).map(String::from);
+            let size = args.get("keySize").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
+            to_json(xkeystore_lib::ops::rotate_key(&arg(args, "entry")?, &s("algorithm"), size, curve.as_deref(), issuer.as_ref())?)
+        }
+        "export_entry" => {
+            let password = args.get("password").and_then(|v| v.as_str()).filter(|p| !p.is_empty());
+            to_json(xkeystore_lib::export::export_entry(&arg(args, "entry")?, &s("target"), &s("path"), password)?)
+        }
+        "jwt_algorithms" => {
+            let entry: xkeystore_lib::model::KeystoreEntry = arg(args, "entry")?;
+            to_json(xkeystore_lib::jwt::algorithms_for(&entry))
+        }
+        "validate_chain" => {
+            let pems = |k: &str| -> Result<Vec<Vec<u8>>, String> {
+                let text = s(k);
+                if text.trim().is_empty() { Ok(Vec::new()) } else { xkeystore_lib::x509::certificates_from_bytes(text.as_bytes()) }
+            };
+            let leaf = pems("leafPem")?.into_iter().next().ok_or("no leaf certificate")?;
+            let hostname = args.get("hostname").and_then(|v| v.as_str());
+            to_json(xkeystore_lib::x509::validate_chain(&leaf, &pems("intermediatesPem")?, &pems("anchorsPem")?, hostname))
+        }
+        // State the UI reads on its pages; the bridge keeps none, so these answer "empty".
+        "vault_list_secrets" | "ledger_search" => Ok(serde_json::json!([])),
+        "ca_next_crl_number" => Ok(serde_json::json!(1)),
         other => Err(format!("ui_bridge does not implement '{other}'")),
     }
 }

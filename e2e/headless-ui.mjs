@@ -58,17 +58,24 @@ function startEngine() {
 
 /** Serves dist/, and injects the Tauri shim so the UI's commands reach the real engine. */
 function startServer(port) {
+  // Window metadata and the plugin channel (events, opener) belong to the Tauri runtime, not the
+  // engine: they are answered here, so the app's window hooks (the unsaved-changes guard, drag and
+  // drop) start without errors. Engine commands go to the bridge.
   const shim = `
     window.__TAURI_INTERNALS__ = {
+      metadata: { currentWindow: { label: "main" }, currentWebview: { windowLabel: "main", label: "main" } },
       invoke: (cmd, args) =>
-        fetch("http://127.0.0.1:${port}/", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ cmd, args: args || {} }),
-        })
-          .then((r) => r.json())
-          .then((r) => { if (r.error) throw new Error(r.error); return r.ok; }),
+        cmd.startsWith("plugin:")
+          ? Promise.resolve(null)
+          : fetch("http://127.0.0.1:${port}/", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ cmd, args: args || {} }),
+            })
+              .then((r) => r.json())
+              .then((r) => { if (r.error) throw new Error(r.error); return r.ok; }),
       transformCallback: (cb) => { const id = Math.random(); window[id] = cb; return id; },
+      unregisterCallback: (id) => { delete window[id]; },
     };
     window.__xksStub = { open: [], save: [] };
   `;
@@ -137,6 +144,11 @@ async function run() {
   log(`frontend on ${webPort}`);
 
   const opts = new chrome.Options().addArguments("--headless=new", "--disable-gpu", "--no-sandbox", "--window-size=1400,900");
+  // A pinned Chrome for Testing build (Selenium Manager downloads and caches it), not the desktop
+  // Chrome: an everyday Chrome that has an update waiting quits a headless session after ~35 s,
+  // which ends the run halfway. XKS_CHROME=system uses the installed Chrome; any other value is a
+  // Chrome for Testing version or channel.
+  if (process.env.XKS_CHROME !== "system") opts.setBrowserVersion(process.env.XKS_CHROME || "stable");
   driver = await new Builder().forBrowser("chrome").setChromeOptions(opts).build();
   await driver.get(`http://127.0.0.1:${webPort}/`);
 
@@ -257,7 +269,14 @@ async function run() {
     await click("ks-more");
     await click("ks-compare");
     await click("diff-disk");
-    await waitText("Added: extra", 15000);
+    // The direction must be stated: 'extra' exists only on disk, not in the keystore open here.
+    const rowText = async (id) => {
+      const els = await driver.findElements(byTest(id));
+      return els.length ? els[0].getText() : "";
+    };
+    await driver.wait(async () => (await rowText("diff-only-there")).includes("extra"), 15000, "'extra' was not reported as only in the file on disk");
+    if ((await rowText("diff-only-here")).includes("extra")) throw new Error("'extra' was reported as only in the open keystore");
+    if (!(await rowText("diff-only-there")).includes("the file on disk")) throw new Error("the comparison does not name what it compared against");
   });
 
   // ---- Keystore navigator, locked key pairs and the Convert page ----
@@ -452,6 +471,242 @@ async function run() {
     const text = await driver.findElement(By.tagName("body")).getText();
     if (text.includes("Private key locked")) throw new Error("the inspector still says the key is locked after the unlock");
     await driver.actions().sendKeys("\uE00C").perform();
+  });
+
+  // ---- Regressions from the code review: each of these failed before its fix ----
+  const R = path.join(WORK, "review");
+  fs.mkdirSync(R, { recursive: true });
+  const REV_PW = "reviewpw1";
+  const ESC = "\uE00C";
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const keys = (...k) => driver.actions().sendKeys(...k).perform();
+  const present = async (id) => (await driver.findElements(byTest(id))).length > 0;
+  const gone = (id, what) => driver.wait(async () => !(await present(id)), 10000, what ?? `${id} is still open`);
+  const activeTestId = () => driver.executeScript("return document.activeElement?.getAttribute('data-testid') ?? document.activeElement?.getAttribute('role') ?? document.activeElement?.tagName");
+  const aliases = () => driver.executeScript(`return [...document.querySelectorAll('[data-testid="entry-alias"]')].map((e) => e.textContent.trim())`);
+  const keytoolPair = (file, alias, type = "PKCS12", extra = []) =>
+    sh("keytool", ["-genkeypair", "-alias", alias, "-keyalg", "EC", "-groupname", "secp256r1", "-dname", `CN=${alias}.review.test`, "-storetype", type, "-keystore", file, "-storepass", REV_PW, ...extra]);
+  const openKeystore = async (file, pw = REV_PW) => {
+    await driver.executeScript(`window.__xksStub.open.push(${JSON.stringify(file)});`);
+    await click("header-open");
+    await driver.wait(until.elementLocated(byTest("open-password")), 15000);
+    await setField("open-password", pw);
+    await click("open-submit");
+    await gone("open-password-dialog", `${path.basename(file)} did not open`);
+  };
+  const clickAlias = (alias) =>
+    driver.executeScript(`const el = [...document.querySelectorAll('[data-testid="entry-alias"]')].find((e) => e.textContent.trim() === ${JSON.stringify(alias)});
+       if (!el) throw new Error("no alias " + ${JSON.stringify(alias)}); el.click();`);
+
+  await step("review: a workspace row asks for the key password before showing the key", async () => {
+    const file = path.join(R, "ws-row.p12");
+    keytoolPair(file, "row-key");
+    await openKeystore(file);
+    await click("nav-workspaces");
+    await click("workspace-new");
+    await setField("workspace-name", "Row review");
+    await click("workspace-save");
+    await click("workspace-assign");
+    await driver.executeScript(`const el = [...document.querySelectorAll("button[aria-pressed]")].find((b) => [...b.querySelectorAll("span")].some((s) => s.textContent.trim() === "row-key"));
+       if (!el) throw new Error("no picker row for row-key"); el.click();`);
+    await clickButton("Done");
+    // The row itself, not the eye icon: the row opened the inspector, and its private key, without the password.
+    await driver.executeScript(`const row = [...document.querySelectorAll("tbody tr")].find((r) => r.innerText.includes("row-key")); row.click();`);
+    await driver.wait(until.elementLocated(byTest("unlock-key-dialog")), 10000);
+    if (await present("entry-inspector")) throw new Error("the inspector opened before the key password was entered");
+    await keys(ESC);
+    await gone("unlock-key-dialog");
+    await sleep(200);
+    if (await present("entry-inspector")) throw new Error("cancelling the key password still opened the inspector");
+  });
+
+  await step("review: Escape closes only the dialog on top", async () => {
+    await click("nav-keystores");
+    await click("ks-tab-ws-row.p12");
+    await clickAlias("row-key");
+    await driver.wait(until.elementLocated(byTest("unlock-key-password")), 10000);
+    await setField("unlock-key-password", REV_PW);
+    await click("unlock-key-submit");
+    await driver.wait(until.elementLocated(byTest("entry-inspector")), 10000);
+    await clickTab("Private key");
+    await click("reveal-key");
+    await driver.wait(until.elementLocated(byTest("confirm-ok")), 10000);
+    await keys(ESC);
+    await gone("confirm-ok", "the confirmation did not close on Escape");
+    if (!(await present("entry-inspector"))) throw new Error("Escape on the confirmation also closed the inspector underneath");
+    await keys(ESC);
+    await gone("entry-inspector", "the inspector did not close on the next Escape");
+  });
+
+  await step("review: unlocking a key with its own password is not an unsaved change", async () => {
+    const file = path.join(R, "own-pw.jks");
+    keytoolPair(file, "own", "JKS", ["-keypass", "ownkeypw1"]);
+    await openKeystore(file);
+    await driver.wait(until.elementLocated(byTest("row-unlock-own")), 10000);
+    await click("row-unlock-own");
+    await setField("unlock-key-password", "ownkeypw1");
+    await click("unlock-key-submit");
+    await gone("unlock-key-dialog");
+    await sleep(200);
+    const state = await driver.executeScript(`return { title: document.title, badge: document.querySelector('[data-testid="keystore-detail"]').innerText.includes("Unsaved changes") }`);
+    if (state.title.startsWith("\u2022") || state.badge) throw new Error(`unlocking marked own-pw.jks as changed: ${JSON.stringify(state)}`);
+  });
+
+  await step("review: undo does not close a keystore opened after the edit", async () => {
+    await rowMenu("own", "menu-rename");
+    await setField("rename-input", "own-renamed");
+    await click("rename-submit");
+    await driver.wait(async () => (await aliases()).includes("own-renamed"), 5000, "the rename did not apply");
+    const later = path.join(R, "opened-later.p12");
+    keytoolPair(later, "later");
+    await openKeystore(later);
+    await click("undo");
+    await sleep(300);
+    if (!(await present("ks-tab-opened-later.p12"))) throw new Error("undo closed the keystore that was opened after the edit");
+    await click("ks-tab-own-pw.jks");
+    await driver.wait(async () => (await aliases()).includes("own"), 5000, "undo did not revert the rename");
+  });
+
+  await step("review: Save As can replace another existing keystore file", async () => {
+    const target = path.join(R, "existing-target.p12");
+    keytoolPair(target, "stale");
+    fs.utimesSync(target, new Date(2001, 1, 1), new Date(2001, 1, 1));
+    await click("ks-tab-opened-later.p12");
+    await driver.executeScript(`window.__xksStub.save.push(${JSON.stringify(target)});`);
+    await click("ks-more");
+    await click("ks-save-as");
+    await setField("save-password", REV_PW);
+    await setField("save-password-confirm", REV_PW);
+    await click("save-choose-location");
+    await gone("save-dialog", "Save As did not finish");
+    if ((await driver.findElement(By.tagName("body")).getText()).includes("modified after it was opened")) throw new Error("Save As onto an existing file was refused as 'changed on disk'");
+    const list = sh("keytool", ["-list", "-keystore", target, "-storetype", "PKCS12", "-storepass", REV_PW]);
+    if (!list.includes("later") || list.includes("stale")) throw new Error(`the file was not replaced:\n${list}`);
+  });
+
+  await step("review: a keystore created as JKS is first saved as JKS", async () => {
+    await click("header-new");
+    await click("format-JKS");
+    await setField("new-keystore-password", REV_PW);
+    await setField("new-keystore-password-confirm", REV_PW);
+    await click("new-keystore-create");
+    await gone("new-keystore-dialog", "the new keystore was not created");
+    await click("ks-save");
+    const format = await (await driver.wait(until.elementLocated(byTest("save-format")), 10000)).getAttribute("value");
+    if (format !== "JKS") throw new Error(`the first save of a new JKS keystore offered ${format}`);
+    const out = path.join(R, "created.jks");
+    await driver.executeScript(`window.__xksStub.save.push(${JSON.stringify(out)});`);
+    await click("save-choose-location");
+    await driver.wait(async () => fs.existsSync(out), 15000, "the JKS file was not written");
+    const list = sh("keytool", ["-list", "-keystore", out, "-storetype", "JKS", "-storepass", REV_PW]);
+    if (!/Keystore type: JKS/i.test(list)) throw new Error(`not a JKS file:\n${list}`);
+  });
+
+  await step("review: bulk Label labels every selected entry, and the selection follows the filter", async () => {
+    await click("ks-tab-nav.p12");
+    await click("select-all");
+    await waitText("2 selected");
+    await click("bulk-label");
+    await setField("bulk-label-input", "audit-2026");
+    await click("bulk-label-submit");
+    await gone("bulk-label-dialog");
+    const labelled = await driver.executeScript(`return [...document.querySelectorAll('select[aria-label="Filter by label"] option')].map((o) => o.value)`);
+    if (!labelled.includes("audit-2026")) throw new Error(`the label was not applied (window.prompt does nothing in the webview): ${labelled}`);
+    // Narrowing the list drops hidden entries from the selection, so a bulk Delete only hits what is shown.
+    const search = await driver.findElement(By.css('input[type="search"][aria-label^="Search by alias"]'));
+    await driver.executeScript(`const el = arguments[0]; Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(el, "anchor"); el.dispatchEvent(new Event("input", { bubbles: true }));`, search);
+    await waitText("1 selected");
+    await driver.executeScript(`const el = arguments[0]; Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(el, ""); el.dispatchEvent(new Event("input", { bubbles: true }));`, search);
+    await click("select-all");
+    await click("select-all");
+    if ((await driver.findElement(By.tagName("body")).getText()).match(/\d selected/)) throw new Error("select-all did not toggle the selection off");
+  });
+
+  await step("review: a destructive confirmation defaults to Cancel, and Enter keeps the entry", async () => {
+    await driver.executeScript(`document.querySelector('button[aria-label="Delete anchor"]').click()`);
+    await driver.wait(until.elementLocated(byTest("confirm-cancel")), 10000);
+    await sleep(100);
+    if ((await activeTestId()) !== "confirm-cancel") throw new Error(`focus is on ${await activeTestId()}, not Cancel`);
+    await keys("\uE007");
+    await gone("confirm-cancel");
+    if (!(await aliases()).includes("anchor")) throw new Error("Enter on the confirmation deleted the entry");
+  });
+
+  await step("review: row menus work from the keyboard and give focus back", async () => {
+    await click("row-menu-anchor");
+    await driver.wait(async () => (await activeTestId()) === "menuitem" || (await driver.executeScript("return document.activeElement?.getAttribute('role')")) === "menuitem", 5000, "focus did not move into the menu");
+    const first = await driver.executeScript("return document.activeElement.innerText");
+    await keys("\uE015");
+    const second = await driver.executeScript("return document.activeElement.innerText");
+    if (first === second) throw new Error("ArrowDown did not move through the menu");
+    await keys(ESC);
+    await driver.wait(async () => (await activeTestId()) === "row-menu-anchor", 5000, "Escape did not return focus to the menu button");
+  });
+
+  await step("review: a dialog returns focus to what opened it, and toasts never cover it", async () => {
+    await click("ks-more");
+    await click("ks-compare");
+    await driver.wait(until.elementLocated(byTest("diff-dialog")), 10000);
+    // Toasts sit bottom-right, where a dialog footer puts its buttons: they must stay below dialogs.
+    const covered = await driver.executeScript(`
+      const btn = [...document.querySelectorAll('[data-testid="diff-dialog"] button')].pop();
+      const r = btn.getBoundingClientRect();
+      const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+      const toasts = document.querySelector('[aria-live="polite"]');
+      return { onTop: btn.contains(hit), toastZ: getComputedStyle(toasts).zIndex };`);
+    if (!covered.onTop) throw new Error("something covers the dialog's footer button");
+    if (Number(covered.toastZ) >= 50) throw new Error(`toasts (z-index ${covered.toastZ}) are above dialogs`);
+    await keys(ESC);
+    await gone("diff-dialog");
+    await driver.wait(async () => (await activeTestId()) === "ks-more", 5000, `focus went to ${await activeTestId()}, not back to the menu button`);
+  });
+
+  await step("review: a cut secret key that cannot be pasted stays on the clipboard", async () => {
+    const file = path.join(R, "secrets.p12");
+    keytoolPair(file, "holder");
+    await openKeystore(file);
+    await click("ks-add-entry");
+    await click("add-secret");
+    await setField("sk-alias", "move-me");
+    await click("secret-key-submit");
+    await gone("secret-key-dialog");
+    await rowMenu("move-me", "menu-cut");
+    await click("ks-tab-own-pw.jks");
+    await click("footer-paste");
+    await waitText("stays on the clipboard");
+    // It was already removed from secrets.p12, so emptying the clipboard here would lose it.
+    if (!(await present("footer-paste"))) throw new Error("the clipboard was emptied although JKS could not take the key");
+    await click("ks-tab-secrets.p12");
+    await click("footer-paste");
+    await driver.wait(async () => (await aliases()).includes("move-me"), 5000, "the secret key could not be pasted back");
+  });
+
+  await step("review: a dropped certificate opens in Examine once, not on every visit", async () => {
+    const cert = path.join(R, "examine-once.pem");
+    fs.writeFileSync(cert, certPem());
+    await driver.executeScript(`window.__xksStub.open.push(${JSON.stringify(cert)});`);
+    await click("header-open");
+    await driver.wait(until.elementLocated(byTest("decode-title")), 15000);
+    await clickTab("TLS server");
+    await click("nav-home");
+    await click("nav-examine");
+    await sleep(300);
+    const selected = await driver.executeScript(`return [...document.querySelectorAll('[role="tab"][aria-selected="true"]')].map((t) => t.innerText.trim()).join("|")`);
+    if (selected.includes("Decode")) throw new Error("returning to Examine replayed the old file in Decode");
+  });
+
+  await step("review: the audit raises a JKS keystore once, with a way to open it", async () => {
+    await click("nav-scanner");
+    await driver.wait(until.elementLocated(byTest("audit-open-jks")), 15000);
+  });
+
+  await step("review: a keystore path stays on one line, with a copy button", async () => {
+    await click("nav-keystores");
+    await click("ks-tab-nav.p12");
+    const box = await driver.executeScript(`const el = document.querySelector('[data-testid="keystore-detail"] [data-testid="path-text"]'); return el && { h: el.getBoundingClientRect().height, copy: !!el.querySelector('button[aria-label="Copy path"]'), title: el.getAttribute("title") }`);
+    if (!box) throw new Error("no path shown");
+    if (box.h > 32) throw new Error(`the path wraps (${box.h}px tall)`);
+    if (!box.copy || !box.title?.endsWith("nav.p12")) throw new Error(`path tooltip or copy missing: ${JSON.stringify(box)}`);
   });
 }
 

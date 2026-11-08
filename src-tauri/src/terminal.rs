@@ -1,15 +1,24 @@
 //! The built-in terminal: runs one shell command at a time in a tracked working directory.
 //! stdin is closed (so tools that prompt — e.g. keytool without -storepass — fail fast instead of
 //! hanging), output is capped, and commands are killed after a timeout.
+//!
+//! Each command runs in a process group of its own. On timeout the whole group is killed, not just
+//! the shell: killing the shell alone left `sleep 100 | cat` or `openssl s_server` running, and
+//! because they held the output pipes open, the call did not return until they exited by
+//! themselves, however long that took.
 
 use crate::util::Res;
 use serde::Serialize;
 use std::io::Read;
 use std::process::{Command, Stdio};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 const MARKER: &str = "__XKS_CWD__";
 const MAX_OUTPUT: usize = 512 * 1024;
+/// How long to keep reading output after the shell has exited. A command left running in the
+/// background (`server &`) keeps the pipes open; its later output is not waited for.
+const DRAIN_GRACE: Duration = Duration::from_millis(1500);
 
 #[derive(Serialize)]
 pub struct TerminalOutput {
@@ -21,23 +30,74 @@ pub struct TerminalOutput {
     pub truncated: bool,
 }
 
-fn read_capped<R: Read + Send + 'static>(mut r: R) -> std::thread::JoinHandle<(Vec<u8>, bool)> {
+/// Output collected so far by a reader thread, readable while the thread still runs.
+#[derive(Default)]
+struct Captured {
+    bytes: Vec<u8>,
+    truncated: bool,
+    done: bool,
+}
+
+fn read_capped<R: Read + Send + 'static>(mut r: R) -> Arc<Mutex<Captured>> {
+    let shared = Arc::new(Mutex::new(Captured::default()));
+    let sink = shared.clone();
     std::thread::spawn(move || {
-        let mut out = Vec::new();
         let mut buf = [0u8; 8192];
-        let mut truncated = false;
         while let Ok(n) = r.read(&mut buf) {
             if n == 0 {
                 break;
             }
-            if out.len() < MAX_OUTPUT {
-                out.extend_from_slice(&buf[..n.min(MAX_OUTPUT - out.len())]);
+            let Ok(mut out) = sink.lock() else { break };
+            if out.bytes.len() < MAX_OUTPUT {
+                let room = MAX_OUTPUT - out.bytes.len();
+                out.bytes.extend_from_slice(&buf[..n.min(room)]);
+                if n > room {
+                    out.truncated = true;
+                }
             } else {
-                truncated = true;
+                out.truncated = true;
             }
         }
-        (out, truncated)
-    })
+        if let Ok(mut out) = sink.lock() {
+            out.done = true;
+        }
+    });
+    shared
+}
+
+/// Waits until both readers reached end of file, or until `deadline`.
+fn drain(readers: [&Arc<Mutex<Captured>>; 2], deadline: Instant) {
+    while Instant::now() < deadline {
+        if readers.iter().all(|r| r.lock().map(|c| c.done).unwrap_or(true)) {
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+}
+
+fn take(r: &Arc<Mutex<Captured>>) -> (Vec<u8>, bool) {
+    r.lock().map(|mut c| (std::mem::take(&mut c.bytes), c.truncated)).unwrap_or_default()
+}
+
+/// Stops the command and everything it started.
+fn kill_tree(child: &mut std::process::Child) {
+    #[cfg(unix)]
+    {
+        // The child leads its own process group (see `process_group(0)`), so its pid is the
+        // group id. Signalling the negative id reaches every process in the group.
+        if let Ok(pgid) = libc::pid_t::try_from(child.id()) {
+            // SAFETY: killpg only sends a signal; it touches no memory of ours.
+            unsafe {
+                libc::killpg(pgid, libc::SIGKILL);
+            }
+        }
+    }
+    #[cfg(windows)]
+    {
+        // /T ends the whole tree the shell started, /F without asking it to close.
+        let _ = Command::new("taskkill").args(["/PID", &child.id().to_string(), "/T", "/F"]).stdout(Stdio::null()).stderr(Stdio::null()).status();
+    }
+    let _ = child.kill();
 }
 
 pub fn run(command: &str, cwd: Option<String>, timeout_secs: u64) -> Res<TerminalOutput> {
@@ -62,11 +122,17 @@ pub fn run(command: &str, cwd: Option<String>, timeout_secs: u64) -> Res<Termina
             }
         }
         c.env("PATH", parts.join(":"));
+        // Its own process group, so a timeout can stop everything the command started.
+        #[cfg(unix)]
+        {
+            use std::os::unix::process::CommandExt;
+            c.process_group(0);
+        }
         c
     };
     let mut child = cmd.current_dir(&start_dir).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().map_err(|err| format!("failed to start shell: {err}"))?;
-    let out_handle = read_capped(child.stdout.take().unwrap());
-    let err_handle = read_capped(child.stderr.take().unwrap());
+    let out = read_capped(child.stdout.take().ok_or("the shell has no output pipe")?);
+    let err = read_capped(child.stderr.take().ok_or("the shell has no error pipe")?);
 
     let deadline = Instant::now() + Duration::from_secs(timeout_secs.clamp(1, 3600));
     let mut timed_out = false;
@@ -75,15 +141,19 @@ pub fn run(command: &str, cwd: Option<String>, timeout_secs: u64) -> Res<Termina
             Ok(Some(status)) => break Some(status),
             Ok(None) if Instant::now() >= deadline => {
                 timed_out = true;
-                let _ = child.kill();
+                kill_tree(&mut child);
                 break child.wait().ok();
             }
             Ok(None) => std::thread::sleep(Duration::from_millis(25)),
-            Err(err) => return Err(format!("failed waiting for command: {err}")),
+            Err(e) => {
+                kill_tree(&mut child);
+                return Err(format!("failed waiting for command: {e}"));
+            }
         }
     };
-    let (stdout_bytes, out_trunc) = out_handle.join().unwrap_or_default();
-    let (stderr_bytes, err_trunc) = err_handle.join().unwrap_or_default();
+    drain([&out, &err], Instant::now() + DRAIN_GRACE);
+    let (stdout_bytes, out_trunc) = take(&out);
+    let (stderr_bytes, err_trunc) = take(&err);
 
     let mut stdout = String::from_utf8_lossy(&stdout_bytes).to_string();
     let mut new_cwd = start_dir;
@@ -120,5 +190,36 @@ mod tests {
         assert_eq!(r.stdout, "got:");
         let r = run("sleep 5", None, 1).unwrap();
         assert!(r.timed_out);
+    }
+
+    #[test]
+    fn a_timeout_stops_the_whole_pipeline_and_returns_promptly() {
+        let dir = tempfile::tempdir().unwrap();
+        let marker = dir.path().join("still-running");
+        // The shell's children hold the output pipe; killing only the shell left them running
+        // and kept the call waiting for them.
+        let started = Instant::now();
+        let r = run(&format!("sleep 4 | cat; touch '{}'", marker.display()), None, 1).unwrap();
+        assert!(r.timed_out);
+        assert!(started.elapsed() < Duration::from_secs(3), "returned after {:?}", started.elapsed());
+        std::thread::sleep(Duration::from_secs(4));
+        assert!(!marker.exists(), "the command kept running after its timeout");
+    }
+
+    #[test]
+    fn a_command_left_in_the_background_does_not_hold_the_terminal() {
+        let started = Instant::now();
+        let r = run("sleep 20 & echo started", None, 30).unwrap();
+        assert!(!r.timed_out);
+        assert_eq!(r.code, 0);
+        assert_eq!(r.stdout, "started");
+        assert!(started.elapsed() < Duration::from_secs(5), "returned after {:?}", started.elapsed());
+    }
+
+    #[test]
+    fn output_is_capped() {
+        let r = run("head -c 600000 /dev/zero | tr '\\0' a", None, 20).unwrap();
+        assert!(r.truncated);
+        assert_eq!(r.stdout.len(), MAX_OUTPUT);
     }
 }

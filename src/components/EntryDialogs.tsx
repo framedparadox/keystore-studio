@@ -1,6 +1,6 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useLayoutEffect, useMemo, useState } from "react";
 import clsx from "clsx";
-import { Download, Eye, FileSignature, FolderOpen, Layers, Plus, Reply, Save, Tag, Trash2, Edit3, X, AlertTriangle } from "lucide-react";
+import { Download, Eye, FileSignature, FolderOpen, Layers, Plus, Reply, Save, Tag, Trash2, Edit3, X, AlertTriangle, Unlock } from "lucide-react";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import type { KeystoreEntry, OpenKeystore } from "../types/crypto";
 import { api, errorMessage } from "../lib/api";
@@ -22,43 +22,74 @@ export function useSavedToast() {
     });
 }
 
-/** Saves text produced in the UI (CSR, CRL, JWT …) to a file the user picks. */
+/**
+ * Saves text produced in the UI (CSR, CRL, JWT …) to a file the user picks. Resolves to the path
+ * written, or null when the user cancelled or the write failed, so a dialog that stays open can
+ * show the outcome where it happened.
+ */
 export function useSaveText() {
   const toast = useToast();
   const saved = useSavedToast();
-  return async (defaultName: string, content: string, what = "File") => {
+  return async (defaultName: string, content: string, what = "File"): Promise<string | null> => {
     try {
       const path = await pickSavePath(`Save ${what}`, defaultName);
-      if (!path) return;
+      if (!path) return null;
       await api.writeTextFile(path, content);
       saved(`${what} saved to ${path}`, path);
+      return path;
     } catch (err) {
       toast.error(errorMessage(err));
+      return null;
     }
   };
 }
 
+/** "Saved" note with Show in folder, for dialogs that stay open after writing a file. */
+const SavedNote: React.FC<{ title: string; path: string }> = ({ title, path }) => (
+  <Alert
+    tone="success"
+    title={title}
+    action={
+      <Button size="sm" icon={FolderOpen} onClick={() => void revealItemInDir(path).catch(() => undefined)}>
+        Show in folder
+      </Button>
+    }
+  >
+    <span className="font-mono text-[12px] break-all" data-testid="saved-path">
+      {path}
+    </span>
+  </Alert>
+);
+
 // ----------------------------------------------------------------------------------- export
 
-export const ExportDialog: React.FC<{ entry: KeystoreEntry | null; onClose: () => void }> = ({ entry, onClose }) => {
+export const ExportDialog: React.FC<{ entry: KeystoreEntry | null; keystoreId?: string; onClose: () => void }> = ({ entry: given, keystoreId, onClose }) => {
   const toast = useToast();
   const saved = useSavedToast();
-  const targets = useMemo(() => (entry ? EXPORT_TARGETS.filter((t) => t.appliesTo.includes(entry.entry_type)) : []), [entry]);
+  const { keystores, isKeyLocked, ensureKeyAccess } = useStore();
+  // The entry as it is now: an unlock replaces it, and a copy taken before would still be locked.
+  const entry = (given && keystoreId ? keystores.find((k) => k.id === keystoreId)?.entries.find((e) => e.id === given.id) : undefined) ?? given;
+  const targets = useMemo(() => (entry ? EXPORT_TARGETS.filter((t) => t.appliesTo.includes(entry.entry_type)) : []), [entry?.id, entry?.entry_type]); // eslint-disable-line react-hooks/exhaustive-deps
   const [target, setTarget] = useState("");
   const [pw, setPw] = useState("");
   const [pw2, setPw2] = useState("");
   const [busy, setBusy] = useState(false);
   const [preview, setPreview] = useState<string | null>(null);
-  useEffect(() => {
+  const [written, setWritten] = useState<{ path: string; summary: string } | null>(null);
+  useLayoutEffect(() => {
     setTarget(targets[0]?.id ?? "");
     setPw("");
     setPw2("");
     setPreview(null);
+    setWritten(null);
   }, [entry?.id]); // eslint-disable-line react-hooks/exhaustive-deps
   if (!entry) return null;
   const t = targets.find((x) => x.id === target);
-  const needsKey = t?.group === "Private key" || (t?.id === "pkcs12" && entry.entry_type === "KeyPair");
-  const blocked = needsKey && (entry.locked || !entry.private_key_pem);
+  const needsKey = t?.group === "Private key" || t?.group === "Secret key" || (t?.id === "pkcs12" && entry.entry_type !== "TrustedCertificate");
+  // The session lock counts, not only the engine's: a key pair that opened locked must be unlocked
+  // with its password before its private key leaves the app, whichever way this dialog was reached.
+  const keyLocked = isKeyLocked(entry);
+  const blocked = needsKey && (keyLocked || (entry.entry_type === "KeyPair" ? !entry.private_key_pem : !entry.secret_key_hex));
   const run = async () => {
     if (!t) return;
     try {
@@ -67,6 +98,7 @@ export const ExportDialog: React.FC<{ entry: KeystoreEntry | null; onClose: () =
       setBusy(true);
       const res = await api.exportEntry(entry, t.id, path, t.needsPassword ? pw : null);
       setPreview(res.text ?? null);
+      setWritten({ path: res.path, summary: `${res.format} · ${res.byte_length.toLocaleString()} bytes` });
       saved(`Exported ${entry.alias} as ${res.format} (${res.byte_length.toLocaleString()} bytes).`, res.path);
     } catch (err) {
       toast.error(errorMessage(err));
@@ -86,7 +118,9 @@ export const ExportDialog: React.FC<{ entry: KeystoreEntry | null; onClose: () =
       testId="export-dialog"
       footer={
         <>
-          <Button onClick={onClose}>Close</Button>
+          <Button onClick={onClose} disabled={busy}>
+            Close
+          </Button>
           <Button variant="primary" onClick={run} disabled={busy || !t || blocked || (t.needsPassword && (!pw || pw !== pw2))} data-testid="export-run">
             {busy && <Spinner />} Export…
           </Button>
@@ -94,7 +128,16 @@ export const ExportDialog: React.FC<{ entry: KeystoreEntry | null; onClose: () =
       }
     >
       <div className="space-y-4">
-        <Select label="Format" value={target} onChange={(e) => setTarget(e.target.value)} data-testid="export-format">
+        <Select
+          label="Format"
+          value={target}
+          onChange={(e) => {
+            setTarget(e.target.value);
+            setWritten(null);
+            setPreview(null);
+          }}
+          data-testid="export-format"
+        >
           {groups.map((g) => (
             <optgroup key={g} label={g}>
               {targets
@@ -113,12 +156,27 @@ export const ExportDialog: React.FC<{ entry: KeystoreEntry | null; onClose: () =
             <PasswordInput label="Confirm" value={pw2} onChange={setPw2} error={pw2 && pw !== pw2 ? "Passwords do not match" : undefined} data-testid="export-password-confirm" />
           </div>
         )}
-        {blocked && <Alert tone="warning">The private key is locked by a separate key password; unlock it first.</Alert>}
+        {blocked && (
+          <Alert
+            tone="warning"
+            title="The key is locked"
+            action={
+              keystoreId && keyLocked ? (
+                <Button size="sm" icon={Unlock} onClick={() => ensureKeyAccess(keystoreId, [entry.id])} data-testid="export-unlock">
+                  Unlock…
+                </Button>
+              ) : undefined
+            }
+          >
+            Enter its key password before exporting {entry.entry_type === "SecretKey" ? "the key material" : "the private key"}.
+          </Alert>
+        )}
         {t?.sensitive && !blocked && (
           <Alert tone="warning" title="Sensitive export">
             {t.needsPassword ? "The file contains key material protected by the password above." : "The file contains unencrypted key material. Store it securely and delete it when no longer needed."}
           </Alert>
         )}
+        {written && <SavedNote title={`Exported · ${written.summary}`} path={written.path} />}
         {preview && <CodeBlock label="Exported content" value={preview} maxHeight={220} />}
       </div>
     </Modal>
@@ -135,12 +193,21 @@ export const CsrDialog: React.FC<{ entry: KeystoreEntry | null; onClose: () => v
   const [hash, setHash] = useState("SHA256");
   const [busy, setBusy] = useState(false);
   const [pemOut, setPemOut] = useState<string | null>(null);
-  useEffect(() => {
+  const [savedTo, setSavedTo] = useState<string | null>(null);
+  useLayoutEffect(() => {
     if (!entry) return;
     setSubject(entry.subject);
     setSans((entry.certificate_chain[0]?.sans ?? []).join(", "));
     setPemOut(null);
+    setSavedTo(null);
   }, [entry?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Editing the request after generating it discards the old CSR, so what is shown and saved
+  // always matches the fields.
+  const edit = <T,>(set: (v: T) => void) => (v: T) => {
+    set(v);
+    setPemOut(null);
+    setSavedTo(null);
+  };
   if (!entry) return null;
   const generate = async () => {
     setBusy(true);
@@ -167,7 +234,7 @@ export const CsrDialog: React.FC<{ entry: KeystoreEntry | null; onClose: () => v
         <>
           <Button onClick={onClose}>Close</Button>
           {pemOut ? (
-            <Button variant="primary" icon={Save} onClick={() => saveText(`${safeFileStem(entry.alias)}.csr`, pemOut, "CSR")} data-testid="csr-save">
+            <Button variant="primary" icon={Save} onClick={async () => setSavedTo((await saveText(`${safeFileStem(entry.alias)}.csr`, pemOut, "CSR")) ?? savedTo)} data-testid="csr-save">
               Save CSR…
             </Button>
           ) : (
@@ -179,15 +246,16 @@ export const CsrDialog: React.FC<{ entry: KeystoreEntry | null; onClose: () => v
       }
     >
       <div className="space-y-4">
-        <TextInput label="Subject (RFC 4514)" value={subject} onChange={(e) => setSubject(e.target.value)} hint="Defaults to the current certificate's subject." className="font-mono !text-[12px]" />
-        <TextInput label="Subject alternative names" value={sans} onChange={(e) => setSans(e.target.value)} hint="Comma-separated: DNS:host, IP:10.0.0.1, email:ops@example.com" />
+        <TextInput label="Subject (RFC 4514)" value={subject} onChange={(e) => edit(setSubject)(e.target.value)} hint="Defaults to the current certificate's subject." className="font-mono !text-[12px]" />
+        <TextInput label="Subject alternative names" value={sans} onChange={(e) => edit(setSans)(e.target.value)} hint="Comma-separated: DNS:host, IP:10.0.0.1, email:ops@example.com" />
         {entry.algorithm === "RSA" && (
-          <Select label="Signature hash" value={hash} onChange={(e) => setHash(e.target.value)}>
+          <Select label="Signature hash" value={hash} onChange={(e) => edit(setHash)(e.target.value)}>
             <option value="SHA256">SHA-256</option>
             <option value="SHA384">SHA-384</option>
             <option value="SHA512">SHA-512</option>
           </Select>
         )}
+        {savedTo && <SavedNote title="CSR saved" path={savedTo} />}
         {pemOut && <CodeBlock label="PKCS#10 request" value={pemOut} testId="csr-output" />}
       </div>
     </Modal>
@@ -203,7 +271,7 @@ export const CaReplyDialog: React.FC<{ keystore: OpenKeystore; entry: KeystoreEn
   const [path, setPath] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  useEffect(() => {
+  useLayoutEffect(() => {
     setText("");
     setPath(null);
     setError(null);
@@ -277,7 +345,7 @@ export const RenameDialog: React.FC<{ keystore: OpenKeystore; entry: KeystoreEnt
   const { renameEntry } = useStore();
   const toast = useToast();
   const [alias, setAlias] = useState("");
-  useEffect(() => setAlias(entry?.alias ?? ""), [entry?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  useLayoutEffect(() => setAlias(entry?.alias ?? ""), [entry?.id]); // eslint-disable-line react-hooks/exhaustive-deps
   if (!entry) return null;
   const trimmed = alias.trim();
   const stored = trimmed ? canonicalAlias(keystore.format, trimmed) : "";
@@ -317,7 +385,7 @@ export const LabelsDialog: React.FC<{ keystore: OpenKeystore; entry: KeystoreEnt
   const { setEntryLabels, keystores } = useStore();
   const [labels, setLabels] = useState<string[]>([]);
   const [draft, setDraft] = useState("");
-  useEffect(() => {
+  useLayoutEffect(() => {
     setLabels(entry?.labels ?? []);
     setDraft("");
   }, [entry?.id]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -362,7 +430,7 @@ export const LabelsDialog: React.FC<{ keystore: OpenKeystore; entry: KeystoreEnt
               </button>
             </span>
           ))}
-          {labels.length === 0 && <span className="text-[13px] text-subtle">No labels yet</span>}
+          {labels.length === 0 && <span className="text-[13px] text-faint">No labels yet</span>}
         </div>
         <form
           onSubmit={(e) => {
@@ -448,15 +516,18 @@ export const EntryInspector: React.FC<{
   onAction: (action: "export" | "csr" | "reply" | "rename" | "labels" | "workspaces" | "delete" | "unlock", entry: KeystoreEntry) => void;
 }> = ({ keystore, entry, onClose, onAction }) => {
   const confirm = useConfirm();
+  const { isKeyLocked } = useStore();
   const [tab, setTab] = useState<InspectTab>("overview");
   const [revealed, setRevealed] = useState(false);
-  useEffect(() => {
+  useLayoutEffect(() => {
     setTab("overview");
     setRevealed(false);
   }, [entry?.id]);
   if (!entry) return null;
   const leaf = entry.certificate_chain[0];
-  const findings = findingsFor(entry);
+  const findings = findingsFor(entry, { format: keystore.format, siblings: keystore.entries });
+  // Session lock included: key material is shown only once the key password was entered.
+  const keyLocked = isKeyLocked(entry);
   const tabs: { value: InspectTab; label: string }[] = [
     { value: "overview", label: "Overview" },
     ...(entry.chain_length > 0 ? [{ value: "chain" as const, label: `Chain (${entry.chain_length})` }, { value: "extensions" as const, label: `Extensions (${leaf?.extensions.length ?? 0})` }] : []),
@@ -498,7 +569,7 @@ export const EntryInspector: React.FC<{
           <Button icon={Edit3} onClick={() => onAction("rename", entry)}>
             Rename
           </Button>
-          {entry.entry_type === "KeyPair" && !entry.locked && (
+          {entry.entry_type === "KeyPair" && !keyLocked && (
             <>
               <Button icon={FileSignature} onClick={() => onAction("csr", entry)}>
                 CSR
@@ -560,8 +631,10 @@ export const EntryInspector: React.FC<{
         {tab === "extensions" && leaf && <ExtensionsList cert={leaf} />}
         {tab === "public" && entry.public_key_pem && <CodeBlock label="SubjectPublicKeyInfo (PEM)" value={entry.public_key_pem} />}
         {tab === "private" &&
-          (entry.locked ? (
-            <Alert tone="warning">The private key is locked by a separate key password.</Alert>
+          (keyLocked ? (
+            <Alert tone="warning" title="The key is locked" action={<Button size="sm" icon={Unlock} onClick={() => onAction("unlock", entry)}>Unlock key…</Button>}>
+              {entry.locked ? "This key uses a separate key password." : "Enter its key password to see the key material."}
+            </Alert>
           ) : revealed ? (
             <CodeBlock
               label={entry.entry_type === "SecretKey" ? "Raw key (hex)" : "PKCS#8 private key (PEM)"}

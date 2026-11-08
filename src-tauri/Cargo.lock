@@ -5724,6 +5724,7 @@ dependencies = [
  "ed25519-dalek",
  "hex",
  "hmac",
+ "libc",
  "md-5",
  "num-bigint-dig",
  "p256",

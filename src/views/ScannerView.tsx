@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import clsx from "clsx";
-import { AlertTriangle, CalendarClock, CheckCircle2, FileText, KeyRound, Link2Off, RefreshCw, RotateCcw, ShieldCheck } from "lucide-react";
+import { AlertTriangle, CalendarClock, CheckCircle2, FileText, KeyRound, Link2, Link2Off, RefreshCw, RotateCcw, ShieldCheck } from "lucide-react";
 import type { KeystoreEntry, OpenKeystore } from "../types/crypto";
 import { api, errorMessage, isDesktop } from "../lib/api";
 import { pickSavePath } from "../lib/files";
@@ -88,14 +88,19 @@ const RotateDialog: React.FC<{ target: Target | null; onClose: () => void }> = (
 };
 
 export const ScannerView: React.FC = () => {
-  const { keystores, replaceEntry, settings, openFiles, setTab, ensureKeyAccess, currentKeystores } = useStore();
+  const { keystores, replaceEntry, settings, openFiles, setTab, ensureKeyAccess, currentKeystores, selectKeystore } = useStore();
   const toast = useToast();
   const [filter, setFilter] = useState<"issues" | "all">("issues");
   const [rotate, setRotate] = useState<Target | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [chainNotes, setChainNotes] = useState<string[]>([]);
 
-  const rows: Row[] = useMemo(() => keystores.flatMap((ks) => ks.entries.map((entry) => ({ entry, ks, findings: findingsFor(entry) }))), [keystores]);
+  // The context enables the findings that depend on where an entry lives: a JKS store, a trust
+  // anchor that is not open, a subject key id used twice. Siblings are every open entry.
+  const rows: Row[] = useMemo(() => {
+    const siblings = keystores.flatMap((k) => k.entries);
+    return keystores.flatMap((ks) => ks.entries.map((entry) => ({ entry, ks, findings: findingsFor(entry, { format: ks.format, siblings }) })));
+  }, [keystores]);
   const sum = summarize(rows.map((r) => r.entry));
   const withIssues = rows.filter((r) => r.findings.some((f) => f.severity !== "low") || entryHealth(r.entry) !== "healthy");
   const visible = filter === "issues" ? withIssues : rows;
@@ -155,8 +160,13 @@ export const ScannerView: React.FC = () => {
     }
   };
 
+  const validationRun = React.useRef(0);
+  const [validating, setValidating] = useState(false);
   const runValidateChains = useCallback(
     async (notify: boolean) => {
+      // Edits start a new run; a slower, older run must not overwrite its result.
+      const run = ++validationRun.current;
+      setValidating(true);
       const anchors = keystores
         .flatMap((k) =>
           k.entries.flatMap((e) => {
@@ -174,21 +184,35 @@ export const ScannerView: React.FC = () => {
       for (const ks of keystores) {
         for (const entry of ks.entries) {
           const leaf = entry.certificate_chain[0]?.pem;
-          if (!leaf) continue;
+          // A self-signed certificate is a trust anchor or a self-signed end entity: it has no chain
+          // to build, and its expiry and self-signing are findings of their own. Reporting it here
+          // only buried the CA-issued certificates whose chain is actually broken.
+          if (!leaf || entry.certificate_chain[0]?.self_signed) continue;
           const problems = await api.validateChain(leaf, entry.certificate_chain.slice(1).map((c) => c.pem).join(""), anchors, null).catch(() => []);
+          if (run !== validationRun.current) return;
           if (problems.length) notes.push(`${ks.name} / ${entry.alias}: ${problems[0]}`);
         }
       }
+      if (run !== validationRun.current) return;
       setChainNotes(notes);
-      if (notify) toast.success(notes.length ? `${notes.length} chain problem(s).` : "Every certificate chains to an open trust anchor.");
+      setValidating(false);
+      if (notify) toast.success(notes.length ? `${notes.length} chain problem${notes.length === 1 ? "" : "s"}.` : "Every certificate chains to an open trust anchor.");
     },
     [keystores, toast]
   );
 
   useEffect(() => {
     if (isDesktop() && rows.length > 0) void runValidateChains(false);
-    else setChainNotes([]);
+    else {
+      setChainNotes([]);
+      setValidating(false);
+    }
+    // Leaving the page abandons a run in progress.
+    return () => {
+      validationRun.current++;
+    };
   }, [rows.length, runValidateChains]);
+  const jksStores = keystores.filter((k) => !k.sealed && k.format === "JKS");
 
   const exportReport = async () => {
     try {
@@ -281,7 +305,9 @@ export const ScannerView: React.FC = () => {
         description="Finds expired, expiring and weak keys and certificates across every open keystore, with one-click remediation."
         actions={
           <div className="flex gap-2">
-            <Button onClick={() => void runValidateChains(true)}>Validate chains</Button>
+            <Button icon={validating ? undefined : Link2} onClick={() => void runValidateChains(true)} disabled={validating} data-testid="validate-chains">
+              {validating && <Spinner />} {validating ? "Validating…" : "Validate chains"}
+            </Button>
             <Button icon={FileText} onClick={exportReport}>
               Export report
             </Button>
@@ -289,8 +315,28 @@ export const ScannerView: React.FC = () => {
         }
       />
       {chainNotes.length > 0 && (
-        <Alert tone="warning" className="mb-4" title="Chain validation">
-          {chainNotes.slice(0, 6).join(" ")}
+        <Alert tone="warning" className="mb-4" title={`${chainNotes.length} certificate chain${chainNotes.length === 1 ? " does" : "s do"} not validate`}>
+          <ul className="mt-1 space-y-0.5 list-disc pl-4" data-testid="chain-notes">
+            {chainNotes.slice(0, 6).map((n) => (
+              <li key={n}>{n}</li>
+            ))}
+          </ul>
+          {chainNotes.length > 6 && <p className="mt-1 text-faint">And {chainNotes.length - 6} more.</p>}
+        </Alert>
+      )}
+      {jksStores.length > 0 && (
+        <Alert
+          tone="warning"
+          className="mb-4"
+          title={`${jksStores.length === 1 ? `${jksStores[0].name} is` : `${jksStores.length} keystores are`} in the legacy JKS format`}
+          action={
+            <Button size="sm" onClick={() => (selectKeystore(jksStores[0].id), setTab("keystores"))} data-testid="audit-open-jks">
+              Open {jksStores.length === 1 ? "it" : jksStores[0].name}
+            </Button>
+          }
+        >
+          JKS protects its integrity with SHA-1 and wraps keys with a proprietary scheme. Use Save as… to write the entries as PKCS#12, which Java has used by default since
+          version 9.
         </Alert>
       )}
       {sealed > 0 && (

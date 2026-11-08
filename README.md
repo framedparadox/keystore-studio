@@ -92,12 +92,18 @@ cargo deny --manifest-path src-tauri/Cargo.toml check    # advisories, licences,
   alternative that needs no Tauri build at all — useful for iterating on UI code and for CI
   without a WebKit runtime. It serves the production `dist/` bundle, points `window.__TAURI_INTERNALS__` at
   `src-tauri/examples/ui_bridge.rs` (which calls the same engine functions as the Tauri commands),
-  and drives the real React UI in headless Chrome: it clicks the dashboard action, fills in a
-  certificate, key and passphrase, submits, and verifies the written `.p12` with `openssl` and
-  `keytool`. The webview and the IPC transport are the only things replaced; the UI code and the
-  crypto are the real ones. Needs Google Chrome.
+  and drives the real React UI in headless Chrome: it builds a PKCS#12, unlocks keys, converts
+  certificates, keys and keystores, and verifies what it writes with `openssl` and `keytool`. Its
+  "review" steps guard the behaviour fixed in the 2026-11-08 review (GAPS.md, Section 8): key
+  unlocking on every path, stacked dialogs and focus, undo across opened files, Save As, bulk
+  actions. The webview and the IPC transport are the only things replaced; the UI code and the
+  crypto are the real ones. It runs on a pinned Chrome for Testing build that Selenium Manager
+  downloads once (an everyday Chrome with an update pending ends headless sessions after ~35 s);
+  `XKS_CHROME=system` uses the installed Chrome instead. `XKS_SCREENSHOTS=<dir>` saves screenshots.
 
-CI (`.github/workflows/ci.yml`) runs all of the above on Ubuntu.
+CI (`.github/workflows/ci.yml`) runs the type check, unit tests, Rust tests with the interop suite,
+clippy, rustfmt, cargo-deny, a fuzz smoke run, the Linux WebDriver journey and the headless UI
+suite on Ubuntu, and builds the installers on Linux, macOS and Windows.
 
 ## Architecture
 

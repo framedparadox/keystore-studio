@@ -1,11 +1,11 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useLayoutEffect, useMemo, useState } from "react";
 import clsx from "clsx";
 import { AlertTriangle, CalendarClock, Check, Edit3, Eye, FolderPlus, KeyRound, Layers, Plus, Trash2, X } from "lucide-react";
 import type { KeystoreEntry, OpenKeystore, Workspace } from "../types/crypto";
 import { useStore, uid } from "../state/store";
 import { baseName } from "../lib/files";
 import { ENTRY_TYPE_LABEL, cnOf } from "../lib/keystore";
-import { daysUntilExpiry, summarize } from "../lib/metrics";
+import { daysUntilExpiry, plural, summarize } from "../lib/metrics";
 import { Badge, Button, Card, Column, DataTable, EmptyState, IconButton, KpiCard, Modal, Page, PageHeader, SearchInput, Select, TextArea, TextInput, useConfirm, useToast } from "../components/ui";
 import { AlgorithmCell, EntryNameCell, ExpiryCell, HealthBadge } from "../components/entry";
 import { EntryInspector, ExportDialog } from "../components/EntryDialogs";
@@ -27,7 +27,7 @@ const WorkspaceDialog: React.FC<{ initial: Workspace | null; open: boolean; onCl
   const [name, setName] = useState("");
   const [desc, setDesc] = useState("");
   const [env, setEnv] = useState<Workspace["environment"]>("Production");
-  useEffect(() => {
+  useLayoutEffect(() => {
     setName(initial?.name ?? "");
     setDesc(initial?.description ?? "");
     setEnv(initial?.environment ?? "Production");
@@ -83,7 +83,7 @@ export const WorkspacesView: React.FC = () => {
   const [inspect, setInspect] = useState<{ ksId: string; entryId: string } | null>(null);
   const inspectKs = inspect ? keystores.find((k) => k.id === inspect.ksId) : undefined;
   const inspectEntry = inspectKs?.entries.find((e) => e.id === inspect?.entryId);
-  const [exporting, setExporting] = useState<KeystoreEntry | null>(null);
+  const [exporting, setExporting] = useState<{ entry: KeystoreEntry; keystoreId: string } | null>(null);
 
   const active = workspaces.find((w) => w.id === activeWorkspaceId) ?? workspaces[0] ?? null;
   const all = useMemo(() => keystores.flatMap((ks) => ks.entries.map((entry) => ({ entry, ks }))), [keystores]);
@@ -102,6 +102,14 @@ export const WorkspacesView: React.FC = () => {
   const loaded = members.filter((m) => m.entry).map((m) => m.entry!);
   const sum = summarize(loaded);
   const unavailable = members.length - loaded.length;
+
+  /** Opens the inspector, asking for the key password first when the key is locked. Every way in goes through here. */
+  const inspectMember = (m: Member) => {
+    if (!m.entry || !m.ks) return;
+    const ksId = m.ks.id;
+    const entryId = m.entry.id;
+    ensureKeyAccess(ksId, [entryId], () => setInspect({ ksId, entryId }));
+  };
 
   const pickerRows = all.filter(({ entry, ks }) => {
     const s = pickerSearch.trim().toLowerCase();
@@ -124,8 +132,8 @@ export const WorkspacesView: React.FC = () => {
           </div>
         ),
     },
-    { id: "alg", header: "Algorithm", cell: (m) => (m.entry ? <AlgorithmCell entry={m.entry} /> : <span className="text-subtle">—</span>) },
-    { id: "exp", header: "Expires", width: "210px", sortValue: (m) => (m.entry ? daysUntilExpiry(m.entry) : null), cell: (m) => (m.entry ? <ExpiryCell entry={m.entry} /> : <span className="text-subtle">—</span>) },
+    { id: "alg", header: "Algorithm", cell: (m) => (m.entry ? <AlgorithmCell entry={m.entry} /> : <span className="text-faint">—</span>) },
+    { id: "exp", header: "Expires", width: "210px", sortValue: (m) => (m.entry ? daysUntilExpiry(m.entry) : null), cell: (m) => (m.entry ? <ExpiryCell entry={m.entry} /> : <span className="text-faint">—</span>) },
     { id: "status", header: "Status", hideBelow: "xl", cell: (m) => (m.entry ? <HealthBadge entry={m.entry} /> : <Badge>Unavailable</Badge>) },
     {
       id: "act",
@@ -134,7 +142,7 @@ export const WorkspacesView: React.FC = () => {
       width: "120px",
       cell: (m) => (
         <div className="inline-flex items-center gap-0.5" onClick={(e) => e.stopPropagation()}>
-          {m.entry && <IconButton icon={Eye} label="Inspect" onClick={() => ensureKeyAccess(m.ks!.id, [m.entry!.id], () => setInspect({ ksId: m.ks!.id, entryId: m.entry!.id }))} />}
+          {m.entry && <IconButton icon={Eye} label="Inspect" onClick={() => inspectMember(m)} />}
           <IconButton
             icon={X}
             label="Remove from workspace"
@@ -233,7 +241,7 @@ export const WorkspacesView: React.FC = () => {
             <>
               <div className="grid grid-cols-2 xl:grid-cols-4 gap-4 mt-4">
                 <KpiCard label="Entries" value={members.length} icon={Layers} tone="brand" hint={unavailable ? `${unavailable} in keystores that are not open` : `From ${new Set(members.map((m) => m.location)).size} keystores`} />
-                <KpiCard label="Key pairs / certificates" value={`${sum.keyPairs} / ${sum.trusted}`} icon={KeyRound} hint={`${sum.secrets} secret keys`} />
+                <KpiCard label="Key pairs / certificates" value={`${sum.keyPairs} / ${sum.trusted}`} icon={KeyRound} hint={plural(sum.secrets, "secret key")} />
                 <KpiCard label="Expiring soon" value={sum.expiringWarning} icon={CalendarClock} tone="warning" hint={`${sum.expiringCritical} critical`} hintTone={sum.expiringCritical ? "warning" : "neutral"} />
                 <KpiCard label="Needs action" value={sum.expired + sum.weak} icon={AlertTriangle} tone="danger" hint={`${sum.expired} expired · ${sum.weak} weak`} hintTone={sum.expired + sum.weak ? "danger" : "success"} />
               </div>
@@ -250,7 +258,7 @@ export const WorkspacesView: React.FC = () => {
                   columns={columns}
                   rows={visible}
                   rowKey={(m) => m.id}
-                  onRowClick={(m) => m.entry && setInspect({ ksId: m.ks!.id, entryId: m.entry.id })}
+                  onRowClick={inspectMember}
                   initialSort={{ id: "exp", dir: "asc" }}
                   empty={
                     <EmptyState
@@ -329,7 +337,11 @@ export const WorkspacesView: React.FC = () => {
           onClose={() => setInspect(null)}
           onAction={(action, entry) => {
             if (action === "export") {
-              setExporting(entry);
+              setExporting({ entry, keystoreId: inspectKs.id });
+              return;
+            }
+            if (action === "unlock") {
+              ensureKeyAccess(inspectKs.id, [entry.id]);
               return;
             }
             // Other actions live on the Keystores page.
@@ -339,7 +351,7 @@ export const WorkspacesView: React.FC = () => {
           }}
         />
       )}
-      <ExportDialog entry={exporting} onClose={() => setExporting(null)} />
+      <ExportDialog entry={exporting?.entry ?? null} keystoreId={exporting?.keystoreId} onClose={() => setExporting(null)} />
     </Page>
   );
 };

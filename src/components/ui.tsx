@@ -374,7 +374,7 @@ export const BarList: React.FC<{ items: { key: string; label: string; count: num
           </span>
           <span className="text-right tabular-nums">
             <span className="font-semibold text-ink">{i.count}</span>
-            <span className="text-subtle ml-1">{sum ? Math.round((i.count / sum) * 100) : 0}%</span>
+            <span className="text-faint ml-1">{sum ? Math.round((i.count / sum) * 100) : 0}%</span>
           </span>
         </li>
       ))}
@@ -458,16 +458,19 @@ export const SearchInput: React.FC<{
   value: string;
   onChange: (v: string) => void;
   placeholder?: string;
+  /** Accessible name and tooltip, when the placeholder is too short to say what is searched. */
+  label?: string;
   className?: string;
-}> = ({ value, onChange, placeholder = "Search…", className }) => (
+}> = ({ value, onChange, placeholder = "Search…", label, className }) => (
   <div className={clsx("relative", className)}>
-    <Search className="w-4 h-4 text-subtle absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+    <Search className="w-4 h-4 text-subtle absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" aria-hidden />
     <input
       type="search"
       value={value}
       onChange={(e) => onChange(e.target.value)}
       placeholder={placeholder}
-      aria-label={placeholder}
+      aria-label={label ?? placeholder}
+      title={label}
       className="field !pl-8 !pr-8"
     />
     {value && (
@@ -475,7 +478,7 @@ export const SearchInput: React.FC<{
         type="button"
         onClick={() => onChange("")}
         aria-label="Clear search"
-        className="absolute right-2 top-1/2 -translate-y-1/2 p-0.5 rounded text-subtle hover:text-ink cursor-pointer"
+        className="absolute right-2 top-1/2 -translate-y-1/2 p-0.5 rounded text-faint hover:text-ink cursor-pointer"
       >
         <X className="w-3.5 h-3.5" />
       </button>
@@ -513,7 +516,7 @@ export function Segmented<T extends string>({
           >
             {o.label}
             {o.count !== undefined && (
-              <span className={clsx("text-[11px] tabular-nums", active ? "text-faint" : "text-subtle")}>{o.count}</span>
+              <span className={clsx("text-[11px] tabular-nums", active ? "text-muted" : "text-faint")}>{o.count}</span>
             )}
           </button>
         );
@@ -607,8 +610,12 @@ export interface Column<T> {
   sortValue?: (row: T) => string | number | null;
   align?: "left" | "right" | "center";
   width?: string;
-  /** Hide the column on narrow windows. */
-  hideBelow?: "md" | "lg" | "xl" | "2xl";
+  /**
+   * Hide the column when the table itself is narrower than this (sm 576px, md 672px, lg 768px,
+   * xl 896px, 2xl 1024px). Measured on the table, not the window: a keystore navigator or the
+   * sidebar takes room the window size does not show.
+   */
+  hideBelow?: "sm" | "md" | "lg" | "xl" | "2xl";
   className?: string;
 }
 
@@ -627,11 +634,13 @@ interface DataTableProps<T> {
   fill?: boolean;
 }
 
+// Container queries (the table's wrapper is an @container). Tailwind needs the literal names.
 const hideCls = {
-  md: "hidden md:table-cell",
-  lg: "hidden lg:table-cell",
-  xl: "hidden xl:table-cell",
-  "2xl": "hidden 2xl:table-cell",
+  sm: "hidden @xl:table-cell",
+  md: "hidden @2xl:table-cell",
+  lg: "hidden @3xl:table-cell",
+  xl: "hidden @4xl:table-cell",
+  "2xl": "hidden @5xl:table-cell",
 };
 const alignCls = { left: "text-left", right: "text-right", center: "text-center" };
 
@@ -671,7 +680,7 @@ export function DataTable<T>({
     setSort((s) => (s?.id === id ? { id, dir: s.dir === "asc" ? "desc" : "asc" } : { id, dir: "asc" }));
 
   return (
-    <div className={clsx("flex flex-col min-h-0", fill && "flex-1")}>
+    <div className={clsx("@container flex flex-col min-h-0", fill && "flex-1")}>
       <div className={clsx("overflow-auto", fill && "flex-1 min-h-0")}>
         <table className="w-full border-separate border-spacing-0 text-[13px]" aria-label={label}>
           <colgroup>
@@ -845,6 +854,43 @@ export const KeyValueTable: React.FC<{ items: { label: string; value: React.Reac
 
 const modalSizes = { sm: "max-w-md", md: "max-w-xl", lg: "max-w-2xl", xl: "max-w-4xl" };
 
+/**
+ * Open modals, bottom to top. Dialogs stack (a confirmation over an inspector, a key prompt over
+ * "Generate key pair"), and only the top one may answer Escape and hold focus: otherwise one
+ * Escape closes every dialog at once and loses what was typed underneath.
+ */
+const modalStack: number[] = [];
+let modalSeq = 0;
+const isTopModal = (id: number) => id !== 0 && modalStack[modalStack.length - 1] === id;
+
+const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+/** Keeps Tab and Shift+Tab inside `root`, wrapping at either end. */
+function trapTab(e: KeyboardEvent, root: HTMLElement) {
+  const active = document.activeElement as HTMLElement | null;
+  // Focus inside another dialog layered above this one (the command palette) stays there.
+  const owner = active?.closest('[role="dialog"]');
+  if (owner && owner !== root) return;
+  const items = [...root.querySelectorAll<HTMLElement>(FOCUSABLE)].filter((el) => el.getClientRects().length > 0);
+  if (!items.length) {
+    e.preventDefault();
+    root.focus();
+    return;
+  }
+  const first = items[0];
+  const last = items[items.length - 1];
+  if (!active || !root.contains(active) || active === root) {
+    e.preventDefault();
+    (e.shiftKey ? last : first).focus();
+  } else if (e.shiftKey && active === first) {
+    e.preventDefault();
+    last.focus();
+  } else if (!e.shiftKey && active === last) {
+    e.preventDefault();
+    first.focus();
+  }
+}
+
 export const Modal: React.FC<{
   open: boolean;
   onClose: () => void;
@@ -859,15 +905,46 @@ export const Modal: React.FC<{
   testId?: string;
 }> = ({ open, onClose, title, description, icon: Icon, size = "md", footer, children, busy, testId }) => {
   const panel = useRef<HTMLDivElement>(null);
+  const stackId = useRef(0);
+  const titleId = useFieldId();
+  const descriptionId = useFieldId();
   const close = useCallback(() => {
     if (!busy) onClose();
   }, [busy, onClose]);
+  // What had focus when the dialog opened (the button that opened it). Read while rendering: by the
+  // time effects run, React has already moved focus to an autoFocus field inside the dialog.
+  const opener = useRef<HTMLElement | null>(null);
+  const wasOpen = useRef(false);
+  if (open && !wasOpen.current) {
+    const active = typeof document === "undefined" ? null : document.activeElement;
+    opener.current = active instanceof HTMLElement && active !== document.body ? active : null;
+  }
+  wasOpen.current = open;
+  // Join the stack while open; on close, hand focus back to the opener, unless something else has
+  // taken it since.
+  useEffect(() => {
+    if (!open) return;
+    const id = ++modalSeq;
+    stackId.current = id;
+    modalStack.push(id);
+    const before = opener.current;
+    return () => {
+      const i = modalStack.lastIndexOf(id);
+      if (i >= 0) modalStack.splice(i, 1);
+      stackId.current = 0;
+      const now = document.activeElement;
+      if (before && before.isConnected && (!now || now === document.body)) before.focus({ preventScroll: true });
+    };
+  }, [open]);
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
+      if (!isTopModal(stackId.current)) return;
       if (e.key === "Escape") {
         e.stopPropagation();
         close();
+      } else if (e.key === "Tab" && panel.current) {
+        trapTab(e, panel.current);
       }
     };
     window.addEventListener("keydown", onKey);
@@ -876,9 +953,12 @@ export const Modal: React.FC<{
   useEffect(() => {
     if (!open) return;
     const t = window.setTimeout(() => {
-      if (panel.current && !panel.current.contains(document.activeElement)) {
-        panel.current.querySelector<HTMLElement>("input:not([type=hidden]):not([disabled]), textarea, select, [autofocus]")?.focus();
-      }
+      const root = panel.current;
+      if (!root || root.contains(document.activeElement)) return;
+      // A field first; a dialog without one (a confirmation, the inspector) focuses itself, so
+      // screen readers announce it and Tab starts inside it.
+      const field = root.querySelector<HTMLElement>("[autofocus], input:not([type=hidden]):not([disabled]), textarea:not([disabled]), select:not([disabled])");
+      (field ?? root).focus({ preventScroll: true });
     }, 30);
     return () => window.clearTimeout(t);
   }, [open]);
@@ -890,20 +970,29 @@ export const Modal: React.FC<{
         ref={panel}
         role="dialog"
         aria-modal="true"
+        aria-labelledby={titleId}
+        aria-describedby={description ? descriptionId : undefined}
+        tabIndex={-1}
         data-testid={testId}
-        className={clsx("w-full bg-surface rounded-panel border border-line shadow-pop flex flex-col max-h-[90vh]", modalSizes[size])}
+        className={clsx("w-full bg-surface rounded-panel border border-line shadow-pop flex flex-col max-h-[90vh] outline-none", modalSizes[size])}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-start justify-between gap-3 px-6 pt-5 pb-4 border-b border-line">
           <div className="flex items-start gap-3 min-w-0">
             {Icon && (
-              <span className="w-9 h-9 rounded-card border border-line bg-surface shadow-card flex items-center justify-center text-ink-2 shrink-0">
+              <span className="w-9 h-9 rounded-card border border-line bg-surface shadow-card flex items-center justify-center text-ink-2 shrink-0" aria-hidden>
                 <Icon className="w-[18px] h-[18px]" />
               </span>
             )}
             <div className="min-w-0">
-              <h3 className="text-[16px] font-semibold text-ink leading-6">{title}</h3>
-              {description && <p className="text-[13px] text-faint mt-0.5">{description}</p>}
+              <h3 id={titleId} className="text-[16px] font-semibold text-ink leading-6">
+                {title}
+              </h3>
+              {description && (
+                <p id={descriptionId} className="text-[13px] text-faint mt-0.5">
+                  {description}
+                </p>
+              )}
             </div>
           </div>
           <IconButton icon={X} label="Close" onClick={close} disabled={busy} />
@@ -938,11 +1027,57 @@ export const useToast = () => useContext(ToastContext);
 export const ToastProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [items, setItems] = useState<ToastItem[]>([]);
   const seq = useRef(0);
-  const push = useCallback((msg: React.ReactNode, tone: ToastTone, action?: ToastItem["action"]) => {
-    const id = ++seq.current;
-    setItems((list) => [...list.slice(-3), { id, msg, tone, action }]);
-    window.setTimeout(() => setItems((list) => list.filter((t) => t.id !== id)), tone === "danger" ? 9000 : 5000);
+  // Each toast's dismissal timer. While the pointer or focus is on the toasts, the timers stop, so
+  // a message (or its Undo) does not disappear while it is being read or reached for.
+  const timers = useRef(new Map<number, { handle?: number; remaining: number; started: number }>());
+  const paused = useRef(false);
+  const dismiss = useCallback((id: number) => {
+    const t = timers.current.get(id);
+    if (t?.handle) window.clearTimeout(t.handle);
+    timers.current.delete(id);
+    setItems((list) => list.filter((x) => x.id !== id));
   }, []);
+  const arm = useCallback(
+    (id: number) => {
+      const t = timers.current.get(id);
+      if (!t || paused.current) return;
+      t.started = Date.now();
+      t.handle = window.setTimeout(() => dismiss(id), t.remaining);
+    },
+    [dismiss]
+  );
+  const pause = () => {
+    if (paused.current) return;
+    paused.current = true;
+    for (const t of timers.current.values()) {
+      if (t.handle) window.clearTimeout(t.handle);
+      t.handle = undefined;
+      t.remaining = Math.max(1500, t.remaining - (Date.now() - t.started));
+    }
+  };
+  const resume = () => {
+    if (!paused.current) return;
+    paused.current = false;
+    for (const id of timers.current.keys()) arm(id);
+  };
+  const push = useCallback(
+    (msg: React.ReactNode, tone: ToastTone, action?: ToastItem["action"]) => {
+      const id = ++seq.current;
+      setItems((list) => {
+        // Only the newest four are shown; the ones pushed out must not keep a timer.
+        const kept = list.slice(-3);
+        for (const old of list.slice(0, -3)) {
+          const t = timers.current.get(old.id);
+          if (t?.handle) window.clearTimeout(t.handle);
+          timers.current.delete(old.id);
+        }
+        return [...kept, { id, msg, tone, action }];
+      });
+      timers.current.set(id, { remaining: tone === "danger" ? 9000 : 5000, started: Date.now() });
+      arm(id);
+    },
+    [arm]
+  );
   const api = useMemo<ToastApi>(
     () => ({
       success: (m, a) => push(m, "success", a),
@@ -954,7 +1089,19 @@ export const ToastProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   return (
     <ToastContext.Provider value={api}>
       {children}
-      <div className="fixed bottom-5 right-5 z-[70] flex flex-col gap-2 w-[min(420px,calc(100vw-40px))]" aria-live="polite">
+      {/* Above pages and the terminal (z-40), below dialogs (z-50): toasts sit bottom-right, exactly
+          where a dialog's footer puts its primary button, and must never cover it. Dialogs that stay
+          open after an action show the outcome inline instead. */}
+      <div
+        className="fixed bottom-5 right-5 z-[45] flex flex-col gap-2 w-[min(420px,calc(100vw-40px))]"
+        aria-live="polite"
+        onMouseEnter={pause}
+        onMouseLeave={resume}
+        onFocus={pause}
+        onBlur={(e) => {
+          if (!e.currentTarget.contains(e.relatedTarget as Node | null)) resume();
+        }}
+      >
         {items.map((t) => (
           <div
             key={t.id}
@@ -972,16 +1119,17 @@ export const ToastProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             <span className="flex-1 min-w-0 break-words">{t.msg}</span>
             {t.action && (
               <button
+                type="button"
                 className="text-[13px] font-semibold text-brand hover:underline cursor-pointer shrink-0"
                 onClick={() => {
                   t.action!.onClick();
-                  setItems((list) => list.filter((x) => x.id !== t.id));
+                  dismiss(t.id);
                 }}
               >
                 {t.action.label}
               </button>
             )}
-            <button aria-label="Dismiss" className="text-subtle hover:text-ink cursor-pointer" onClick={() => setItems((l) => l.filter((x) => x.id !== t.id))}>
+            <button type="button" aria-label="Dismiss" className="text-faint hover:text-ink cursor-pointer" onClick={() => dismiss(t.id)}>
               <X className="w-3.5 h-3.5" />
             </button>
           </div>
@@ -1031,12 +1179,17 @@ export const ConfirmProvider: React.FC<{ children: React.ReactNode }> = ({ child
                 {req.alternateLabel}
               </Button>
             )}
-            <Button onClick={() => done(false)}>{req?.cancelLabel ?? "Cancel"}</Button>
+            {/* A destructive choice is never the default: Enter on a danger confirmation cancels
+                (resetting the vault, quitting without saving, overwriting a changed file). */}
+            <Button onClick={() => done(false)} autoFocus={!!req?.danger} data-testid="confirm-cancel">
+              {req?.cancelLabel ?? "Cancel"}
+            </Button>
             <Button
               variant="primary"
-              autoFocus
+              autoFocus={!req?.danger}
               data-testid="confirm-ok"
-              className={req?.danger ? "!bg-danger-fill hover:!bg-danger !border-danger/30" : undefined}
+              // The text-safe danger red: white on the "-fill" red (meant for meters) is only 3.8:1.
+              className={req?.danger ? "!bg-danger hover:!bg-danger/90 !border-danger" : undefined}
               onClick={() => done(true)}
             >
               {req?.confirmLabel ?? "Confirm"}
@@ -1156,13 +1309,15 @@ export const Checkbox: React.FC<{
   hint?: React.ReactNode;
   disabled?: boolean;
   id?: string;
-}> = ({ checked, onChange, label, hint, disabled, id }) => {
+  testId?: string;
+}> = ({ checked, onChange, label, hint, disabled, id, testId }) => {
   const fid = useFieldId(id);
   return (
     <div className={clsx("flex items-start gap-2.5", disabled && "opacity-50")}>
       <input
         id={fid}
         type="checkbox"
+        data-testid={testId}
         checked={checked}
         disabled={disabled}
         onChange={(e) => onChange(e.target.checked)}
@@ -1205,7 +1360,7 @@ export const PasswordInput: React.FC<
         aria-label={show ? "Hide password" : "Show password"}
         title={show ? "Hide" : "Show"}
         tabIndex={-1}
-        className="absolute right-1.5 top-1/2 -translate-y-1/2 p-1 rounded text-subtle hover:text-ink cursor-pointer"
+        className="absolute right-1.5 top-1/2 -translate-y-1/2 p-1 rounded text-faint hover:text-ink cursor-pointer"
       >
         {show ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
       </button>
@@ -1268,6 +1423,7 @@ export const Alert: React.FC<{ tone?: "info" | "success" | "warning" | "danger";
 
 export const CopyButton: React.FC<{ value: string; label?: string; className?: string }> = ({ value, label = "Copy", className }) => {
   const [copied, setCopied] = useState(false);
+  const toast = useToast();
   return (
     <button
       type="button"
@@ -1275,15 +1431,51 @@ export const CopyButton: React.FC<{ value: string; label?: string; className?: s
       title={label}
       onClick={(e) => {
         e.stopPropagation();
-        navigator.clipboard?.writeText(value).then(() => {
+        const done = () => {
           setCopied(true);
           window.setTimeout(() => setCopied(false), 1200);
-        });
+        };
+        // The async Clipboard API can be refused (no permission, no secure context); fall back to
+        // the selection-based copy instead of failing silently.
+        const fallback = () => {
+          const area = document.createElement("textarea");
+          area.value = value;
+          area.setAttribute("readonly", "");
+          area.style.cssText = "position:fixed;top:0;left:0;opacity:0";
+          document.body.appendChild(area);
+          area.select();
+          const ok = document.execCommand("copy");
+          area.remove();
+          if (ok) done();
+          else toast.error("Could not copy to the clipboard.");
+        };
+        if (navigator.clipboard?.writeText) navigator.clipboard.writeText(value).then(done, fallback);
+        else fallback();
       }}
-      className={clsx("w-7 h-7 rounded-control inline-flex items-center justify-center text-subtle hover:text-ink hover:bg-surface-3 cursor-pointer shrink-0", className)}
+      className={clsx("w-7 h-7 rounded-control inline-flex items-center justify-center text-faint hover:text-ink hover:bg-surface-3 cursor-pointer shrink-0", className)}
     >
       {copied ? <Check className="w-3.5 h-3.5 text-success" /> : <Copy className="w-3.5 h-3.5" />}
     </button>
+  );
+};
+
+/**
+ * A file path on one line. The folder part truncates and the file name always shows, so a deep
+ * path reads "/Users/me/projects/…/prod-tls.p12" instead of wrapping over several lines. The full
+ * path is in the tooltip and can be copied.
+ */
+export const PathText: React.FC<{ path: string; className?: string; copy?: boolean }> = ({ path, className, copy = true }) => {
+  const cut = Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\"));
+  const dir = cut >= 0 ? path.slice(0, cut + 1) : "";
+  const file = cut >= 0 ? path.slice(cut + 1) : path;
+  return (
+    <span className={clsx("inline-flex items-center gap-1 min-w-0 max-w-full align-middle font-mono text-[12px]", className)} title={path} data-testid="path-text">
+      <span className="flex min-w-0 select-text">
+        {dir && <span className="truncate">{dir}</span>}
+        <span className="shrink-0 whitespace-nowrap">{file}</span>
+      </span>
+      {copy && <CopyButton value={path} label="Copy path" className="!w-6 !h-6" />}
+    </span>
   );
 };
 
@@ -1343,6 +1535,7 @@ export const Menu: React.FC<{
   const [pos, setPos] = useState<{ top: number; left: number; maxHeight: number } | null>(null);
   const anchor = useRef<HTMLDivElement>(null);
   const panel = useRef<HTMLDivElement>(null);
+  const focusTrigger = () => anchor.current?.querySelector<HTMLElement>("button, [tabindex]")?.focus({ preventScroll: true });
 
   // Rendered in a portal with fixed positioning so tables/cards with overflow never clip it;
   // opens upward when there is not enough room below the trigger.
@@ -1366,13 +1559,38 @@ export const Menu: React.FC<{
     return () => cancelAnimationFrame(raf);
   }, [open, align, width, items.length]);
 
+  // Once placed, focus moves into the menu so the arrow keys work straight away.
+  const placed = !!pos;
+  useEffect(() => {
+    if (open && placed) panel.current?.querySelector<HTMLElement>('[role="menuitem"]:not([disabled])')?.focus({ preventScroll: true });
+  }, [open, placed]);
+
   useEffect(() => {
     if (!open) return;
     const onDoc = (e: MouseEvent) => {
       const t = e.target as Node;
       if (!anchor.current?.contains(t) && !panel.current?.contains(t)) setOpen(false);
     };
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        // The menu closes; a dialog it sits in stays open.
+        e.stopPropagation();
+        setOpen(false);
+        focusTrigger();
+      } else if (e.key === "Tab") {
+        // Leave the menu from its trigger, so Tab continues from there.
+        setOpen(false);
+        focusTrigger();
+      } else if (["ArrowDown", "ArrowUp", "Home", "End"].includes(e.key)) {
+        const items = [...(panel.current?.querySelectorAll<HTMLElement>('[role="menuitem"]:not([disabled])') ?? [])];
+        if (!items.length) return;
+        e.preventDefault();
+        const i = items.indexOf(document.activeElement as HTMLElement);
+        const n = items.length;
+        const next = e.key === "Home" ? 0 : e.key === "End" ? n - 1 : e.key === "ArrowDown" ? (i + 1) % n : i <= 0 ? n - 1 : i - 1;
+        items[next].focus();
+      }
+    };
     const onScroll = (e: Event) => {
       if (!panel.current?.contains(e.target as Node)) setOpen(false);
     };
@@ -1404,6 +1622,7 @@ export const Menu: React.FC<{
           <div
             ref={panel}
             role="menu"
+            aria-orientation="vertical"
             onClick={(e) => e.stopPropagation()}
             style={{ width, position: "fixed", top: pos?.top ?? -9999, left: pos?.left ?? -9999, maxHeight: pos?.maxHeight, visibility: pos ? "visible" : "hidden" }}
             className="z-[60] bg-surface rounded-card border border-line shadow-pop p-1.5 overflow-y-auto"
@@ -1412,16 +1631,20 @@ export const Menu: React.FC<{
               <React.Fragment key={i}>
                 {item.divider && i > 0 && <div className="my-1 border-t border-line" />}
                 <button
+                  type="button"
                   role="menuitem"
+                  tabIndex={-1}
                   disabled={item.disabled}
                   data-testid={item.testId}
                   onClick={() => {
                     setOpen(false);
+                    // Back to the trigger first: a dialog this opens returns focus there when it closes.
+                    focusTrigger();
                     item.onSelect();
                   }}
                   className={clsx(
-                    "w-full px-2.5 py-2 rounded-control text-left flex items-start gap-2.5 cursor-pointer disabled:opacity-45 disabled:cursor-not-allowed",
-                    item.danger ? "hover:bg-danger-tint text-danger" : "hover:bg-surface-2 text-ink"
+                    "w-full px-2.5 py-2 rounded-control text-left flex items-start gap-2.5 cursor-pointer outline-none disabled:opacity-45 disabled:cursor-not-allowed",
+                    item.danger ? "hover:bg-danger-tint focus-visible:bg-danger-tint text-danger" : "hover:bg-surface-2 focus-visible:bg-surface-2 text-ink"
                   )}
                 >
                   {item.icon && <item.icon className={clsx("w-4 h-4 mt-0.5 shrink-0", item.danger ? "text-danger" : "text-muted")} />}

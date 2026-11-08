@@ -126,6 +126,8 @@ interface Store {
   hasPassword: (keystoreId: string) => boolean;
   getPassword: (keystoreId: string) => string | undefined;
   setPassword: (keystoreId: string, password: string) => void;
+  /** True when "Remember the password" was ticked while creating this keystore, so its first save pre-selects it. */
+  rememberRequested: (keystoreId: string) => boolean;
   // key access
   /** True while the entry's key cannot be used: see isKeyLocked in lib/keystore. */
   isKeyLocked: (entry: KeystoreEntry) => boolean;
@@ -225,8 +227,22 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     [bump]
   );
   const keystores = keystoresRef.current;
+  /**
+   * Applies `fn` to one keystore in the current state and in every undo/redo snapshot, without
+   * adding an undo step. For changes that are not edits (opening a file, unlocking a key), which
+   * must survive undo: otherwise undoing an earlier edit restores a snapshot from before them.
+   */
+  const patchEverywhere = useCallback(
+    (keystoreId: string, fn: (ks: OpenKeystore) => OpenKeystore) => {
+      const patch = (snap: OpenKeystore[]) => snap.map((k) => (k.id === keystoreId ? fn(k) : k));
+      setAll(patch(keystoresRef.current), historyRef.current.map(patch), redoRef.current.map(patch));
+    },
+    [setAll]
+  );
   const [activeKeystoreId, setActiveKeystoreId] = useState<string | null>(null);
   const passwords = useRef(new Map<string, string>());
+  // Keystores created with "Remember the password" ticked; their first save pre-selects it.
+  const rememberOnSave = useRef(new Set<string>());
   // Key pairs unlocked this session, by entry id. Never persisted.
   const [unlockedKeys, setUnlockedKeys] = useState<ReadonlySet<string>>(() => new Set());
   const [pendingKeyUnlock, setPendingKeyUnlock] = useState<PendingKeyUnlock | null>(null);
@@ -332,6 +348,10 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       updateKeystore(working);
       // The user just created, imported or pasted these, so their keys are usable.
       markUnlocked(added.map((e) => e.id));
+      // Labels given when the entry was made (e.g. in "Generate key pair") are xkeystore metadata:
+      // they live in the label map, which is what is persisted and survives a reopen.
+      const labelled = added.filter((e) => e.labels.length);
+      if (labelled.length) setLabels((l) => ({ ...l, ...Object.fromEntries(labelled.map((e) => [e.id, e.labels])) }));
       return added;
     },
     [updateKeystore, markUnlocked]
@@ -431,7 +451,11 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       passwords.current.set(id, password);
       // A freshly read file starts with every key pair locked.
       forgetUnlocked(opened.entries.map((e) => e.id));
-      setAll(keystoresRef.current.some((k) => k.id === id) ? keystoresRef.current.map((k) => (k.id === id ? opened : k)) : [...keystoresRef.current, opened]);
+      // Opening a file is not an edit, so it is not an undo step. It is put into every undo/redo
+      // snapshot as well: undoing an edit made before the open must not close the file again, or
+      // bring back the locked placeholder of a keystore restored from the last session.
+      const place = (snap: OpenKeystore[]) => (snap.some((k) => k.id === id) ? snap.map((k) => (k.id === id ? opened : k)) : [...snap, opened]);
+      setAll(place(keystoresRef.current), historyRef.current.map(place), redoRef.current.map(place));
       setActiveKeystoreId(id);
       addRecent(file.path, file.format);
       return opened;
@@ -532,7 +556,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         showNextQueued();
         return true;
       } catch (err) {
-        const classified = (await import("../lib/api")).classifyError(err);
+        const classified = classifyError(err);
         setPendingOpen({ ...p, error: classified.kind === "wrong-password" ? "That password does not open this keystore." : classified.message });
         return false;
       }
@@ -575,6 +599,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         ks = { ...ks, entries: [{ ...req.initialEntry, alias, id: entryKey(ks, alias) }] };
       }
       passwords.current.set(id, req.password);
+      if (req.remember) rememberOnSave.current.add(id);
       commit([...keystoresRef.current, ks]);
       markUnlocked(ks.entries.map((e) => e.id));
       setActiveKeystoreId(id);
@@ -663,6 +688,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       try {
         const res = await api.saveKeystore(ks, path, password, format, mac, force);
         finishSaved(ks, res.path, res.format, password, res.mtime_ms);
+        rememberOnSave.current.delete(ks.id);
         setPendingSave(null);
         toast.success(`Saved ${res.name} as ${res.format} (${res.byte_length.toLocaleString()} bytes).`);
         if (remember && vaultRef.current.unlocked) await rememberPassword(res.path, password);
@@ -688,6 +714,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         passwords.current.delete(keystoreId);
         forgetUnlocked(ks.entries.map((e) => e.id));
         setActiveKeystoreId((cur) => (cur === keystoreId ? next[0]?.id ?? null : cur));
+        rememberOnSave.current.delete(keystoreId);
       };
       if (ks.dirty) {
         const choice = await confirm({
@@ -742,14 +769,23 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         } else {
           try {
             const reread = await api.openKeystore(ks.path, storePw, Object.fromEntries(sealed.map((e) => [e.alias, password])));
-            const current = keystoresRef.current.find((k) => k.id === keystoreId);
             const fresh = new Map<string, KeystoreEntry>();
             for (const e of sealed) {
               const match = reread.entries.find((x) => x.alias.toLowerCase() === e.alias.toLowerCase());
               if (match && !match.locked) fresh.set(e.id, { ...match, id: e.id, alias: e.alias, labels: e.labels });
             }
-            if (current && fresh.size) {
-              updateKeystore({ ...current, entries: current.entries.map((e) => fresh.get(e.id) ?? e) });
+            if (fresh.size && keystoresRef.current.some((k) => k.id === keystoreId)) {
+              // Unlocking reads the key; it changes nothing that a save would write differently
+              // (the key keeps its own password). So it is not an edit: no unsaved-changes mark and
+              // no undo step. Every snapshot that still holds the locked copy gets the key too, so
+              // undoing an earlier edit does not lock it again.
+              patchEverywhere(keystoreId, (k) => ({
+                ...k,
+                entries: k.entries.map((e) => {
+                  const f = e.locked ? fresh.get(e.id) : undefined;
+                  return f ? { ...f, labels: e.labels } : e;
+                }),
+              }));
               done.push(...fresh.keys());
             }
           } catch (err) {
@@ -762,7 +798,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       if (!done.length && !error) error = targets.length === 1 ? "Incorrect key password." : "That password does not unlock any of these keys.";
       return { unlocked: done.length, remaining, error: done.length ? undefined : error };
     },
-    [unlockedKeys, markUnlocked, updateKeystore]
+    [unlockedKeys, markUnlocked, patchEverywhere]
   );
 
   const lockKeys = useCallback(
@@ -780,12 +816,11 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     setActiveWorkspaceId(ws.id);
   }, []);
 
+  const workspacesRef = useRef(workspaces);
+  workspacesRef.current = workspaces;
   const deleteWorkspace = useCallback((id: string) => {
-    setWorkspaces((list) => {
-      const next = list.filter((w) => w.id !== id);
-      setActiveWorkspaceId((cur) => (cur === id ? next[0]?.id ?? null : cur));
-      return next;
-    });
+    setWorkspaces((list) => list.filter((w) => w.id !== id));
+    setActiveWorkspaceId((cur) => (cur === id ? workspacesRef.current.find((w) => w.id !== id)?.id ?? null : cur));
   }, []);
 
   const toggleWorkspaceEntry = useCallback((workspaceId: string, entryId: string) => {
@@ -999,6 +1034,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       const ks = keystoresRef.current.find((k) => k.id === id);
       if (ks) updateKeystore(ks);
     },
+    rememberRequested: (id) => rememberOnSave.current.has(id),
     isKeyLocked: keyLocked,
     ensureKeyAccess,
     pendingKeyUnlock,

@@ -414,9 +414,9 @@ not from the older status table in IMPROVEMENT.md.
 | PKCS#11 | K4. Out of scope until the model changes. |
 | OS trust store, OCSP, CRL during validation | `x509::validate_chain` (including `NameConstraints`, wildcard/IP SAN checks, anchor self-signatures, and CA `pathLen`) is wired into `ScannerView.tsx`. Network revocation fetching is the step after that. |
 | rustfmt | Done (`src-tauri/rustfmt.toml`, `cargo fmt --check` clean). |
-| Frontend tests | 18 unit tests in `src/lib/lib.test.ts`. Store/dialog/view components are still untested. E2E is Linux-only because `tauri-driver` has no WKWebView or WebView2 driver. |
+| Frontend tests | 41 unit tests in `src/lib/lib.test.ts`. Store, dialog and view behaviour is covered end to end instead: 30 steps in `e2e/headless-ui.mjs` (CI job `e2e-headless`), 27 against the real macOS window in `e2e/eval-drive.mjs`, and the Linux WebDriver journey in `e2e/app.e2e.mjs`. |
 | `keytool_keystores_open_in_xkeystore` | Parallelized across formats in `tests/interop.rs`. |
-| Accessibility | Not reviewed in depth here. Keyboard focus and `aria-label` on icon buttons are already required by DESIGN.md; there has been no pass with a screen reader. |
+| Accessibility | Reviewed 2026-11-08 (G11): text contrast meets WCAG AA on every audited screen; dialogs trap and restore focus and name themselves (`aria-labelledby`); menus and the command palette work from the keyboard; destructive confirmations default to Cancel. Still no pass with a real screen reader. |
 
 ---
 
@@ -490,6 +490,25 @@ Ordered High → Medium → Low. Full details, `file:line` pointers, repros, and
 - [x] **F12. R12 (Low)** Deduplicate CA certificate bags by DER bytes in `pkcs12::encode_with_mac`.
 - [x] **F13. R13 (Low)** Introduce a typed keystore error enum across IPC and ensure all parser error paths carry the classification kind.
 - [x] **F14. R14 (Low)** Update stale capability copy in `SettingsView.tsx` and stop computing `md5_fingerprint` in `x509::parse_certificate`.
+
+### Milestone G — fix review findings (2026-11-08)
+
+Every item was reproduced against the running app before it was fixed, and each has a test that
+fails on the old code (the headless regression steps were run against the pre-fix build to prove
+it). Details are in Section 8.
+
+- [x] **G1. V1 (High, security)** A workspace row opened the inspector, and with it Reveal and Export of the private key, without the key password. *(`WorkspacesView.tsx` routes every way in through `ensureKeyAccess`; `EntryInspector` and `ExportDialog` check `isKeyLocked`. Test: headless "a workspace row asks for the key password…".)*
+- [x] **G2. V2 (High)** Concurrent vault writes lost secrets (24 stored at once, 1 kept). *(`vault.rs` file lock. Test: `vault::tests::concurrent_writes_keep_every_secret`.)*
+- [x] **G3. V3 (High)** Changing the master key was not crash-safe, contrary to its comment. *(Staged secrets + recovery on unlock. Test: `a_crash_while_changing_the_master_key_never_strands_secrets`, all three crash points.)*
+- [x] **G4. V4 (Medium)** Undo after opening a file closed that file. *(`store.installOpened` places the file in every snapshot. Test: headless "undo does not close…".)*
+- [x] **G5. V5 (Medium)** Save As onto another existing file was refused as "changed on disk". *(`keystore::save_with` guards only the source file. Tests: `changed_on_disk_guard_applies_only_to_the_source_file`, headless "Save As can replace…".)*
+- [x] **G6. V6 (Medium)** `write_atomic` reset an existing file's mode to 0600, replaced symlinks instead of writing through them, and left the temp file behind on a failed write. *(Tests: three `util::tests::atomic_write_*`.)*
+- [x] **G7. V7 (Medium)** Labels typed in "Generate key pair" were gone after a reopen. *(`store.addEntries`. Test: real-app "labels … survive a restart".)*
+- [x] **G8. V8–V14 (Medium)** Bulk Label used `window.prompt` (a no-op in the webview); Escape closed every stacked dialog; terminal timeouts did not stop pipelines; dropped files were re-examined on every visit; "Remember the password" in New keystore was ignored; a new JKS keystore was first saved as PKCS#12; unlocking a key marked the keystore unsaved; dialog reset effects raced with fast input. *(Headless and real-app regression steps; `terminal::tests`.)*
+- [x] **G9. V15 (Low)** The audit never passed context to `findingsFor`, so the JKS, trust-anchor and duplicate-SKI findings of **B4** never fired in the app; chain validation flagged every self-signed leaf. *(`ScannerView.tsx`; duplicate SKI now means a different key. Tests: `lib.test.ts`, headless audit step.)*
+- [x] **G10. V16–V19 (Low)** JWT HMAC compared in variable time and `crit` was ignored; CSV guard missed leading tab/CR; Compare did not say what it compared against; broken OpenSSL hint for URL hosts; small display and clipboard bugs. *(Unit tests in `jwt.rs`, `export.rs`, `lib.test.ts`.)*
+- [x] **G11. V20–V23 (Design, accessibility)** 126 text instances below WCAG AA contrast; toasts covered dialog buttons; no focus trap or restore in dialogs; menus without keyboard navigation; destructive confirmations focused the destructive button; clipped table actions and wrapping paths. *(Audited on 60 screens at the default and minimum window sizes: 0 contrast failures, no overflow or clipping.)*
+- [x] **G12.** The headless suite was not in CI and ran on the desktop Chrome, which quits a headless session after about 35 s while an update is pending. *(CI job `e2e-headless`; pinned Chrome for Testing; `ui_bridge.rs` covers generation, CSR, signing, export, rotation and chain validation.)*
 
 ### Explicitly not on this list
 
@@ -642,3 +661,78 @@ Findings from the 2026-11-06 full-tree code audit and scenario harness verificat
   2. `x509::parse_certificate` (`x509.rs:881`) still computes `md5_fingerprint: colon_hex(&md5(der))` and serializes it on `CertificateInfo` (`model.rs:39`, `src/types/crypto.ts:52`) even though `S6` / `E8` removed MD5 from the UI.
 - **Repro:** Open Settings → About xkeystore (`SettingsView.tsx:177, 186`).
 - **Done when:** `SettingsView.tsx` accurately describes BKS v2 read-only support and optional RFC 3161 TSA requests, and `md5_fingerprint` is removed from `CertificateInfo` (or computed only on explicit demand).
+
+---
+
+## 8. Review findings (2026-11-08)
+
+A full-tree review of the GUI refresh plus the engine paths it calls, with every finding reproduced
+against the running app (the real macOS window driven over the e2e bridge) before it was changed.
+Severity as in Section 7. Milestone G above tracks them.
+
+### V1. [High] A workspace row bypassed the key unlock gate
+
+- **Where:** `src/views/WorkspacesView.tsx` (row click), `src/components/EntryDialogs.tsx` (`EntryInspector`, `ExportDialog`).
+- **Symptom:** The eye icon went through `ensureKeyAccess`; clicking the row opened the inspector directly. The inspector's Reveal and the Export dialog checked only the engine's `entry.locked`, so the private key of a key pair that opened locked could be shown or exported without its password.
+- **Fixed by:** One `inspectMember` path for the row and the icon; both dialogs check `store.isKeyLocked` and offer Unlock.
+
+### V2. [High] Concurrent vault writes dropped secrets
+
+- **Where:** `src-tauri/src/vault.rs` (`store_secret`, `delete_secret`).
+- **Symptom:** Commands run on separate threads; each read the secrets map, added one secret and wrote the map back. 24 `vault_store_secret` calls at once left 1 secret.
+- **Fixed by:** A lock held across every read-modify-write of the vault files.
+
+### V3. [High] Changing the master key could strand every secret
+
+- **Where:** `src-tauri/src/vault.rs` (`change_master_key`).
+- **Symptom:** The comment said the order of the two writes made a crash safe. It did not: a crash after the re-encrypted secrets were written but before `vault.json` switched left secrets under a key the vault no longer derives (and the other order fails the other way).
+- **Fixed by:** The re-encrypted secrets are staged in `vault_secrets.json.next`, the vault file switches, then the staged file replaces the secrets. Unlock completes or discards an interrupted change, depending on which key opens the staged file. Re-encrypting also keeps each secret's `updated_at`.
+
+### V4. [Medium] Undo after opening a file closed the file
+
+- **Where:** `src/state/store.tsx` (`installOpened`).
+- **Symptom:** Opening is not an undo step, but the undo snapshots were not given the opened keystore, so undoing any earlier edit restored a list without it (and, for a keystore restored from the last session, brought back its locked placeholder).
+- **Fixed by:** The opened keystore is placed into every undo and redo snapshot.
+
+### V5. [Medium] Save As onto another existing file was refused
+
+- **Where:** `src-tauri/src/keystore.rs` (`save_with`).
+- **Symptom:** The "changed on disk" check compared the source file's mtime with whatever file was being written, so Save As over any existing file failed with "was modified after it was opened".
+- **Fixed by:** The check applies only when the destination is the source file (compared through `canonicalize`).
+
+### V6. [Medium] Atomic writes changed permissions and replaced symlinks
+
+- **Where:** `src-tauri/src/util.rs` (`write_atomic`).
+- **Symptom:** Saving over an existing keystore made it 0600 (a group-readable server keystore stopped being readable by its service); saving through a symlink replaced the link and left the real file unchanged; a failed write left its temp file (possibly key material) in place; the rename was not fsynced.
+- **Fixed by:** New files stay 0600; existing files keep their mode; links are written through; the temp file is removed on any failure; the directory is fsynced after the rename.
+
+### V7–V14. [Medium] UI state and workflow defects
+
+- **V7** Labels given in "Generate key pair" lived only on the entry, not in the persisted label map, so they were gone after a reopen (`store.addEntries`).
+- **V8** Unlocking a key with its own password went through `updateKeystore`: the keystore showed unsaved changes and the unlock became an undo step (`store.unlockKeys` now patches without either).
+- **V9** Bulk Label used `window.prompt`, which returns null at once in WKWebView: the button did nothing (`BulkLabelDialog`).
+- **V10** Every open `Modal` closed on Escape: Escape on the key prompt over "Generate key pair" discarded the form (`ui.tsx` modal stack; only the top dialog answers Escape and holds focus).
+- **V11** A terminal timeout killed the shell but not its children; `sleep 12 | cat` with a 2 s timeout returned after 12 s (`terminal.rs` process group, `killpg`, bounded read after exit).
+- **V12** An examine or JAR request was re-applied on every mount: each visit to Examine jumped to Decode and re-read the last dropped file (handled once per request).
+- **V13** "Remember the password" in New keystore was ignored by `createKeystore`; the first save of a new JKS keystore defaulted to PKCS#12 (the JKS-to-PKCS#12 default now applies only to files read from disk).
+- **V14** Dialogs reset their fields in a passive `useEffect` on open. Input arriving before that effect flushed was wiped by it (a typed password vanished and the Open button stayed disabled in about one automated run in three). The resets are layout effects now, which run inside the commit.
+
+### V15. [Low] Audit findings that needed context never fired
+
+- **Where:** `src/views/ScannerView.tsx`, `src/components/EntryDialogs.tsx`, `src/lib/metrics.ts`.
+- **Symptom:** `findingsFor` was called without `{ format, siblings }`, so the JKS-store, trust-anchor and duplicate-SKI findings (B4) existed only in unit tests. Duplicate SKI would also have flagged the same CA in a keystore and a truststore. Chain validation reported every self-signed leaf as a broken chain.
+- **Fixed by:** Context passed; duplicate SKI means a different key with the same id; JKS is raised once per keystore on the audit page; self-signed certificates are not chain-validated (they have their own findings).
+
+### V16–V19. [Low] Smaller defects
+
+- JWT verification compared HMACs with `==` and ignored `crit` (RFC 7515 §4.1.11 requires rejecting unknown critical parameters).
+- Both CSV writers missed leading tab and carriage return in the formula-injection guard.
+- Compare reported "Added/Removed" without saying against what ("Added" meant "only on disk").
+- The OpenSSL hint for a URL host produced `-connect https://host:8443:443`; "Open CRL…" used the certificate filter; `formatDuration(729)` was "1y"; raising Critical above Warning stored an inconsistent pair; a cut secret key that JKS could not take was dropped from the clipboard after being removed from its keystore; bulk certificate export did not dedupe shared CAs or report errors; bulk Delete cleared the selection even when cancelled.
+
+### V20–V23. Design and accessibility
+
+- **Contrast:** `text-subtle` (2.3–2.6:1) was used for 126 text instances (sidebar section labels, counts, empty states, chart percentages); the danger confirmation button was white on the meter red (3.8:1); the lock badge glyph was under 3:1. Text now uses `faint` or darker, `-fill` colours are never text backgrounds, and an audit of 60 screens finds no failure.
+- **Overlays:** Toasts (z-70) covered dialog footers, where the primary button is. They sit below dialogs now (z-45), and dialogs that stay open after acting (Export, Save CSR, a partial unlock) show the outcome inline.
+- **Focus and keyboard:** Dialogs had no focus trap, did not restore focus on close and were not labelled by their title; menus had `role="menu"` without arrow keys; the command palette's highlight scrolled out of view and was not announced; destructive confirmations focused the destructive button. All fixed; destructive confirmations default to Cancel.
+- **Layout:** The keystore path wrapped over up to seven lines (now `PathText`, one line with copy); table columns hid by window width, so with the keystore navigator open the row actions were clipped (now container queries on the table); the CA tools' empty hint sat below the fold; chart labels and a select option were clipped.

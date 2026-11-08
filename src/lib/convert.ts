@@ -151,11 +151,14 @@ export function cliHint(converter: ConverterId, target: string, input?: string |
   const q = shellQuote;
   switch (converter) {
     case "certificate": {
-      const src = q(input || "chain.pem");
+      const src = q(input || (target === "pem" ? "certificate.der" : "chain.pem"));
       const out = (ext: string) => q(output || `certificate.${ext}`);
       switch (target) {
-        case "pem":
-          return `openssl x509 -in ${src} -inform DER -out ${out("pem")}`;
+        case "pem": {
+          // To PEM the input is usually DER; a PEM input needs no -inform (PEM is the default).
+          const der = !input || /\.(der|cer)$/i.test(input);
+          return `openssl x509 -in ${src}${der ? " -inform DER" : ""} -out ${out("pem")}`;
+        }
         case "der":
           return `openssl x509 -in ${src} -outform DER -out ${out("cer")}`;
         case "pkcs7_pem":

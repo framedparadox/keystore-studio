@@ -5,6 +5,7 @@ import type { CertificateInfo, DetectionResult, KeystoreEntry, TlsInspectionResu
 import { api, errorMessage } from "../lib/api";
 import { FILTERS, baseName, pickFile, safeFileStem } from "../lib/files";
 import { cnOf } from "../lib/keystore";
+import { connectTarget, parseTlsTarget } from "../lib/net";
 import { useStore } from "../state/store";
 import { Alert, Badge, Button, Card, CodeBlock, EmptyState, Page, PageHeader, PasswordInput, Segmented, Select, Spinner, TextArea, TextInput, useToast } from "../components/ui";
 import { CertificateDetails, ChainView, TrustBanner, WarningList } from "../components/CertificateView";
@@ -12,6 +13,14 @@ import { TerminalHint } from "../components/Terminal";
 import { useSaveText } from "../components/EntryDialogs";
 
 type Mode = "tls" | "decode" | "compare";
+
+/*
+ * The last examine request (a dropped or opened file) each part acted on. A request is handled
+ * once: module scope, because the page remounts whenever it is shown again, and acting on the
+ * same request again switched back to Decode and re-read the old file on every visit.
+ */
+let modeHandledNonce = 0;
+let decodeHandledNonce = 0;
 
 /** "Add to keystore" for certificates found while examining. */
 function useImportCert() {
@@ -39,7 +48,6 @@ function useImportCert() {
 // ====================================================================================== TLS
 
 const TlsPanel: React.FC = () => {
-  const toast = useToast();
   const saveText = useSaveText();
   const { target, importCert } = useImportCert();
   const [host, setHost] = useState("");
@@ -47,6 +55,13 @@ const TlsPanel: React.FC = () => {
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<TlsInspectionResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // What the engine will connect to: a URL or host:port typed into Host wins over the Port field.
+  const endpoint = host.trim() ? parseTlsTarget(host, Number(port) || 443) : null;
+  const shown = endpoint ?? { host: "example.com", port: Number(port) || 443 };
+  // -servername takes a DNS name: an IP address is sent without SNI.
+  const sni = /^[\d.]+$/.test(shown.host) || shown.host.includes(":") ? "" : ` -servername ${shown.host}`;
+  const sClientCommand = `openssl s_client -connect ${connectTarget(shown)}${sni} -showcerts </dev/null`;
+  const portFromHost = !!endpoint && endpoint.port !== (Number(port) || 443);
   const run = async (e?: React.FormEvent) => {
     e?.preventDefault();
     if (!host.trim()) return;
@@ -70,7 +85,9 @@ const TlsPanel: React.FC = () => {
           {busy && <Spinner />} {busy ? "Connecting…" : "Inspect"}
         </Button>
       </form>
-      <TerminalHint command={`openssl s_client -connect ${host.trim() || "example.com"}:${port} -servername ${host.trim() || "example.com"} -showcerts </dev/null`} label="Run with OpenSSL" />
+      {host.trim() && !endpoint && <p className="text-[12px] text-danger -mt-3">Enter a host name, an IP address, or a URL such as https://example.com:8443.</p>}
+      {portFromHost && endpoint && <p className="text-[12px] text-faint -mt-3">Connecting to port {endpoint.port}, taken from the address.</p>}
+      <TerminalHint command={sClientCommand} label="Run with OpenSSL" />
       {error && <Alert tone="danger" title="Connection failed">{error}</Alert>}
       {result && (
         <div className="space-y-4" data-testid="tls-result">
@@ -147,7 +164,8 @@ const DecodePanel: React.FC = () => {
   };
 
   useEffect(() => {
-    if (!examineRequest) return;
+    if (!examineRequest || examineRequest.nonce === decodeHandledNonce) return;
+    decodeHandledNonce = examineRequest.nonce;
     if (examineRequest.path) {
       setPath(examineRequest.path);
       setText("");
@@ -210,7 +228,7 @@ const DecodePanel: React.FC = () => {
       </div>
       <div className="lg:col-span-7 bg-surface-2 rounded-card p-5 border border-line min-h-[360px] select-text" data-testid="decode-result">
         {error && <Alert tone="danger">{error}</Alert>}
-        {!result && !error && <div className="h-full min-h-[320px] flex items-center justify-center text-subtle text-[13px] text-center px-8">Drop a file on the window, open one, or paste data to identify and decode it.</div>}
+        {!result && !error && <div className="h-full min-h-[320px] flex items-center justify-center text-faint text-[13px] text-center px-8">Drop a file on the window, open one, or paste data to identify and decode it.</div>}
         {result && (
           <div className="space-y-4">
             <div>
@@ -442,9 +460,11 @@ const ComparePanel: React.FC = () => {
 
 export const ExamineView: React.FC = () => {
   const { examineRequest } = useStore();
-  const [mode, setMode] = useState<Mode>("tls");
+  const [mode, setMode] = useState<Mode>(() => (examineRequest && examineRequest.nonce !== modeHandledNonce ? "decode" : "tls"));
   useEffect(() => {
-    if (examineRequest) setMode("decode");
+    if (!examineRequest || examineRequest.nonce === modeHandledNonce) return;
+    modeHandledNonce = examineRequest.nonce;
+    setMode("decode");
   }, [examineRequest]);
   return (
     <Page>

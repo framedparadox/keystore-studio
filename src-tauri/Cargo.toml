@@ -85,6 +85,11 @@ dirs = "6"
 chrono = { version = "0.4", features = ["serde"] }
 uuid = { version = "1", features = ["v4"] }
 
+# The built-in terminal kills a timed-out command's whole process group (killpg). Already in the
+# dependency tree through Tauri and ring; listed so the engine can call it directly.
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
 [dev-dependencies]
 tempfile = "3"
 

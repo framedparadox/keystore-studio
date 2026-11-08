@@ -694,11 +694,17 @@ async function run() {
       const why = await js(`const el = document.querySelector('[data-testid^="toast-"]'); return el ? el.innerText : "(no toast)"`);
       throw new Error(`renewing did not ask for a key password; toast: ${why}`);
     }
-    // The store password unlocks svc; the CA still needs its own password, so the dialog asks again.
+    // The store password unlocks svc; the CA still needs its own password, so the dialog asks again
+    // and says so inside itself (a toast would sit behind the dialog).
     await setField("unlock-key-password", SP);
     await click("unlock-key-submit");
-    const partial = await toast();
-    if (!partial.includes("still need")) throw new Error(`expected the partial-unlock notice, got: ${partial}`);
+    const partialStart = Date.now();
+    let partial = "";
+    while (Date.now() - partialStart < 15000 && !partial) {
+      partial = String((await js(`return document.querySelector('[data-testid="unlock-key-progress"]')?.innerText ?? ""`)) ?? "");
+      if (!partial) await sleep(100);
+    }
+    if (!partial.includes("still need")) throw new Error(`expected the partial-unlock notice in the dialog, got: ${partial || "(nothing)"}`);
     await setField("unlock-key-password", CAPW);
     await click("unlock-key-submit");
     const t = await toast(60000);
@@ -760,6 +766,67 @@ async function run() {
       return true;
     `);
     await waitText("Keyboard shortcuts");
+  });
+
+  // ---- Regressions from the code review that need the real app (vault, restart) ----
+  const present = async (id) => Boolean(await js(`return !!document.querySelector(${q(`[data-testid="${id}"]`)})`));
+  const waitFor = async (id, timeout = 15000) => {
+    const start = Date.now();
+    while (Date.now() - start < timeout) {
+      if (await present(id)) return;
+      await sleep(80);
+    }
+    throw new Error(`never appeared: ${id}`);
+  };
+
+  await step("review: labels given when generating a key pair survive a restart", async () => {
+    await nav("keystores");
+    if (await present("ks-tab-e2e.p12")) await click("ks-tab-e2e.p12");
+    await click("ks-add-entry");
+    await click("add-keypair");
+    await waitFor("kp-alias");
+    await setField("kp-alias", "labelled");
+    await setField("kp-cn", "labelled.e2e.test");
+    await setField("kp-labels", "persist-me, team-a");
+    await click("generate-keypair-submit");
+    await toast();
+    await waitAlias("labelled");
+    await click("ks-save");
+    await toast();
+    // Labels are not in the keystore file: they must come back from the app's own state.
+    await sleep(800);
+    await restart();
+    await waitText("locked");
+    await click("unlock-with-vault");
+    await setField("vault-prompt-key", MASTER);
+    await click("vault-prompt-submit");
+    await toast();
+    await nav("keystores");
+    if (await present("ks-tab-e2e.p12")) await click("ks-tab-e2e.p12");
+    await waitAlias("labelled");
+    const labels = await js(`return [...document.querySelectorAll('select[aria-label="Filter by label"] option')].map((o) => o.value)`);
+    if (!labels.includes("persist-me") || !labels.includes("team-a")) throw new Error(`labels lost after the restart: ${JSON.stringify(labels)}`);
+  });
+
+  await step("review: 'Remember the password' ticked for a new keystore is pre-selected on its first save", async () => {
+    await click("header-new");
+    await waitFor("new-keystore-password");
+    await setField("new-keystore-name", "remembered.p12");
+    await setField("new-keystore-password", STORE_PW);
+    await setField("new-keystore-password-confirm", STORE_PW);
+    await js(`const box = document.querySelector('[data-testid="new-keystore-dialog"] [data-testid="remember-password"]');
+      if (!box) throw new Error("no remember checkbox (is the vault unlocked?)");
+      if (!box.checked) box.click();
+      return true;`);
+    await click("new-keystore-create");
+    await waitGone("new-keystore-dialog");
+    await toast();
+    await click("ks-save");
+    await waitFor("save-dialog");
+    const ticked = await js(`return document.querySelector('[data-testid="save-dialog"] [data-testid="remember-password"]')?.checked ?? null`);
+    if (ticked !== true) throw new Error(`the save dialog did not keep "Remember the password" (checked: ${ticked})`);
+    await clickButton("Cancel");
+    await waitGone("save-dialog");
   });
 }
 

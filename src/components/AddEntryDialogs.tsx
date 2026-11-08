@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useLayoutEffect, useMemo, useState } from "react";
 import { FolderOpen, KeyRound, Lock, ShieldCheck, Import, FileKey2, FolderArchive } from "lucide-react";
 import type { GenerateKeyPairInput, KeystoreEntry, KeystoreFile, OpenKeystore } from "../types/crypto";
 import { api, errorMessage } from "../lib/api";
@@ -111,7 +111,7 @@ export const GenerateKeyPairDialog: React.FC<{ keystore: OpenKeystore; open: boo
     }
   };
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!open) return;
     setAlias("");
     setCn("");
@@ -218,10 +218,11 @@ export const GenerateKeyPairDialog: React.FC<{ keystore: OpenKeystore; open: boo
                 setKeySpec(next);
                 if (profile !== "custom") applyProfile(profile, next);
               }}
+              hint={keySpec === "ECDSA:P-256" ? "Recommended: fast, and accepted everywhere." : undefined}
               data-testid="kp-key"
             >
               <optgroup label="Elliptic curve">
-                <option value="ECDSA:P-256">ECDSA P-256 (recommended)</option>
+                <option value="ECDSA:P-256">ECDSA P-256</option>
                 <option value="ECDSA:P-384">ECDSA P-384</option>
                 <option value="ECDSA:P-521">ECDSA P-521</option>
                 <option value="Ed25519:0">Ed25519</option>
@@ -281,7 +282,7 @@ export const GenerateKeyPairDialog: React.FC<{ keystore: OpenKeystore; open: boo
             <option value="custom">Custom</option>
           </Select>
           <TextInput label="Subject alternative names" value={sans} onChange={(e) => setSans(e.target.value)} placeholder="api.example.com, *.example.com, 10.0.0.5" hint="Hostnames, IPs, e-mails or URIs, comma-separated." data-testid="kp-sans" />
-          <TextInput label="Labels" value={labels} onChange={(e) => setLabels(e.target.value)} placeholder="production, team-a" />
+          <TextInput label="Labels" value={labels} onChange={(e) => setLabels(e.target.value)} placeholder="production, team-a" data-testid="kp-labels" />
         </div>
         <div className="space-y-4">
           <div className="flex items-center justify-between">
@@ -352,7 +353,7 @@ export const GenerateSecretKeyDialog: React.FC<{ keystore: OpenKeystore; open: b
   const [hexKey, setHexKey] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (open) {
       setAlias("");
       setHexKey("");
@@ -446,7 +447,7 @@ export const ImportCertificateDialog: React.FC<{ keystore: OpenKeystore; open: b
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (open) {
       setAlias("");
       setPath(null);
@@ -508,7 +509,7 @@ export const ImportKeyPairDialog: React.FC<{ keystore: OpenKeystore; open: boole
   const [certText, setCertText] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (open) {
       setAlias("");
       setKeyPath(null);
@@ -578,7 +579,7 @@ export const ImportFromKeystoreDialog: React.FC<{ keystore: OpenKeystore; open: 
   const [selected, setSelected] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (open) {
       setPath(null);
       setPw("");
@@ -820,7 +821,7 @@ export function usePkcs12Builder(testIdPrefix = "build-p12") {
 export const BuildPkcs12Dialog: React.FC<{ open: boolean; onClose: () => void }> = ({ open, onClose }) => {
   const builder = usePkcs12Builder("build-p12");
   const { reset } = builder;
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (open) reset();
   }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
   if (!open) return null;

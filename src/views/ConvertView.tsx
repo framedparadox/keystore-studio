@@ -893,11 +893,11 @@ const Overview: React.FC = () => {
                 </div>
               </div>
               <dl className={clsx("mt-auto grid grid-cols-[auto_1fr] gap-x-2 gap-y-0.5 text-[12px]", spanXl && "xl:mt-0 xl:w-96 xl:shrink-0")}>
-                <dt className="text-subtle">From</dt>
+                <dt className="text-faint">From</dt>
                 <dd className="text-ink-2 truncate" title={c.from}>
                   {c.from}
                 </dd>
-                <dt className="text-subtle">To</dt>
+                <dt className="text-faint">To</dt>
                 <dd className="text-ink-2 truncate" title={c.to}>
                   {c.to}
                 </dd>

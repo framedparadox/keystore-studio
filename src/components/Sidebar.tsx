@@ -197,7 +197,7 @@ export const Sidebar: React.FC = () => {
             onClick={() => setCollapsed(true)}
             title="Collapse sidebar"
             aria-label="Collapse sidebar"
-            className="ml-auto w-7 h-7 rounded-control flex items-center justify-center text-subtle hover:bg-surface-2 hover:text-ink transition cursor-pointer shrink-0"
+            className="ml-auto w-7 h-7 rounded-control flex items-center justify-center text-faint hover:bg-surface-2 hover:text-ink transition cursor-pointer shrink-0"
           >
             <PanelLeftClose className="w-4 h-4" />
           </button>
@@ -209,7 +209,7 @@ export const Sidebar: React.FC = () => {
             onClick={() => setCollapsed(false)}
             title="Expand sidebar"
             aria-label="Expand sidebar"
-            className="w-9 h-7 rounded-control flex items-center justify-center text-subtle hover:bg-surface-2 hover:text-ink transition cursor-pointer"
+            className="w-9 h-7 rounded-control flex items-center justify-center text-faint hover:bg-surface-2 hover:text-ink transition cursor-pointer"
           >
             <PanelLeftOpen className="w-4 h-4" />
           </button>
@@ -220,7 +220,7 @@ export const Sidebar: React.FC = () => {
         {NAV_GROUPS.map((g, i) => (
           <div key={i}>
             {i > 0 && <div className={clsx("my-3 border-t border-line", collapsed ? "mx-1" : "mx-2.5")} role="separator" />}
-            {g.label && !collapsed && <div className="px-2.5 mb-1.5 text-[11px] font-semibold uppercase tracking-[0.06em] text-subtle">{g.label}</div>}
+            {g.label && !collapsed && <div className="px-2.5 mb-1.5 text-[11px] font-semibold uppercase tracking-[0.06em] text-faint">{g.label}</div>}
             <div className="space-y-0.5">
               {g.items.map((item) =>
                 item.id === "convert" ? (

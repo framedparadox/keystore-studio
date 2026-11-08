@@ -1,5 +1,5 @@
-import React, { useEffect, useMemo, useState } from "react";
-import { FilePlus2, FolderOpen, KeyRound, Lock, Save, ShieldCheck } from "lucide-react";
+import React, { useLayoutEffect, useMemo, useState } from "react";
+import { FilePlus2, FolderOpen, Lock, Save, ShieldCheck } from "lucide-react";
 import { useStore } from "../state/store";
 import { api, errorMessage } from "../lib/api";
 import { FILTERS, baseName, pickSavePath, safeFileStem, withExtension } from "../lib/files";
@@ -16,6 +16,7 @@ export const RememberPassword: React.FC<{ checked: boolean; onChange: (v: boolea
         checked={false}
         onChange={() => requestVaultUnlock()}
         label="Remember the password in the vault"
+        testId="remember-password"
         hint="Set up a master key first (opens the vault setup)."
       />
     );
@@ -23,11 +24,13 @@ export const RememberPassword: React.FC<{ checked: boolean; onChange: (v: boolea
   if (!vault.unlocked) {
     return (
       <div className="flex items-start gap-2.5">
-        <Checkbox checked={false} onChange={() => requestVaultUnlock(() => onChange(true))} label="Remember the password in the vault" hint="The vault is locked — checking this asks for your master key." />
+        <Checkbox checked={false} onChange={() => requestVaultUnlock(() => onChange(true))} label="Remember the password in the vault"
+        testId="remember-password" hint="The vault is locked — checking this asks for your master key." />
       </div>
     );
   }
-  return <Checkbox checked={checked} onChange={onChange} label="Remember the password in the vault" hint="Encrypted with your master key (AES-256-GCM)." />;
+  return <Checkbox checked={checked} onChange={onChange} label="Remember the password in the vault"
+        testId="remember-password" hint="Encrypted with your master key (AES-256-GCM)." />;
 };
 
 const StrengthHint: React.FC<{ password: string }> = ({ password }) => {
@@ -48,11 +51,12 @@ export const OpenPasswordDialog: React.FC = () => {
   const [keyPasswords, setKeyPasswords] = useState("");
   const [remember, setRemember] = useState(settings.rememberPasswordsByDefault);
   const [busy, setBusy] = useState(false);
-  useEffect(() => {
+  useLayoutEffect(() => {
     setPassword("");
     setKeyPasswords("");
+    setRemember(settings.rememberPasswordsByDefault);
     setBusy(false);
-  }, [pendingOpen?.path]);
+  }, [pendingOpen?.path]); // eslint-disable-line react-hooks/exhaustive-deps
   if (!pendingOpen) return null;
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -102,7 +106,7 @@ export const OpenPasswordDialog: React.FC = () => {
 };
 
 export const SaveDialog: React.FC = () => {
-  const { pendingSave, keystores, getPassword, completeSave, cancelSave, settings } = useStore();
+  const { pendingSave, keystores, getPassword, completeSave, cancelSave, settings, rememberRequested } = useStore();
   const ks = keystores.find((k) => k.id === pendingSave?.keystoreId);
   const [format, setFormat] = useState<KeystoreFormat>("PKCS12");
   const [password, setPassword] = useState("");
@@ -113,14 +117,17 @@ export const SaveDialog: React.FC = () => {
   const [busy, setBusy] = useState(false);
   const current = ks ? getPassword(ks.id) ?? "" : "";
 
-  useEffect(() => {
+  // A file read from disk as JKS (or read-only BKS) is offered as PKCS#12, so the original stays as
+  // it is. A keystore created here as JKS is saved as JKS: that is the format that was chosen.
+  const migrating = !!ks && !!ks.path && (ks.format === "JKS" || ks.format === "BKS");
+  useLayoutEffect(() => {
     if (!ks) return;
-    setFormat(ks.format === "JKS" || ks.format === "BKS" ? "PKCS12" : ks.format);
+    setFormat(migrating || ks.format === "BKS" ? "PKCS12" : ks.format);
     setMac("pkcs12");
     setForce(false);
     setPassword(current);
     setConfirmPw(current);
-    setRemember(settings.rememberPasswordsByDefault);
+    setRemember(settings.rememberPasswordsByDefault || rememberRequested(ks.id));
     setBusy(false);
   }, [pendingSave?.keystoreId]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -180,7 +187,7 @@ export const SaveDialog: React.FC = () => {
             <option value="pbmac1">PBMAC1 / PBKDF2-HMAC-SHA256</option>
           </Select>
         )}
-        {(ks.format === "JKS" || ks.format === "BKS") && (
+        {migrating && (
           <Alert tone="info" title={ks.format === "JKS" ? "JKS uses SHA-1" : "BKS is read-only"}>
             {ks.format === "JKS"
               ? "PKCS#12 is selected so you can write a new file and leave the original JKS in place. Pick the original path only if you mean to replace it."
@@ -214,7 +221,7 @@ export const NewKeystoreDialog: React.FC = () => {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (newKeystoreOpen) {
       setFormat(settings.defaultFormat);
       setName(`keystore.${FORMAT_EXTENSION[settings.defaultFormat]}`);
@@ -341,7 +348,7 @@ export const VaultPromptDialog: React.FC = () => {
   const [confirmKey, setConfirmKey] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  useEffect(() => {
+  useLayoutEffect(() => {
     setKey("");
     setConfirmKey("");
     setError(null);
@@ -406,9 +413,12 @@ export const UnlockKeysDialog: React.FC = () => {
   const [pw, setPw] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  useEffect(() => {
+  // Progress when keys with different passwords are unlocked one password at a time.
+  const [progress, setProgress] = useState<string | null>(null);
+  useLayoutEffect(() => {
     setPw("");
     setError(null);
+    setProgress(null);
   }, [pending]);
   if (!pending) return null;
   const ks = keystores.find((k) => k.id === pending.keystoreId);
@@ -425,9 +435,10 @@ export const UnlockKeysDialog: React.FC = () => {
       return;
     }
     if (res.remaining > 0) {
-      // Keys with different passwords: keep asking for the rest.
+      // Keys with different passwords: keep asking for the rest, and say so here (a toast would
+      // sit behind this dialog).
       setPw("");
-      toast.info(`Unlocked ${res.unlocked}. ${res.remaining} still need${res.remaining === 1 ? "s" : ""} a different key password.`);
+      setProgress(`Unlocked ${res.unlocked}. ${res.remaining} still need${res.remaining === 1 ? "s" : ""} a different key password.`);
       return;
     }
     const then = pending.then;
@@ -464,6 +475,11 @@ export const UnlockKeysDialog: React.FC = () => {
         }}
         className="space-y-3"
       >
+        {progress && (
+          <Alert tone="success" className="!py-2">
+            <span data-testid="unlock-key-progress">{progress}</span>
+          </Alert>
+        )}
         <PasswordInput label="Key password" value={pw} onChange={setPw} error={error ?? undefined} autoFocus data-testid="unlock-key-password" />
         <p className="text-[12px] text-faint">
           {ownPassword

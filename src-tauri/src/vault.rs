@@ -6,6 +6,8 @@
 //!   candidate master key. Never contains the key.
 //! - `vault_secrets.json`: `{ id: { label, nonce, ciphertext, updated_at } }`, each secret sealed
 //!   with AES-256-GCM under the vault key using a fresh random nonce.
+//! - `vault_secrets.json.next`: present only while the master key is being changed (see
+//!   [`VaultState::change_master_key`]).
 
 use crate::util::{Res, random_bytes, write_atomic};
 use aes_gcm::aead::{Aead, KeyInit, Payload};
@@ -69,11 +71,19 @@ pub struct SecretSummary {
 pub struct VaultState {
     dir: PathBuf,
     key: Mutex<Option<[u8; 32]>>,
+    /// Held across every read-modify-write of the vault files. Commands run on separate threads,
+    /// and two unsynchronised writers each read the map, add their secret and write it back, so
+    /// the last write silently drops the other's secret.
+    files: Mutex<()>,
 }
 
 impl VaultState {
     pub fn new(dir: PathBuf) -> Self {
-        Self { dir, key: Mutex::new(None) }
+        Self { dir, key: Mutex::new(None), files: Mutex::new(()) }
+    }
+
+    fn files_lock(&self) -> Res<std::sync::MutexGuard<'_, ()>> {
+        self.files.lock().map_err(|_| "vault state poisoned".to_string())
     }
 
     /// The default location: `<data dir>/xkeystore`.
@@ -91,16 +101,25 @@ impl VaultState {
         self.dir.join("vault_secrets.json")
     }
 
+    /// Secrets re-encrypted under a new master key, waiting for the vault file to switch over.
+    fn staged_secrets_path(&self) -> PathBuf {
+        self.dir.join("vault_secrets.json.next")
+    }
+
+    fn read_secrets_at(path: &std::path::Path) -> Res<BTreeMap<String, SealedSecret>> {
+        match std::fs::read_to_string(path) {
+            Ok(raw) => serde_json::from_str(&raw).map_err(|err| format!("the vault secrets file is corrupted: {err}")),
+            Err(_) => Ok(BTreeMap::new()),
+        }
+    }
+
     fn read_vault(&self) -> Res<VaultFile> {
         let raw = std::fs::read_to_string(self.vault_path()).map_err(|_| "the vault has not been set up yet".to_string())?;
         serde_json::from_str(&raw).map_err(|err| format!("the vault file is corrupted: {err}"))
     }
 
     fn read_secrets(&self) -> Res<BTreeMap<String, SealedSecret>> {
-        match std::fs::read_to_string(self.secrets_path()) {
-            Ok(raw) => serde_json::from_str(&raw).map_err(|err| format!("the vault secrets file is corrupted: {err}")),
-            Err(_) => Ok(BTreeMap::new()),
-        }
+        Self::read_secrets_at(&self.secrets_path())
     }
 
     fn write_secrets(&self, secrets: &BTreeMap<String, SealedSecret>) -> Res<()> {
@@ -133,6 +152,7 @@ impl VaultState {
         if master_key.chars().count() < MIN_MASTER_KEY_LEN {
             return Err(format!("the master key must be at least {MIN_MASTER_KEY_LEN} characters"));
         }
+        let _files = self.files_lock()?;
         if self.vault_path().is_file() {
             return Err("a vault already exists".into());
         }
@@ -141,12 +161,15 @@ impl VaultState {
         write_atomic(&self.vault_path(), &json)?;
         // Remove secrets from a previous (reset) vault, which could never be decrypted anyway.
         let _ = std::fs::remove_file(self.secrets_path());
+        let _ = std::fs::remove_file(self.staged_secrets_path());
         self.set_key(Some(key))
     }
 
     pub fn unlock(&self, master_key: &str) -> Res<()> {
+        let _files = self.files_lock()?;
         let file = self.read_vault()?;
         let key = derive_and_check(master_key, &file)?;
+        self.finish_interrupted_change(&key)?;
         self.set_key(Some(key))
     }
 
@@ -154,32 +177,90 @@ impl VaultState {
         self.set_key(None)
     }
 
-    /// Rotates the master key and re-encrypts every stored secret under the new key. The new
-    /// secrets file is written before the vault file so a crash never strands secrets.
+    /// Rotates the master key and re-encrypts every stored secret under the new key.
+    ///
+    /// The vault file and the secrets file cannot be replaced together, and whichever is written
+    /// first, a crash before the other leaves the master key unable to open the secrets. So the
+    /// re-encrypted secrets are first staged in a file of their own; the vault file then switches
+    /// to the new key; the staged file then replaces the secrets. A crash at any point leaves a
+    /// state that [`Self::finish_interrupted_change`] completes or rolls back on the next unlock.
     pub fn change_master_key(&self, old_master_key: &str, new_master_key: &str) -> Res<()> {
         if new_master_key.chars().count() < MIN_MASTER_KEY_LEN {
             return Err(format!("the new master key must be at least {MIN_MASTER_KEY_LEN} characters"));
         }
+        let _files = self.files_lock()?;
         let old_file = self.read_vault()?;
         let mut old_key = derive_and_check(old_master_key, &old_file)?;
+        // An earlier change that was interrupted is settled first, under the key that opens the vault now.
+        self.finish_interrupted_change(&old_key)?;
         let (new_file, new_key) = new_vault_file(new_master_key)?;
         let mut secrets = self.read_secrets()?;
         for (id, sealed) in secrets.iter_mut() {
             let mut plain = open(&old_key, id, sealed)?;
+            // Re-encrypting is not an update of the secret: keep when it was last stored.
+            let updated_at = std::mem::take(&mut sealed.updated_at);
             *sealed = seal(&new_key, id, &sealed.label, &plain)?;
+            sealed.updated_at = updated_at;
             plain.zeroize();
         }
         old_key.zeroize();
-        self.write_secrets(&secrets)?;
-        let json = serde_json::to_vec_pretty(&new_file).map_err(|e| e.to_string())?;
-        write_atomic(&self.vault_path(), &json)?;
+        self.stage_secrets(&secrets)?;
+        self.commit_vault_file(&new_file)?;
+        self.promote_staged_secrets()?;
         self.set_key(Some(new_key))
+    }
+
+    /// Step 1 of a master key change: the re-encrypted secrets, beside the live ones.
+    fn stage_secrets(&self, secrets: &BTreeMap<String, SealedSecret>) -> Res<()> {
+        let json = serde_json::to_vec_pretty(secrets).map_err(|e| e.to_string())?;
+        write_atomic(&self.staged_secrets_path(), &json)
+    }
+
+    /// Step 2: from here on the new master key opens the vault.
+    fn commit_vault_file(&self, file: &VaultFile) -> Res<()> {
+        let json = serde_json::to_vec_pretty(file).map_err(|e| e.to_string())?;
+        write_atomic(&self.vault_path(), &json)
+    }
+
+    /// Step 3: the staged secrets become the live ones.
+    fn promote_staged_secrets(&self) -> Res<()> {
+        std::fs::rename(self.staged_secrets_path(), self.secrets_path()).map_err(|err| format!("cannot update the vault secrets: {err}"))?;
+        #[cfg(unix)]
+        if let Ok(d) = std::fs::File::open(&self.dir) {
+            let _ = d.sync_all();
+        }
+        Ok(())
+    }
+
+    /// Settles a master key change that a crash interrupted, given the key that opens the vault
+    /// file now. If that key opens the staged secrets, the vault file had already switched over
+    /// and the change is completed. Otherwise the vault file never switched, the live secrets are
+    /// still the right ones, and the staged copy is discarded.
+    fn finish_interrupted_change(&self, key: &[u8; 32]) -> Res<()> {
+        let staged_path = self.staged_secrets_path();
+        if !staged_path.exists() {
+            return Ok(());
+        }
+        let staged = Self::read_secrets_at(&staged_path).unwrap_or_default();
+        let opens = |s: &BTreeMap<String, SealedSecret>| {
+            s.iter().all(|(id, sealed)| {
+                open(key, id, sealed)
+                    .map(|mut p| {
+                        p.zeroize();
+                        true
+                    })
+                    .unwrap_or(false)
+            })
+        };
+        // With no secrets either way there is nothing to choose between; keep the live file.
+        if !staged.is_empty() && opens(&staged) { self.promote_staged_secrets() } else { std::fs::remove_file(&staged_path).map_err(|err| format!("cannot remove {}: {err}", staged_path.display())) }
     }
 
     /// Deletes the vault and every stored secret (used when the master key is forgotten).
     pub fn reset(&self) -> Res<()> {
+        let _files = self.files_lock()?;
         self.set_key(None)?;
-        for p in [self.vault_path(), self.secrets_path()] {
+        for p in [self.vault_path(), self.secrets_path(), self.staged_secrets_path()] {
             if p.exists() {
                 std::fs::remove_file(&p).map_err(|err| format!("cannot delete {}: {err}", p.display()))?;
             }
@@ -191,25 +272,28 @@ impl VaultState {
         if id.trim().is_empty() {
             return Err("secret id must not be empty".into());
         }
-        let key = self.current_key()?;
+        let _files = self.files_lock()?;
+        let mut key = self.current_key()?;
         let mut secrets = self.read_secrets()?;
-        secrets.insert(id.to_string(), seal(&key, id, label, secret.as_bytes())?);
+        let sealed = seal(&key, id, label, secret.as_bytes());
+        key.zeroize();
+        secrets.insert(id.to_string(), sealed?);
         self.write_secrets(&secrets)
     }
 
     pub fn get_secret(&self, id: &str) -> Res<Option<String>> {
-        let key = self.current_key()?;
+        let mut key = self.current_key()?;
         let secrets = self.read_secrets()?;
-        match secrets.get(id) {
+        let plain = secrets.get(id).map(|sealed| open(&key, id, sealed));
+        key.zeroize();
+        match plain {
             None => Ok(None),
-            Some(sealed) => {
-                let plain = open(&key, id, sealed)?;
-                String::from_utf8(plain).map(Some).map_err(|_| "stored secret is not valid UTF-8".to_string())
-            }
+            Some(plain) => String::from_utf8(plain?).map(Some).map_err(|_| "stored secret is not valid UTF-8".to_string()),
         }
     }
 
     pub fn delete_secret(&self, id: &str) -> Res<()> {
+        let _files = self.files_lock()?;
         let mut secrets = self.read_secrets()?;
         if secrets.remove(id).is_some() {
             self.write_secrets(&secrets)?;
@@ -309,6 +393,82 @@ mod tests {
         v.reset().unwrap();
         assert!(!v.status().unwrap().exists);
         assert_eq!(v.status().unwrap().secret_count, 0);
+    }
+
+    #[test]
+    fn concurrent_writes_keep_every_secret() {
+        // Each command runs on its own thread. Without the file lock, two writers both read the
+        // map, add their secret and write it back, and the slower one drops the other's secret.
+        let (_d, v) = vault();
+        v.init("master-key-123").unwrap();
+        let v = std::sync::Arc::new(v);
+        let threads: Vec<_> = (0..16)
+            .map(|i| {
+                let v = v.clone();
+                std::thread::spawn(move || v.store_secret(&format!("id-{i}"), &format!("label-{i}"), &format!("secret-{i}")).unwrap())
+            })
+            .collect();
+        threads.into_iter().for_each(|t| t.join().unwrap());
+        assert_eq!(v.list_secrets().unwrap().len(), 16);
+        for i in 0..16 {
+            assert_eq!(v.get_secret(&format!("id-{i}")).unwrap().as_deref(), Some(format!("secret-{i}").as_str()));
+        }
+    }
+
+    /// Runs a master key change up to (not including) `stop_before`, as if the app crashed there.
+    fn interrupted_change(v: &VaultState, old: &str, new: &str, stop_before: u8) {
+        let old_key = derive_and_check(old, &v.read_vault().unwrap()).unwrap();
+        let (new_file, new_key) = new_vault_file(new).unwrap();
+        let mut secrets = v.read_secrets().unwrap();
+        for (id, sealed) in secrets.iter_mut() {
+            *sealed = seal(&new_key, id, &sealed.label, &open(&old_key, id, sealed).unwrap()).unwrap();
+        }
+        if stop_before > 1 {
+            v.stage_secrets(&secrets).unwrap();
+        }
+        if stop_before > 2 {
+            v.commit_vault_file(&new_file).unwrap();
+        }
+        v.lock().unwrap();
+    }
+
+    #[test]
+    fn a_crash_while_changing_the_master_key_never_strands_secrets() {
+        for stop_before in [1u8, 2, 3] {
+            let (_d, v) = vault();
+            v.init("old master key").unwrap();
+            v.store_secret("a", "a.p12", "pw-a").unwrap();
+            v.store_secret("b", "b.jks", "pw-b").unwrap();
+            interrupted_change(&v, "old master key", "new master key", stop_before);
+
+            // Whichever key opens the vault after the crash also opens every secret.
+            let key = if stop_before > 2 { "new master key" } else { "old master key" };
+            let other = if stop_before > 2 { "old master key" } else { "new master key" };
+            assert!(v.unlock(other).is_err(), "step {stop_before}: the other key must not open the vault");
+            v.unlock(key).unwrap_or_else(|e| panic!("step {stop_before}: {e}"));
+            assert_eq!(v.get_secret("a").unwrap().as_deref(), Some("pw-a"), "step {stop_before}");
+            assert_eq!(v.get_secret("b").unwrap().as_deref(), Some("pw-b"), "step {stop_before}");
+            assert!(!v.staged_secrets_path().exists(), "step {stop_before}: the staged file must be settled");
+
+            // And the vault keeps working: a later change completes normally.
+            v.change_master_key(key, "third master key").unwrap();
+            v.lock().unwrap();
+            v.unlock("third master key").unwrap();
+            assert_eq!(v.get_secret("b").unwrap().as_deref(), Some("pw-b"), "step {stop_before}");
+        }
+    }
+
+    #[test]
+    fn changing_the_master_key_keeps_when_each_secret_was_stored() {
+        let (_d, v) = vault();
+        v.init("old master key").unwrap();
+        v.store_secret("a", "a.p12", "pw-a").unwrap();
+        let mut secrets = v.read_secrets().unwrap();
+        secrets.get_mut("a").unwrap().updated_at = "2001-02-03 04:05".into();
+        v.write_secrets(&secrets).unwrap();
+        v.change_master_key("old master key", "new master key").unwrap();
+        assert_eq!(v.list_secrets().unwrap()[0].updated_at, "2001-02-03 04:05");
+        assert_eq!(v.get_secret("a").unwrap().as_deref(), Some("pw-a"));
     }
 
     #[test]

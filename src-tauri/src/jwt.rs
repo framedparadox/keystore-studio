@@ -126,6 +126,12 @@ pub fn decode(token: &str) -> Res<JwtInfo> {
     })
 }
 
+/// Compares two MACs in time that depends only on their length, so a mismatch does not reveal how
+/// many leading bytes were right.
+fn macs_equal(a: &[u8], b: &[u8]) -> bool {
+    a.len() == b.len() && a.iter().zip(b).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
+}
+
 pub fn verify(token: &str, key: &KeystoreEntry) -> Res<JwtVerifyResult> {
     let info = decode(token)?;
     let (h, p, s) = split(token)?;
@@ -134,10 +140,20 @@ pub fn verify(token: &str, key: &KeystoreEntry) -> Res<JwtVerifyResult> {
     if info.algorithm == "none" {
         return Ok(JwtVerifyResult { valid: false, message: "Unsigned token (alg \"none\") — rejected.".into(), info });
     }
+    // RFC 7515 §4.1.11: a verifier must reject a token whose "crit" lists extensions it does not
+    // implement. xkeystore implements none, so any "crit" (even an empty or malformed one) fails.
+    if let Some(crit) = b64url_json(h, "header")?.get("crit") {
+        let names = crit.as_array().map(|a| a.iter().filter_map(Value::as_str).collect::<Vec<_>>().join(", ")).unwrap_or_default();
+        return Ok(JwtVerifyResult {
+            valid: false,
+            message: format!("The token marks header parameters as critical ({}), which xkeystore does not implement — rejected.", if names.is_empty() { "crit" } else { &names }),
+            info,
+        });
+    }
     let valid = match jws_for(&info.algorithm)? {
         Jws::Hmac(hash) => {
             let expected = hash.hmac(&entry::secret_bytes(key).map_err(|_| format!("{} tokens need a secret key entry", info.algorithm))?, signing_input.as_bytes());
-            expected == sig
+            macs_equal(&expected, &sig)
         }
         Jws::Asym(alg) => {
             let spki = match &key.public_key_pem {
@@ -215,5 +231,46 @@ mod tests {
             assert!(!verify(&tampered, &e).map(|r| r.valid).unwrap_or(false));
         }
         assert!(sign(&JwtClaims { custom_claims_json: "[1]", ..claims }, &kp("Ed25519", ""), None).is_err());
+    }
+
+    /// Re-signs `header` + the payload of `token` with an HMAC key, as an attacker holding it could.
+    fn hs256_with_header(token: &str, header: &Value, key: &[u8]) -> String {
+        let payload = token.split('.').nth(1).unwrap();
+        let input = format!("{}.{payload}", B64URL.encode(serde_json::to_vec(header).unwrap()));
+        format!("{input}.{}", B64URL.encode(HashAlg::Sha256.hmac(key, input.as_bytes())))
+    }
+
+    #[test]
+    fn unknown_critical_header_parameters_are_rejected() {
+        let claims = JwtClaims { issuer: "iss", subject: "sub", audience: "aud", validity_minutes: 5, custom_claims_json: "" };
+        let secret = [7u8; 32];
+        let hmac = entry::secret_key_entry("h", "HmacSHA256", &secret, None);
+        let token = sign(&claims, &hmac, None).unwrap();
+        // Correctly signed, but it demands an extension the verifier does not know.
+        let crit = hs256_with_header(&token, &serde_json::json!({ "alg": "HS256", "crit": ["exp-v2"], "exp-v2": 1 }), &secret);
+        let r = verify(&crit, &hmac).unwrap();
+        assert!(!r.valid);
+        assert!(r.message.contains("exp-v2"), "{}", r.message);
+        // The same header without "crit" verifies: the rejection is about "crit", not the signature.
+        let plain = hs256_with_header(&token, &serde_json::json!({ "alg": "HS256", "exp-v2": 1 }), &secret);
+        assert!(verify(&plain, &hmac).unwrap().valid);
+    }
+
+    #[test]
+    fn hmac_tokens_never_verify_with_a_key_pair() {
+        // Algorithm confusion: an HS256 token "signed" with the RSA public key as the HMAC secret
+        // must not verify against that key pair.
+        let rsa = kp("RSA", "");
+        let token = sign(&JwtClaims { issuer: "", subject: "", audience: "", validity_minutes: 5, custom_claims_json: "" }, &rsa, None).unwrap();
+        let forged = hs256_with_header(&token, &serde_json::json!({ "alg": "HS256" }), rsa.public_key_pem.as_deref().unwrap().as_bytes());
+        assert!(verify(&forged, &rsa).map(|r| !r.valid).unwrap_or(true));
+    }
+
+    #[test]
+    fn mac_comparison() {
+        assert!(macs_equal(b"abc", b"abc"));
+        assert!(!macs_equal(b"abc", b"abd"));
+        assert!(!macs_equal(b"abc", b"ab"));
+        assert!(macs_equal(b"", b""));
     }
 }

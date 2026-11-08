@@ -99,6 +99,11 @@ export const CommandPalette: React.FC<{ open: boolean; onClose: () => void }> = 
   }, [commands, q]);
 
   useEffect(() => setIndex(0), [q]);
+  // Keep the highlighted command in view while moving through a long list with the arrow keys.
+  const list = useRef<HTMLUListElement>(null);
+  useEffect(() => {
+    if (open) list.current?.querySelector<HTMLElement>(`#palette-opt-${index}`)?.scrollIntoView({ block: "nearest" });
+  }, [index, open]);
   if (!open) return null;
   const run = (c?: Command) => {
     if (!c) return;
@@ -108,11 +113,16 @@ export const CommandPalette: React.FC<{ open: boolean; onClose: () => void }> = 
   let lastGroup = "";
   return (
     <div className="fixed inset-0 z-[65] bg-ink/30 flex items-start justify-center pt-[12vh] p-4" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div role="dialog" aria-label="Command palette" className="w-full max-w-xl bg-surface rounded-panel border border-line shadow-pop overflow-hidden" data-testid="command-palette">
+      <div role="dialog" aria-modal="true" aria-label="Command palette" className="w-full max-w-xl bg-surface rounded-panel border border-line shadow-pop overflow-hidden" data-testid="command-palette">
         <div className="flex items-center gap-2.5 px-4 h-12 border-b border-line">
-          <Search className="w-4 h-4 text-subtle" />
+          <Search className="w-4 h-4 text-subtle" aria-hidden />
           <input
             ref={input}
+            role="combobox"
+            aria-expanded="true"
+            aria-controls="palette-list"
+            aria-autocomplete="list"
+            aria-activedescendant={filtered[index] ? `palette-opt-${index}` : undefined}
             value={q}
             onChange={(e) => setQ(e.target.value)}
             onKeyDown={(e) => {
@@ -125,7 +135,11 @@ export const CommandPalette: React.FC<{ open: boolean; onClose: () => void }> = 
               } else if (e.key === "Enter") {
                 e.preventDefault();
                 run(filtered[index]);
-              } else if (e.key === "Escape") onClose();
+              } else if (e.key === "Escape") {
+                // Close only the palette, not a dialog it was opened over.
+                e.stopPropagation();
+                onClose();
+              }
             }}
             placeholder="Search pages, actions, keystores and entries…"
             className="flex-1 bg-transparent outline-none text-[14px] text-ink placeholder:text-subtle"
@@ -133,24 +147,35 @@ export const CommandPalette: React.FC<{ open: boolean; onClose: () => void }> = 
             data-testid="palette-input"
           />
         </div>
-        <ul className="max-h-[52vh] overflow-y-auto p-1.5" role="listbox">
-          {filtered.length === 0 && <li className="px-3 py-6 text-center text-[13px] text-faint">No matches</li>}
+        <ul ref={list} id="palette-list" className="max-h-[52vh] overflow-y-auto p-1.5" role="listbox" aria-label="Commands">
+          {filtered.length === 0 && (
+            <li role="presentation" className="px-3 py-6 text-center text-[13px] text-faint">
+              No matches
+            </li>
+          )}
           {filtered.map((c, i) => {
             const header = c.group !== lastGroup ? c.group : null;
             lastGroup = c.group;
             return (
               <React.Fragment key={c.id}>
-                {header && <li className="px-3 pt-2 pb-1 text-[11px] font-semibold uppercase tracking-[0.05em] text-subtle">{header}</li>}
-                <li role="option" aria-selected={i === index}>
-                  <button
-                    onMouseEnter={() => setIndex(i)}
-                    onClick={() => run(c)}
-                    className={clsx("w-full px-3 py-2 rounded-control flex items-center gap-3 text-left cursor-pointer", i === index ? "bg-brand-tint" : "hover:bg-surface-2")}
-                  >
-                    <c.icon className="w-4 h-4 text-muted shrink-0" />
-                    <span className="flex-1 min-w-0 text-[13px] text-ink truncate">{c.label}</span>
-                    {c.hint && <span className="text-[11.5px] text-faint truncate max-w-[45%]">{c.hint}</span>}
-                  </button>
+                {header && (
+                  <li role="presentation" className="px-3 pt-2 pb-1 text-[11px] font-semibold uppercase tracking-[0.05em] text-faint">
+                    {header}
+                  </li>
+                )}
+                {/* The option itself is clickable; focus stays in the input (aria-activedescendant). */}
+                <li
+                  id={`palette-opt-${i}`}
+                  role="option"
+                  aria-selected={i === index}
+                  onMouseEnter={() => setIndex(i)}
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => run(c)}
+                  className={clsx("w-full px-3 py-2 rounded-control flex items-center gap-3 text-left cursor-pointer", i === index ? "bg-brand-tint" : "hover:bg-surface-2")}
+                >
+                  <c.icon className="w-4 h-4 text-muted shrink-0" aria-hidden />
+                  <span className="flex-1 min-w-0 text-[13px] text-ink truncate">{c.label}</span>
+                  {c.hint && <span className="text-[11.5px] text-faint truncate max-w-[45%]">{c.hint}</span>}
                 </li>
               </React.Fragment>
             );

@@ -106,8 +106,9 @@ pub fn export_entry(e: &KeystoreEntry, target: &str, path: &str, password: Optio
 }
 
 fn csv_field(s: &str) -> String {
-    // Quote every field; neutralise spreadsheet formula injection.
-    let s = if s.starts_with(['=', '+', '-', '@']) { format!("'{s}") } else { s.to_string() };
+    // Quote every field; neutralise spreadsheet formula injection (OWASP: a leading = + - @, and a
+    // leading tab or carriage return, which some spreadsheets strip before evaluating the rest).
+    let s = if s.starts_with(['=', '+', '-', '@', '\t', '\r']) { format!("'{s}") } else { s.to_string() };
     format!("\"{}\"", s.replace('"', "\"\""))
 }
 
@@ -188,5 +189,14 @@ mod tests {
         let csv = inventory_csv(&KeystoreFile { entries: vec![e], ..Default::default() });
         assert!(csv.lines().count() == 2);
         assert_eq!(csv_field("=cmd()"), "\"'=cmd()\"");
+    }
+
+    #[test]
+    fn csv_fields_cannot_start_a_formula() {
+        for raw in ["=1+1", "+1", "-1", "@SUM(A1)", "\t=1+1", "\r=1+1"] {
+            assert!(csv_field(raw).starts_with("\"'"), "{raw:?} was not neutralised");
+        }
+        assert_eq!(csv_field("plain \"quoted\""), "\"plain \"\"quoted\"\"\"");
+        assert_eq!(csv_field("CN=a, O=b"), "\"CN=a, O=b\"");
     }
 }

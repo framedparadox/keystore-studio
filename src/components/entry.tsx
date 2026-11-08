@@ -53,7 +53,8 @@ export const EntryIcon: React.FC<{ type: EntryType; locked?: boolean; size?: "sm
           className: clsx(
             "absolute rounded-full border border-surface p-[1.5px]",
             sm ? "-right-1 -bottom-1 w-3 h-3" : "-right-1.5 -bottom-1.5 w-[15px] h-[15px]",
-            locked ? "bg-warning-fill text-white" : "bg-success-fill text-white"
+            // Text-safe tones: the white glyph on the lighter "-fill" colours was under 3:1.
+            locked ? "bg-warning text-white" : "bg-success text-white"
           ),
         })}
     </span>
@@ -176,7 +177,7 @@ export const HealthBadge: React.FC<{ entry: KeystoreEntry }> = ({ entry }) => {
 
 export const LabelList: React.FC<{ labels: string[]; max?: number }> = ({ labels, max = 2 }) =>
   labels.length === 0 ? (
-    <span className="text-subtle">—</span>
+    <span className="text-faint">—</span>
   ) : (
     <div className="flex items-center gap-1">
       {labels.slice(0, max).map((l) => (

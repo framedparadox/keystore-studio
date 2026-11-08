@@ -84,9 +84,12 @@ export const formatDuration = (days: number | null): string => {
   const abs = Math.abs(days);
   if (abs < 60) return `${abs} d`;
   if (abs < 365) return `${Math.round(abs / 30)} mo`;
-  const y = Math.floor(abs / 365);
-  const m = Math.round((abs - y * 365) / 30);
-  return m && m < 12 ? `${y}y ${m}m` : `${y}y`;
+  // Round to whole months first, then split into years: rounding the leftover days on their own
+  // turned 729 days into "1y" (11.97 months rounded to 12, then dropped).
+  const months = Math.round(abs / 30.4375);
+  const y = Math.floor(months / 12);
+  const m = months % 12;
+  return m ? `${y}y ${m}m` : `${y}y`;
 };
 
 export interface FlatEntry {
@@ -114,12 +117,13 @@ export const expiryBucketDefs = (): { key: ExpiryStatus; label: string }[] => [
 export const expiryBuckets = (entries: KeystoreEntry[]): Bucket[] =>
   expiryBucketDefs().map((b) => ({ ...b, count: entries.filter((e) => expiryStatus(e) === b.key).length }));
 
+// Short labels: each sits under one narrow column of the key-age chart.
 const AGE_BUCKETS: { key: string; label: string; max: number }[] = [
   { key: "lt90", label: "< 90 d", max: 90 },
-  { key: "lt1y", label: "90 d – 1 y", max: 365 },
-  { key: "lt2y", label: "1 – 2 y", max: 730 },
-  { key: "lt5y", label: "2 – 5 y", max: 1825 },
-  { key: "gte5y", label: "5 y +", max: Infinity },
+  { key: "lt1y", label: "3–12 mo", max: 365 },
+  { key: "lt2y", label: "1–2 y", max: 730 },
+  { key: "lt5y", label: "2–5 y", max: 1825 },
+  { key: "gte5y", label: "5 y+", max: Infinity },
 ];
 
 export const ageBuckets = (entries: KeystoreEntry[]): Bucket[] => {
@@ -139,6 +143,18 @@ export const algorithmMix = (entries: KeystoreEntry[]): Bucket[] => {
     map.set(family, (map.get(family) ?? 0) + 1);
   }
   return [...map.entries()].map(([label, count]) => ({ key: label, label, count })).sort((a, b) => b.count - a.count);
+};
+
+/** "1 key pair", "3 key pairs". */
+export const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+
+/** "6 key pairs · 1 secret key": what an inventory holds, leaving out the types it has none of. */
+export const entryMix = (s: Pick<InventorySummary, "keyPairs" | "trusted" | "secrets">): string => {
+  const parts: string[] = [];
+  if (s.keyPairs) parts.push(plural(s.keyPairs, "key pair"));
+  if (s.trusted) parts.push(plural(s.trusted, "certificate"));
+  if (s.secrets) parts.push(plural(s.secrets, "secret key"));
+  return parts.length ? parts.join(" · ") : "No entries";
 };
 
 export interface InventorySummary {
@@ -183,6 +199,14 @@ export const summarize = (entries: KeystoreEntry[]): InventorySummary => {
   };
 };
 
+/** Whether two entries hold the same public key (SPKI hash when known, else the PEM). */
+const sameKey = (a: KeystoreEntry, b: KeystoreEntry) => {
+  const ha = a.certificate_chain[0]?.spki_sha256;
+  const hb = b.certificate_chain[0]?.spki_sha256;
+  if (ha && hb) return ha === hb;
+  return !!a.public_key_pem && a.public_key_pem.replace(/\s+/g, "") === (b.public_key_pem ?? "").replace(/\s+/g, "");
+};
+
 /** Security findings for one entry, most severe first. */
 export interface Finding {
   severity: "critical" | "high" | "medium" | "low";
@@ -204,7 +228,10 @@ export function findingsFor(entry: KeystoreEntry, ctx?: { format?: string; sibli
   if (entry.entry_type === "KeyPair" && leaf && !leaf.self_signed && entry.chain_length === 1)
     out.push({ severity: "low", title: "Incomplete chain", detail: "The issuing CA certificate is not stored with this key; some clients cannot build the chain." });
   if (entry.locked) out.push({ severity: "low", title: "Key locked", detail: "The private key uses a separate key password and is unavailable until unlocked." });
-  if (ctx?.format === "JKS") out.push({ severity: "medium", title: "JKS store", detail: "JKS integrity is SHA-1 and the key wrap is proprietary. Save as PKCS#12." });
+  // A property of the keystore, not of this entry: one "Save as PKCS#12" fixes every entry in it.
+  // Low, so a JKS truststore of 150 CAs does not bury real problems; the audit page also raises it
+  // once per keystore.
+  if (ctx?.format === "JKS") out.push({ severity: "low", title: "JKS store", detail: "JKS integrity is SHA-1 and the key wrap is proprietary. Save as PKCS#12." });
   if (leaf && entry.entry_type !== "SecretKey" && leaf.extended_key_usage.some((u) => u.includes("Server")) && leaf.sans.length === 0)
     out.push({ severity: "medium", title: "No subject alternative name", detail: "TLS clients match the hostname against the SAN, not the common name." });
   if (leaf && leaf.extended_key_usage.some((u) => u.includes("Server"))) {
@@ -217,9 +244,11 @@ export function findingsFor(entry: KeystoreEntry, ctx?: { format?: string; sibli
     const issuerOpen = ctx?.siblings?.some((s) => s.id !== entry.id && s.subject === entry.issuer);
     if (!issuerOpen) out.push({ severity: "low", title: "Trust anchor not open", detail: "No open certificate has this issuer's subject." });
   }
+  // The same key id on two different keys makes chain building ambiguous. The same certificate in
+  // two keystores (a CA and its copy in a truststore), or a renewal that kept the key, is normal.
   const ski = leaf?.subject_key_id;
-  if (ski && ctx?.siblings?.some((s) => s.id !== entry.id && s.certificate_chain[0]?.subject_key_id === ski))
-    out.push({ severity: "medium", title: "Duplicate subject key id", detail: "Another open entry has the same subject key identifier." });
+  if (ski && ctx?.siblings?.some((s) => s.id !== entry.id && s.certificate_chain[0]?.subject_key_id === ski && !sameKey(s, entry)))
+    out.push({ severity: "medium", title: "Duplicate subject key id", detail: "Another open entry uses the same subject key identifier for a different key." });
   const order = { critical: 0, high: 1, medium: 2, low: 3 };
   return out.sort((a, b) => order[a.severity] - order[b.severity]);
 }
