@@ -6,6 +6,7 @@ export type TabType =
   | "workspaces"
   | "examine"
   | "ca_signing"
+  | "convert"
   | "scanner"
   | "vault"
   | "settings";
@@ -385,6 +386,30 @@ export interface JarSignResult {
   signature_file_name: string;
   signed_at: string;
   timestamp?: TimestampInfo | null;
+}
+
+/** Result of a conversion command (src-tauri/src/convert.rs). */
+export interface ConvertResult {
+  /** Where the output was written; null for a preview. */
+  path: string | null;
+  format: string;
+  /** Suggested file extension, without the dot. */
+  extension: string;
+  byte_length: number;
+  count: number;
+  /** The output itself, for text that holds no private key material. */
+  text: string | null;
+  sensitive: boolean;
+  notes: string[];
+  sha256: string;
+}
+
+export interface PemBundleOptions {
+  certificates: "chain" | "leaf" | "none";
+  keys: "none" | "pkcs8" | "encrypted" | "traditional";
+  password?: string | null;
+  /** Precede each entry with an OpenSSL-style "Bag Attributes / friendlyName" header. */
+  annotate: boolean;
 }
 
 export interface FileProbe {

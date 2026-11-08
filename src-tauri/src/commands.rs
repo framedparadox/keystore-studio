@@ -304,6 +304,54 @@ async fn export_entry(entry: KeystoreEntry, target: String, path: String, passwo
     blocking(move || export::export_entry(&entry, &target, &path, password.as_deref())).await
 }
 
+// ------------------------------------------------------------------------------------------------
+// Conversions
+// ------------------------------------------------------------------------------------------------
+
+/// Certificates (PEM, DER, PKCS#7, PkiPath) to another certificate format. Without `path` this is
+/// a preview and nothing is written.
+#[tauri::command]
+async fn convert_certificates(data: DataSource, target: String, order: Option<bool>, path: Option<String>) -> Res<convert::ConvertResult> {
+    blocking(move || convert::deliver(convert::certificates(&data.bytes()?, &target, order.unwrap_or(true))?, path.as_deref())).await
+}
+
+#[tauri::command]
+async fn convert_private_key(data: DataSource, password: Option<String>, target: String, out_password: Option<String>, path: Option<String>) -> Res<convert::ConvertResult> {
+    blocking(move || {
+        let mut out_password = out_password;
+        let result = convert::private_key(&data.bytes()?, password.as_deref(), &target, out_password.as_deref());
+        if let Some(pw) = out_password.as_mut() {
+            pw.zeroize();
+        }
+        convert::deliver(result?, path.as_deref())
+    })
+    .await
+}
+
+#[tauri::command]
+async fn convert_public_key(data: DataSource, password: Option<String>, target: String, comment: Option<String>, path: Option<String>) -> Res<convert::ConvertResult> {
+    blocking(move || convert::deliver(convert::public_key(&data.bytes()?, password.as_deref(), &target, comment.as_deref().unwrap_or(""))?, path.as_deref())).await
+}
+
+#[tauri::command]
+async fn convert_encoding(data: DataSource, label: Option<String>, path: Option<String>) -> Res<convert::ConvertResult> {
+    blocking(move || convert::deliver(convert::encoding(&data.bytes()?, label.as_deref())?, path.as_deref())).await
+}
+
+/// Certificates and private keys of keystore entries as one PEM file.
+#[tauri::command]
+async fn entries_to_pem(entries: Vec<KeystoreEntry>, options: convert::PemBundleOptions, path: Option<String>) -> Res<convert::ConvertResult> {
+    blocking(move || {
+        let mut options = options;
+        let result = convert::entries_to_pem(&entries, &options);
+        if let Some(pw) = options.password.as_mut() {
+            pw.zeroize();
+        }
+        convert::deliver(result?, path.as_deref())
+    })
+    .await
+}
+
 #[tauri::command]
 async fn jwt_algorithms(entry: KeystoreEntry) -> Res<Vec<String>> {
     Ok(jwt::algorithms_for(&entry).into_iter().map(String::from).collect())
@@ -846,6 +894,11 @@ pub fn run() {
             refresh_entry,
             export_entry,
             jwt_algorithms,
+            convert_certificates,
+            convert_private_key,
+            convert_public_key,
+            convert_encoding,
+            entries_to_pem,
             sign_csr,
             inspect_csr,
             generate_crl,

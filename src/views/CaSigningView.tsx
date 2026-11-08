@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { CheckCircle2, Clock, Cpu, FileArchive, FileCheck2, FileSignature, FolderOpen, KeyRound, Plus, Save, ShieldCheck, Trash2, XCircle } from "lucide-react";
+import { CheckCircle2, Clock, Cpu, FileArchive, FileCheck2, FileSignature, FolderOpen, KeyRound, Plus, Save, ShieldCheck, Trash2, Unlock, XCircle } from "lucide-react";
 import type { CertificateInfo, CmsSignResult, CmsVerifyResult, CrlInfo, CsrInfo, DhParamsResult, JarSignResult, JwtVerifyResult, KeystoreEntry, OpenKeystore, RevokedCertEntry, SignedCertificateResult, TimestampInfo } from "../types/crypto";
 import { api, errorMessage } from "../lib/api";
 import { FILTERS, baseName, pickFile, pickSavePath, safeFileStem } from "../lib/files";
@@ -88,27 +88,62 @@ const TimestampBadge: React.FC<{ ts?: TimestampInfo | null }> = ({ ts }) => {
   );
 };
 
-const SignerSelect: React.FC<{ label: string; candidates: Candidate[]; value: string; onChange: (id: string) => void; emptyHint: string; testId?: string }> = ({ label, candidates, value, onChange, emptyHint, testId }) =>
-  candidates.length === 0 ? (
-    <Alert tone="info" title={label}>
-      {emptyHint}
-    </Alert>
-  ) : (
-    <Select label={label} value={value} onChange={(e) => onChange(e.target.value)} data-testid={testId}>
-      {candidates.map((c) => (
-        <option key={c.entry.id} value={c.entry.id}>
-          {c.entry.alias} — {c.entry.entry_type === "SecretKey" ? c.entry.algorithm : `${cnOf(c.entry.subject)} (${c.entry.algorithm})`} · {c.ks.name}
-        </option>
-      ))}
-    </Select>
+/** Key picker. A locked key pair can be chosen; it must be unlocked before it signs anything. */
+const SignerSelect: React.FC<{ label: string; candidates: Candidate[]; value: string; onChange: (id: string) => void; emptyHint: string; testId?: string; publicOnly?: boolean }> = ({
+  label,
+  candidates,
+  value,
+  onChange,
+  emptyHint,
+  testId,
+  publicOnly,
+}) => {
+  const { isKeyLocked, ensureKeyAccess } = useStore();
+  if (candidates.length === 0) {
+    return (
+      <Alert tone="info" title={label}>
+        {emptyHint}
+      </Alert>
+    );
+  }
+  const chosen = candidates.find((c) => c.entry.id === value);
+  const locked = !publicOnly && !!chosen && isKeyLocked(chosen.entry);
+  return (
+    <div className="space-y-2">
+      <Select label={label} value={value} onChange={(e) => onChange(e.target.value)} data-testid={testId}>
+        {candidates.map((c) => (
+          <option key={c.entry.id} value={c.entry.id}>
+            {c.entry.alias} — {c.entry.entry_type === "SecretKey" ? c.entry.algorithm : `${cnOf(c.entry.subject)} (${c.entry.algorithm})`} · {c.ks.name}
+            {!publicOnly && isKeyLocked(c.entry) ? " · locked" : ""}
+          </option>
+        ))}
+      </Select>
+      {locked && chosen && (
+        <Alert
+          tone="warning"
+          title={`'${chosen.entry.alias}' is locked`}
+          action={
+            <Button size="sm" icon={Unlock} onClick={() => ensureKeyAccess(chosen.ks.id, [chosen.entry.id])} data-testid={testId ? `${testId}-unlock` : undefined}>
+              Unlock…
+            </Button>
+          }
+        >
+          Enter its key password to sign with it.
+        </Alert>
+      )}
+    </div>
   );
+};
 
+/** The chosen candidate, or null while none is chosen or the chosen key is still locked. */
 const useSelected = (candidates: Candidate[]) => {
+  const { isKeyLocked } = useStore();
   const [id, setId] = useState("");
   useEffect(() => {
-    if (!candidates.some((c) => c.entry.id === id)) setId(candidates[0]?.entry.id ?? "");
-  }, [candidates, id]);
-  return [candidates.find((c) => c.entry.id === id) ?? null, id, setId] as const;
+    if (!candidates.some((c) => c.entry.id === id)) setId((candidates.find((c) => !isKeyLocked(c.entry)) ?? candidates[0])?.entry.id ?? "");
+  }, [candidates, id]); // eslint-disable-line react-hooks/exhaustive-deps
+  const chosen = candidates.find((c) => c.entry.id === id) ?? null;
+  return [chosen && !isKeyLocked(chosen.entry) ? chosen : null, id, setId] as const;
 };
 
 const FileOrPaste: React.FC<{ label: string; path: string | null; setPath: (p: string | null) => void; text: string; setText: (t: string) => void; placeholder: string; filters: typeof FILTERS[keyof typeof FILTERS][]; rows?: number; testId?: string }> = ({
@@ -175,7 +210,7 @@ const usageLabels = (ids: string[] | undefined, dict: { id: string; label: strin
 };
 
 const SignCsrTool: React.FC = () => {
-  const { keystores, replaceEntry, addEntries, activeKeystore } = useStore();
+  const { keystores, replaceEntry, addEntries, activeKeystore, ensureKeyAccess } = useStore();
   const toast = useToast();
   const saveText = useSaveText();
   const cas = useSigners(isCaEntry);
@@ -266,7 +301,11 @@ const SignCsrTool: React.FC = () => {
     }
   };
 
-  const install = async () => {
+  const install = () => {
+    // Installing a reply changes the key pair, so it needs the key unlocked like any other use.
+    if (match) ensureKeyAccess(match.ks.id, [match.entry.id], () => void installReply());
+  };
+  const installReply = async () => {
     if (!result || !match) return;
     try {
       const updated = await api.importCaReply(match.entry, { text: result.chain_pem });
@@ -639,7 +678,7 @@ const CmsTool: React.FC = () => {
     setBusy(true);
     try {
       const content = path ? { path } : text ? { text } : null;
-      setVerified(await api.cmsVerify(sigPath ? { path: sigPath } : { text: sigText }, content, useEntry && signer ? signer.entry : null, settings.tsaTrustPem));
+      setVerified(await api.cmsVerify(sigPath ? { path: sigPath } : { text: sigText }, content, useEntry ? signers.find((c) => c.entry.id === signerId)?.entry ?? null : null, settings.tsaTrustPem));
     } catch (err) {
       toast.error(errorMessage(err));
     } finally {
@@ -665,7 +704,7 @@ const CmsTool: React.FC = () => {
             <FileOrPaste label="Signature (PKCS#7 / CMS)" path={sigPath} setPath={setSigPath} text={sigText} setText={setSigText} placeholder="-----BEGIN PKCS7-----" filters={[FILTERS.cms]} rows={5} testId="cms-signature" />
             <FileOrPaste label="Signed content (for detached signatures)" path={path} setPath={setPath} text={text} setText={setText} placeholder="Original content" filters={[FILTERS.any]} rows={4} />
             <Checkbox checked={useEntry} onChange={setUseEntry} label="Use a keystore entry's certificate" hint="For signatures that do not embed the signer certificate." />
-            {useEntry && <SignerSelect label="Signer certificate" candidates={signers} value={signerId} onChange={setSignerId} emptyHint="No key pairs open." />}
+            {useEntry && <SignerSelect label="Signer certificate" candidates={signers} value={signerId} onChange={setSignerId} emptyHint="No key pairs open." publicOnly />}
             <Button variant="primary" className="w-full" onClick={verify} disabled={busy || (!sigPath && !sigText.trim())} data-testid="cms-verify">
               {busy && <Spinner />} Verify
             </Button>

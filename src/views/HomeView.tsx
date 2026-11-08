@@ -1,6 +1,7 @@
 import React, { useMemo } from "react";
 import {
   AlertTriangle,
+  ArrowLeftRight,
   ArrowRight,
   CalendarClock,
   Clock,
@@ -11,13 +12,16 @@ import {
   KeyRound,
   Layers,
   Lock,
+  Play,
   SearchCode,
   ShieldCheck,
+  TerminalSquare,
   Unlock,
 } from "lucide-react";
 import { useStore } from "../state/store";
-import { Alert, Badge, BarList, Button, Card, CardHeader, ColumnChart, DataTable, EmptyState, KpiCard, Meter, Page, PageHeader, ScoreRing, SegmentedBar } from "../components/ui";
+import { Alert, Badge, BarList, Button, Card, CardHeader, ColumnChart, DataTable, EmptyState, Kbd, KpiCard, Meter, Page, PageHeader, ScoreRing, SegmentedBar } from "../components/ui";
 import { EntryNameCell, ExpiryCell, HealthBadge } from "../components/entry";
+import { useTerminal } from "../components/Terminal";
 import { ageBuckets, algorithmMix, daysUntilExpiry, entryHealth, expiryBuckets, FlatEntry, flattenEntries, formatDuration, summarize } from "../lib/metrics";
 import { DropZone } from "../components/DropZone";
 import { FORMAT_INFO } from "../lib/keystore";
@@ -47,8 +51,49 @@ const RecentFiles: React.FC = () => {
   );
 };
 
+const TERMINAL_SNIPPETS: { label: string; command: string }[] = [
+  { label: "List keystore entries", command: "keytool -list -v -keystore keystore.p12 -storetype PKCS12 -storepass changeit" },
+  { label: "Inspect a TLS server", command: "openssl s_client -connect example.com:443 -servername example.com -showcerts </dev/null" },
+  { label: "Decode a certificate", command: "openssl x509 -in cert.pem -noout -text" },
+  { label: "Convert PEM to DER", command: "openssl x509 -in cert.pem -outform der -out cert.der" },
+];
+
+const TerminalSection: React.FC = () => {
+  const { open, toggle } = useTerminal();
+  return (
+    <Card padded={false} className="lg:col-span-12 overflow-hidden flex flex-col">
+      <CardHeader
+        bordered
+        title="Terminal"
+        subtitle="Run keytool, openssl and friends without leaving xkeystore"
+        icon={TerminalSquare}
+        actions={
+          <Button size="sm" variant="ghost" icon={TerminalSquare} onClick={toggle}>
+            Open terminal <Kbd>Ctrl `</Kbd>
+          </Button>
+        }
+      />
+      <ul className="divide-y divide-line">
+        {TERMINAL_SNIPPETS.map((s) => (
+          <li key={s.label} className="px-5 py-3 flex items-center gap-3">
+            <div className="min-w-0 flex-1">
+              <div className="text-[13px] font-medium text-ink">{s.label}</div>
+              <code className="block text-[12px] text-faint font-mono truncate" title={s.command}>
+                {s.command}
+              </code>
+            </div>
+            <Button size="sm" icon={Play} onClick={() => open(s.command)}>
+              Run
+            </Button>
+          </li>
+        ))}
+      </ul>
+    </Card>
+  );
+};
+
 export const HomeView: React.FC = () => {
-  const { keystores, workspaces, setTab, selectKeystore, openFiles, setNewKeystoreOpen, setBuildPkcs12Open, vault, requestVaultUnlock, setActiveWorkspaceId, settings, desktop } = useStore();
+  const { keystores, workspaces, setTab, selectKeystore, openFiles, setNewKeystoreOpen, setBuildPkcs12Open, vault, requestVaultUnlock, setActiveWorkspaceId, settings, desktop, openConverter } = useStore();
   const loaded = keystores.filter((k) => !k.sealed);
   const sealed = keystores.filter((k) => k.sealed);
   const flat = useMemo(() => flattenEntries(loaded), [loaded]);
@@ -117,6 +162,7 @@ export const HomeView: React.FC = () => {
                 { icon: FolderOpen, title: "Open a keystore", text: "PKCS#12, JKS or JCEKS — enter its password to view and edit entries.", action: () => openFiles(), testId: "welcome-open" },
                 { icon: FilePlus2, title: "Create a keystore", text: "Start empty or with a fresh key pair and self-signed certificate.", action: () => setNewKeystoreOpen(true), testId: "welcome-new" },
                 { icon: SearchCode, title: "Examine", text: "Inspect a TLS server or decode a certificate, CSR, key or JWT.", action: () => setTab("examine"), testId: "welcome-examine" },
+                { icon: ArrowLeftRight, title: "Convert", text: "PEM ↔ DER, PKCS#7, PKCS#8, OpenSSH, JWK, and JKS ↔ PKCS#12.", action: () => openConverter(null), testId: "welcome-convert" },
                 {
                   icon: FolderArchive,
                   title: "Create a PKCS#12",
@@ -293,11 +339,12 @@ export const HomeView: React.FC = () => {
             {[
               { icon: SearchCode, label: "Inspect a TLS server", tab: "examine" as const },
               { icon: FileSignature, label: "Sign a CSR, JAR or JWT", tab: "ca_signing" as const },
+              { icon: ArrowLeftRight, label: "Convert certificates, keys or keystores", tab: "convert" as const },
               { icon: ShieldCheck, label: "Rotate weak or expiring keys", tab: "scanner" as const },
               { icon: Lock, label: vault.exists ? "Manage remembered passwords" : "Set up the password vault", tab: "vault" as const },
             ].map((a) => (
               <li key={a.label}>
-                <button onClick={() => setTab(a.tab)} className="w-full flex items-center gap-2.5 py-2.5 text-[13px] text-ink-2 hover:text-ink cursor-pointer group">
+                <button onClick={() => (a.tab === "convert" ? openConverter(null) : setTab(a.tab))} className="w-full flex items-center gap-2.5 py-2.5 text-[13px] text-ink-2 hover:text-ink cursor-pointer group">
                   <a.icon className="w-4 h-4 text-subtle group-hover:text-brand" />
                   <span className="flex-1 text-left">{a.label}</span>
                   <ArrowRight className="w-3.5 h-3.5 text-subtle group-hover:text-ink" />
@@ -377,6 +424,8 @@ export const HomeView: React.FC = () => {
             </ul>
           )}
         </Card>
+
+        <TerminalSection />
       </div>
     </Page>
   );

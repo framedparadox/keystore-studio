@@ -99,6 +99,32 @@ fn handle(cmd: &str, args: &serde_json::Value) -> Result<serde_json::Value, Stri
                 "mtime_ms": xkeystore_lib::keystore::mtime_ms(std::path::Path::new(&path)),
             }))
         }
+        "examine_data" => {
+            let pw = args.get("password").and_then(|v| v.as_str()).filter(|p| !p.is_empty());
+            serde_json::to_value(xkeystore_lib::detect::examine(&source("data")?, pw)?).map_err(|e| e.to_string())
+        }
+        // Conversions: the same engine calls the Tauri commands make.
+        "convert_certificates" | "convert_private_key" | "convert_public_key" | "convert_encoding" | "entries_to_pem" => {
+            use xkeystore_lib::convert;
+            let opt = |k: &str| args.get(k).and_then(|v| v.as_str()).map(String::from).filter(|v| !v.is_empty());
+            let out = match cmd {
+                "convert_certificates" => convert::certificates(&source("data")?, &s("target"), args.get("order").and_then(|v| v.as_bool()).unwrap_or(true))?,
+                "convert_private_key" => convert::private_key(&source("data")?, opt("password").as_deref(), &s("target"), opt("outPassword").as_deref())?,
+                "convert_public_key" => convert::public_key(&source("data")?, opt("password").as_deref(), &s("target"), &s("comment"))?,
+                "convert_encoding" => convert::encoding(&source("data")?, opt("label").as_deref())?,
+                _ => {
+                    let entries: Vec<xkeystore_lib::model::KeystoreEntry> = serde_json::from_value(args.get("entries").cloned().unwrap_or_default()).map_err(|e| e.to_string())?;
+                    let options: convert::PemBundleOptions = serde_json::from_value(args.get("options").cloned().unwrap_or_default()).map_err(|e| e.to_string())?;
+                    convert::entries_to_pem(&entries, &options)?
+                }
+            };
+            serde_json::to_value(convert::deliver(out, opt("path").as_deref())?).map_err(|e| e.to_string())
+        }
+        "write_text_file" => {
+            let path = s("path");
+            xkeystore_lib::util::write_atomic(std::path::Path::new(&path), s("content").as_bytes())?;
+            Ok(serde_json::Value::Null)
+        }
         other => Err(format!("ui_bridge does not implement '{other}'")),
     }
 }

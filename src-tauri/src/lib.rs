@@ -8,6 +8,7 @@
 
 pub mod bks;
 pub mod cms;
+pub mod convert;
 pub mod detect;
 pub mod dh;
 pub mod entry;

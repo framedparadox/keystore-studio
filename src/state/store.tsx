@@ -1,7 +1,8 @@
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { api, classifyError, errorMessage, isDesktop, passwordSecretId } from "../lib/api";
 import { allowDialogStub, baseName, pickFile, FILTERS } from "../lib/files";
-import { canonicalAlias, entryKey, normalizeEntries, uniqueAlias } from "../lib/keystore";
+import { canonicalAlias, entryKey, isKeyLocked, keyPasswordMatches, normalizeEntries, uniqueAlias } from "../lib/keystore";
+import type { ConverterId } from "../lib/convert";
 import { setThresholds } from "../lib/metrics";
 import { useConfirm, useToast } from "../components/ui";
 import type { AppInfo, KeystoreEntry, KeystoreFile, KeystoreFormat, OpenKeystore, TabType, VaultStatus, Workspace } from "../types/crypto";
@@ -19,6 +20,8 @@ export interface Settings {
   timestampByDefault: boolean;
   /** PEM trust anchors used to decide whether a timestamp is trusted. Empty skips the check. */
   tsaTrustPem: string;
+  /** Key pairs open locked; their key password must be entered before they can be used. */
+  requireKeyUnlock: boolean;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -32,6 +35,7 @@ export const DEFAULT_SETTINGS: Settings = {
   tsaUrl: "",
   timestampByDefault: false,
   tsaTrustPem: "",
+  requireKeyUnlock: true,
 };
 
 export interface RecentFile {
@@ -69,6 +73,20 @@ export interface PendingSave {
   then?: () => void;
 }
 
+/** A request to unlock one or more keys, raised by any view that needs a locked key. */
+export interface PendingKeyUnlock {
+  keystoreId: string;
+  entryIds: string[];
+  /** Runs once every requested key is unlocked. */
+  then?: () => void;
+}
+
+export interface UnlockOutcome {
+  unlocked: number;
+  remaining: number;
+  error?: string;
+}
+
 export interface NewKeystoreRequest {
   name: string;
   format: KeystoreFormat;
@@ -87,6 +105,9 @@ interface Store {
   examineRequest: { path?: string; text?: string; nonce: number } | null;
   examine: (input: { path?: string; text?: string }) => void;
   jarRequest: { path: string; nonce: number } | null;
+  convertMode: ConverterId | null;
+  /** Opens the Convert page on one converter, or on the overview with null. */
+  openConverter: (id: ConverterId | null) => void;
   // keystores
   keystores: OpenKeystore[];
   activeKeystoreId: string | null;
@@ -105,6 +126,17 @@ interface Store {
   hasPassword: (keystoreId: string) => boolean;
   getPassword: (keystoreId: string) => string | undefined;
   setPassword: (keystoreId: string, password: string) => void;
+  // key access
+  /** True while the entry's key cannot be used: see isKeyLocked in lib/keystore. */
+  isKeyLocked: (entry: KeystoreEntry) => boolean;
+  /** Runs `then` right away when every key is usable, otherwise asks for the key password first. */
+  ensureKeyAccess: (keystoreId: string, entryIds: string[], then?: () => void) => void;
+  pendingKeyUnlock: PendingKeyUnlock | null;
+  cancelKeyUnlock: () => void;
+  /** Unlocks the locked keys among `entryIds` that `password` opens. */
+  unlockKeys: (keystoreId: string, entryIds: string[], password: string) => Promise<UnlockOutcome>;
+  /** Locks key pairs again (all of the keystore's when `entryIds` is omitted). */
+  lockKeys: (keystoreId: string, entryIds?: string[]) => void;
   // file workflows
   openFiles: (paths?: string[]) => Promise<void>;
   pendingOpen: PendingOpen | null;
@@ -167,6 +199,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const [tab, setTab] = useState<TabType>("home");
   const [examineRequest, setExamineRequest] = useState<Store["examineRequest"]>(null);
   const [jarRequest, setJarRequest] = useState<Store["jarRequest"]>(null);
+  const [convertMode, setConvertMode] = useState<ConverterId | null>(null);
 
   // Keystores and their undo/redo history live in refs, which are the single source of truth;
   // every change goes through setAll(), synchronously, and bumps `version` to re-render. This
@@ -189,6 +222,21 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const keystores = keystoresRef.current;
   const [activeKeystoreId, setActiveKeystoreId] = useState<string | null>(null);
   const passwords = useRef(new Map<string, string>());
+  // Key pairs unlocked this session, by entry id. Never persisted.
+  const [unlockedKeys, setUnlockedKeys] = useState<ReadonlySet<string>>(() => new Set());
+  const [pendingKeyUnlock, setPendingKeyUnlock] = useState<PendingKeyUnlock | null>(null);
+  const markUnlocked = useCallback((ids: string[]) => {
+    if (ids.length) setUnlockedKeys((cur) => new Set([...cur, ...ids]));
+  }, []);
+  const forgetUnlocked = useCallback((ids: string[]) => {
+    if (!ids.length) return;
+    setUnlockedKeys((cur) => {
+      if (!ids.some((id) => cur.has(id))) return cur;
+      const next = new Set(cur);
+      ids.forEach((id) => next.delete(id));
+      return next;
+    });
+  }, []);
 
   const [pendingOpen, setPendingOpen] = useState<PendingOpen | null>(null);
   const openQueue = useRef<string[]>([]);
@@ -242,6 +290,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   /** Moves workspace membership and labels from old entry keys to new ones. */
   const migrateKeys = useCallback((mapping: Record<string, string>) => {
     if (!Object.keys(mapping).length) return;
+    setUnlockedKeys((cur) => (Object.keys(mapping).some((id) => cur.has(id)) ? new Set([...cur].map((id) => mapping[id] ?? id)) : cur));
     setWorkspaces((list) => list.map((w) => ({ ...w, entryIds: [...new Set(w.entryIds.map((id) => mapping[id] ?? id))] })));
     setLabels((l) => {
       const next = { ...l };
@@ -276,9 +325,11 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         added.push(entry);
       }
       updateKeystore(working);
+      // The user just created, imported or pasted these, so their keys are usable.
+      markUnlocked(added.map((e) => e.id));
       return added;
     },
-    [updateKeystore]
+    [updateKeystore, markUnlocked]
   );
 
   const replaceEntry = useCallback(
@@ -373,12 +424,14 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       const id = sealedId ?? existing?.id ?? file.id;
       const opened = applyLabels({ ...file, id, dirty: false, sealed: false });
       passwords.current.set(id, password);
+      // A freshly read file starts with every key pair locked.
+      forgetUnlocked(opened.entries.map((e) => e.id));
       setAll(keystoresRef.current.some((k) => k.id === id) ? keystoresRef.current.map((k) => (k.id === id ? opened : k)) : [...keystoresRef.current, opened]);
       setActiveKeystoreId(id);
       addRecent(file.path, file.format);
       return opened;
     },
-    [applyLabels, addRecent, setAll]
+    [applyLabels, addRecent, setAll, forgetUnlocked]
   );
 
   const openPathRef = useRef<(path: string, sealedId?: string) => Promise<void>>(async () => undefined);
@@ -518,11 +571,12 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       }
       passwords.current.set(id, req.password);
       commit([...keystoresRef.current, ks]);
+      markUnlocked(ks.entries.map((e) => e.id));
       setActiveKeystoreId(id);
       setTab("keystores");
       return ks;
     },
-    [commit]
+    [commit, markUnlocked]
   );
 
   const finishSaved = useCallback(
@@ -627,6 +681,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         const drop = (snap: OpenKeystore[]) => snap.filter((k) => k.id !== keystoreId);
         setAll(next, historyRef.current.map(drop), redoRef.current.map(drop));
         passwords.current.delete(keystoreId);
+        forgetUnlocked(ks.entries.map((e) => e.id));
         setActiveKeystoreId((cur) => (cur === keystoreId ? next[0]?.id ?? null : cur));
       };
       if (ks.dirty) {
@@ -645,7 +700,73 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       remove();
       return true;
     },
-    [confirm, save, setAll]
+    [confirm, save, setAll, forgetUnlocked]
+  );
+
+  // --------------------------------------------------------------- key access
+  const keyLocked = useCallback((e: KeystoreEntry) => isKeyLocked(e, unlockedKeys, settings.requireKeyUnlock), [unlockedKeys, settings.requireKeyUnlock]);
+
+  const ensureKeyAccess = useCallback(
+    (keystoreId: string, entryIds: string[], then?: () => void) => {
+      const ks = keystoresRef.current.find((k) => k.id === keystoreId);
+      const locked = (ks?.entries ?? []).filter((e) => entryIds.includes(e.id) && keyLocked(e));
+      if (!locked.length) {
+        then?.();
+        return;
+      }
+      setPendingKeyUnlock({ keystoreId, entryIds: locked.map((e) => e.id), then });
+    },
+    [keyLocked]
+  );
+
+  const unlockKeys = useCallback(
+    async (keystoreId: string, entryIds: string[], password: string): Promise<UnlockOutcome> => {
+      const ks = keystoresRef.current.find((k) => k.id === keystoreId);
+      if (!ks) return { unlocked: 0, remaining: entryIds.length, error: "The keystore is no longer open." };
+      const storePw = passwords.current.get(keystoreId);
+      const targets = ks.entries.filter((e) => entryIds.includes(e.id) && isKeyLocked(e, unlockedKeys, settingsRef.current.requireKeyUnlock));
+      const done: string[] = [];
+      // Keys the engine already decrypted: check the password against the one that protects them.
+      for (const e of targets.filter((t) => !t.locked)) if (keyPasswordMatches(e, password, storePw)) done.push(e.id);
+      // Keys with their own password: read the file again with it.
+      const sealed = targets.filter((t) => t.locked);
+      let error: string | undefined;
+      if (sealed.length) {
+        if (!ks.path || !storePw) {
+          error = "Save the keystore first.";
+        } else {
+          try {
+            const reread = await api.openKeystore(ks.path, storePw, Object.fromEntries(sealed.map((e) => [e.alias, password])));
+            const current = keystoresRef.current.find((k) => k.id === keystoreId);
+            const fresh = new Map<string, KeystoreEntry>();
+            for (const e of sealed) {
+              const match = reread.entries.find((x) => x.alias.toLowerCase() === e.alias.toLowerCase());
+              if (match && !match.locked) fresh.set(e.id, { ...match, id: e.id, alias: e.alias, labels: e.labels });
+            }
+            if (current && fresh.size) {
+              updateKeystore({ ...current, entries: current.entries.map((e) => fresh.get(e.id) ?? e) });
+              done.push(...fresh.keys());
+            }
+          } catch (err) {
+            error = classifyError(err).kind === "wrong-password" ? "The keystore password no longer opens this file." : errorMessage(err);
+          }
+        }
+      }
+      markUnlocked(done);
+      const remaining = targets.length - done.length;
+      if (!done.length && !error) error = targets.length === 1 ? "Incorrect key password." : "That password does not unlock any of these keys.";
+      return { unlocked: done.length, remaining, error: done.length ? undefined : error };
+    },
+    [unlockedKeys, markUnlocked, updateKeystore]
+  );
+
+  const lockKeys = useCallback(
+    (keystoreId: string, entryIds?: string[]) => {
+      const ks = keystoresRef.current.find((k) => k.id === keystoreId);
+      if (!ks) return;
+      forgetUnlocked(ks.entries.filter((e) => e.entry_type === "KeyPair" && (!entryIds || entryIds.includes(e.id))).map((e) => e.id));
+    },
+    [forgetUnlocked]
   );
 
   // --------------------------------------------------------------- workspaces
@@ -847,6 +968,11 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       setTab("examine");
     },
     jarRequest,
+    convertMode,
+    openConverter: (id) => {
+      setConvertMode(id);
+      setTab("convert");
+    },
     keystores,
     activeKeystoreId: activeKeystore?.id ?? null,
     activeKeystore,
@@ -868,6 +994,12 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       const ks = keystoresRef.current.find((k) => k.id === id);
       if (ks) updateKeystore(ks);
     },
+    isKeyLocked: keyLocked,
+    ensureKeyAccess,
+    pendingKeyUnlock,
+    cancelKeyUnlock: () => setPendingKeyUnlock(null),
+    unlockKeys,
+    lockKeys,
     openFiles,
     pendingOpen,
     submitOpenPassword,

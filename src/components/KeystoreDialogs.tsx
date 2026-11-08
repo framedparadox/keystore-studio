@@ -396,50 +396,91 @@ export const VaultPromptDialog: React.FC = () => {
 };
 
 /** Prompt for a per-entry key password (JKS/JCEKS keys protected separately from the store). */
-export const KeyPasswordDialog: React.FC<{
-  open: boolean;
-  alias: string;
-  onClose: () => void;
-  onSubmit: (password: string) => Promise<string | null>;
-}> = ({ open, alias, onClose, onSubmit }) => {
+/**
+ * Asks for the key password of locked keys. Raised from anywhere through
+ * `store.ensureKeyAccess`; runs the caller's follow-up once every requested key is unlocked.
+ */
+export const UnlockKeysDialog: React.FC = () => {
+  const { pendingKeyUnlock: pending, cancelKeyUnlock, unlockKeys, keystores, isKeyLocked } = useStore();
+  const toast = useToast();
   const [pw, setPw] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
     setPw("");
     setError(null);
-  }, [open]);
+  }, [pending]);
+  if (!pending) return null;
+  const ks = keystores.find((k) => k.id === pending.keystoreId);
+  const locked = (ks?.entries ?? []).filter((e) => pending.entryIds.includes(e.id) && isKeyLocked(e));
+  const one = locked.length === 1 ? locked[0] : null;
+  const ownPassword = locked.some((e) => e.locked);
+  const submit = async () => {
+    setBusy(true);
+    setError(null);
+    const res = await unlockKeys(pending.keystoreId, pending.entryIds, pw);
+    setBusy(false);
+    if (res.error) {
+      setError(res.error);
+      return;
+    }
+    if (res.remaining > 0) {
+      // Keys with different passwords: keep asking for the rest.
+      setPw("");
+      toast.info(`Unlocked ${res.unlocked}. ${res.remaining} still need${res.remaining === 1 ? "s" : ""} a different key password.`);
+      return;
+    }
+    const then = pending.then;
+    cancelKeyUnlock();
+    if (!one) toast.success(`Unlocked ${res.unlocked} key${res.unlocked === 1 ? "" : "s"} in ${ks?.name ?? "the keystore"}.`);
+    // After this render, so the follow-up sees the keys unlocked.
+    if (then) window.setTimeout(then, 0);
+  };
   return (
     <Modal
-      open={open}
+      open
       busy={busy}
-      onClose={onClose}
-      icon={KeyRound}
+      onClose={cancelKeyUnlock}
+      icon={Lock}
       size="sm"
-      title={`Unlock key '${alias}'`}
-      description="This private key is protected by its own key password."
+      testId="unlock-key-dialog"
+      title={one ? `Unlock '${one.alias}'` : `Unlock ${locked.length} keys`}
+      description={one ? `${one.entry_type === "KeyPair" ? "Key pair" : "Secret key"} in ${ks?.name ?? "the keystore"}` : `In ${ks?.name ?? "the keystore"}`}
       footer={
         <>
-          <Button onClick={onClose} disabled={busy}>
+          <Button onClick={cancelKeyUnlock} disabled={busy}>
             Cancel
           </Button>
-          <Button
-            variant="primary"
-            disabled={busy || !pw}
-            data-testid="unlock-key-submit"
-            onClick={async () => {
-              setBusy(true);
-              setError(await onSubmit(pw));
-              setBusy(false);
-            }}
-          >
-            {busy && <Spinner />} Unlock key
+          <Button variant="primary" disabled={busy || !pw} data-testid="unlock-key-submit" onClick={submit}>
+            {busy && <Spinner />} Unlock
           </Button>
         </>
       }
     >
-      <PasswordInput label="Key password" value={pw} onChange={setPw} error={error ?? undefined} autoFocus data-testid="unlock-key-password" />
-      <p className="text-[12px] text-faint mt-3">After unlocking, saving preserves this key's separate password.</p>
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (pw && !busy) void submit();
+        }}
+        className="space-y-3"
+      >
+        <PasswordInput label="Key password" value={pw} onChange={setPw} error={error ?? undefined} autoFocus data-testid="unlock-key-password" />
+        <p className="text-[12px] text-faint">
+          {ownPassword
+            ? "This key is protected by its own key password. After unlocking, saving keeps that password."
+            : "Unless the key was given its own password, this is the keystore password. Keys stay unlocked until you lock them or close the keystore."}
+        </p>
+        {!one && locked.length > 1 && (
+          <ul className="max-h-36 overflow-y-auto rounded-control border border-line divide-y divide-line text-[12.5px]">
+            {locked.map((e) => (
+              <li key={e.id} className="px-3 py-1.5 flex items-center gap-2">
+                <Lock className="w-3 h-3 text-warning shrink-0" />
+                <span className="truncate text-ink">{e.alias}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </form>
     </Modal>
   );
 };

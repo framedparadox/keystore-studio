@@ -72,7 +72,7 @@ const WorkspaceDialog: React.FC<{ initial: Workspace | null; open: boolean; onCl
 };
 
 export const WorkspacesView: React.FC = () => {
-  const { workspaces, activeWorkspaceId, setActiveWorkspaceId, deleteWorkspace, toggleWorkspaceEntry, keystores, setTab, selectKeystore } = useStore();
+  const { workspaces, activeWorkspaceId, setActiveWorkspaceId, deleteWorkspace, toggleWorkspaceEntry, keystores, setTab, selectKeystore, ensureKeyAccess } = useStore();
   const confirm = useConfirm();
   const toast = useToast();
   const [search, setSearch] = useState("");
@@ -131,7 +131,7 @@ export const WorkspacesView: React.FC = () => {
       width: "120px",
       cell: (m) => (
         <div className="inline-flex items-center gap-0.5" onClick={(e) => e.stopPropagation()}>
-          {m.entry && <IconButton icon={Eye} label="Inspect" onClick={() => setInspect({ entry: m.entry!, ks: m.ks! })} />}
+          {m.entry && <IconButton icon={Eye} label="Inspect" onClick={() => ensureKeyAccess(m.ks!.id, [m.entry!.id], () => setInspect({ entry: m.entry!, ks: m.ks! }))} />}
           <IconButton
             icon={X}
             label="Remove from workspace"

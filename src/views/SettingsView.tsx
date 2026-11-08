@@ -26,6 +26,7 @@ export const SHORTCUTS: [string, string][] = [
   ["Ctrl+K", "Command palette"],
   ["Ctrl+`", "Toggle terminal"],
   ["Ctrl+1 … Ctrl+8", "Switch page"],
+  ["Ctrl+9", "Convert"],
 ];
 
 export const SettingsView: React.FC = () => {
@@ -50,6 +51,12 @@ export const SettingsView: React.FC = () => {
             ))}
           </Select>
           <Checkbox checked={settings.rememberPasswordsByDefault} onChange={(v) => updateSettings({ rememberPasswordsByDefault: v })} label="Pre-select “Remember password in vault”" />
+          <Checkbox
+            checked={settings.requireKeyUnlock}
+            onChange={(v) => updateSettings({ requireKeyUnlock: v })}
+            label="Ask for the key password before a key pair can be used"
+            hint="Key pairs open locked. Inspecting, exporting, copying or signing with one asks for its key password (the keystore password unless the key has its own) once per session."
+          />
         </Card>
 
         <Card className="space-y-4">

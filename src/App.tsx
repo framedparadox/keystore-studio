@@ -5,7 +5,7 @@ import { TerminalProvider, useTerminal } from "./components/Terminal";
 import { ConfirmProvider, Spinner, ToastProvider } from "./components/ui";
 import { CommandPalette } from "./components/CommandPalette";
 import { DropOverlay, useWindowFileDrop } from "./components/DropZone";
-import { NewKeystoreDialog, OpenPasswordDialog, SaveDialog, VaultPromptDialog } from "./components/KeystoreDialogs";
+import { NewKeystoreDialog, OpenPasswordDialog, SaveDialog, UnlockKeysDialog, VaultPromptDialog } from "./components/KeystoreDialogs";
 import { BuildPkcs12Dialog } from "./components/AddEntryDialogs";
 import { StoreProvider, useStore } from "./state/store";
 import { HomeView } from "./views/HomeView";
@@ -13,12 +13,14 @@ import { KeystoresView } from "./views/KeystoresView";
 import { WorkspacesView } from "./views/WorkspacesView";
 import { ExamineView } from "./views/ExamineView";
 import { CaSigningView } from "./views/CaSigningView";
+import { ConvertView } from "./views/ConvertView";
 import { ScannerView } from "./views/ScannerView";
 import { VaultView } from "./views/VaultView";
 import { SettingsView } from "./views/SettingsView";
 import type { TabType } from "./types/crypto";
 
-const TAB_ORDER: TabType[] = ["home", "keystores", "workspaces", "examine", "ca_signing", "scanner", "vault", "settings"];
+/** Ctrl+1 … Ctrl+9. Convert came last so the older shortcuts kept their numbers. */
+const TAB_ORDER: TabType[] = ["home", "keystores", "workspaces", "examine", "ca_signing", "scanner", "vault", "settings", "convert"];
 
 const isEditable = (el: EventTarget | null) =>
   el instanceof HTMLElement && (el.isContentEditable || el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.tagName === "SELECT");
@@ -80,7 +82,7 @@ const Shell: React.FC = () => {
         e.preventDefault();
         if (key === "y" || e.shiftKey) store.redo();
         else store.undo();
-      } else if (/^[1-8]$/.test(key)) {
+      } else if (/^[1-9]$/.test(key)) {
         e.preventDefault();
         store.setTab(TAB_ORDER[Number(key) - 1]);
       }
@@ -114,6 +116,7 @@ const Shell: React.FC = () => {
             {store.tab === "workspaces" && <WorkspacesView />}
             {store.tab === "examine" && <ExamineView />}
             {store.tab === "ca_signing" && <CaSigningView />}
+            {store.tab === "convert" && <ConvertView />}
             {store.tab === "scanner" && <ScannerView />}
             {store.tab === "vault" && <VaultView />}
             {store.tab === "settings" && <SettingsView />}
@@ -125,6 +128,7 @@ const Shell: React.FC = () => {
       <NewKeystoreDialog />
       <BuildPkcs12Dialog open={store.buildPkcs12Open} onClose={() => store.setBuildPkcs12Open(false)} />
       <VaultPromptDialog />
+      <UnlockKeysDialog />
       <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />
       <DropOverlay visible={dragging} />
     </div>

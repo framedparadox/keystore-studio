@@ -8,10 +8,11 @@ your machine except TLS handshakes you start from **Examine**.
 
 | Area | What you can do |
 | --- | --- |
-| **Keystores** | Open, create, edit and save **PKCS#12**, **JKS** and **JCEKS** files (keytool/OpenSSL compatible). Convert between formats and change passwords with *Save as…*. Key pairs, trusted certificates and secret keys. Per-key passwords (JKS/JCEKS) are preserved and can be unlocked. Undo/redo, cut/copy/paste between keystores, rename, labels, CSV inventory export. Unsaved-changes tracking with a guard on close/quit. |
+| **Keystores** | Open, create, edit and save **PKCS#12**, **JKS** and **JCEKS** files (keytool/OpenSSL compatible). Convert between formats and change passwords with *Save as…*. Key pairs, trusted certificates and secret keys, each with its own icon. Open keystores are listed in a navigator beside the entry table, each with its entries grouped by type, so a session with many keystores stays manageable. Key pairs open locked and need their key password before they can be inspected, exported, copied or used for signing (Settings can turn this off). Per-key passwords (JKS/JCEKS) are preserved. Undo/redo, cut/copy/paste between keystores, rename, labels, CSV inventory export. Unsaved-changes tracking with a guard on close/quit. |
 | **Entries** | Generate RSA (2048–4096), ECDSA (P-256/384/521) and Ed25519 key pairs with certificates that are self-signed or issued by any open CA; generate AES/HMAC/3DES secret keys; import trusted certificates (PEM/DER/PKCS#7, bundles), key pairs from PEM/DER (PKCS#8, encrypted PKCS#8, PKCS#1, SEC1) or from another keystore. Generate CSRs, install CA replies. |
 | **Export** | Certificate (PEM/DER), full chain, PKCS#7 (PEM/DER), PkiPath, public key (PEM, OpenSSH, JWK), private key (encrypted or plain PKCS#8, JWK), single-entry PKCS#12, secret key (hex, JWK). |
 | **Build a PKCS#12** | Bundle an existing certificate (or chain) and its private key into a passphrase-protected **.p12 / .pfx** in one step, without opening a keystore first — from the dashboard or the command palette. The input key may be encrypted (its own password is asked for separately), and it is matched against the certificate before anything is written. Readable by OpenSSL and `keytool`. |
+| **Convert** | One place for format conversions, each listed under Convert in the sidebar: certificates (PEM, DER, PKCS#7, PkiPath), private keys (PKCS#8, encrypted PKCS#8, PKCS#1/SEC1, JWK), public keys from a certificate, CSR or key (PEM, DER, PKCS#1, OpenSSH, JWK), keystores (PKCS#12 ↔ JKS ↔ JCEKS, BKS in), key + certificate → PKCS#12, keystore → PEM bundle, and PEM ↔ DER for any object. Each shows the equivalent OpenSSL/keytool command. |
 | **CA & Signing** | Sign CSRs (with CSR inspection and one-click installation into the matching key pair), issue v2 CRLs, CMS/PKCS#7 sign & verify (attached/detached), JWT sign & verify (RS/ES/EdDSA/HS), JAR signing (jarsigner-verifiable), **RFC 3161 trusted timestamps** on CMS and JAR signatures, DH parameters (RFC 7919 groups or freshly generated safe primes). |
 | **Examine** | Live TLS inspection (protocol, cipher, ALPN, chain, trust and hostname verdict against the OS trust store), decode anything (certificates, chains, CSRs, CRLs, keys, PKCS#7, JWTs, OpenSSH keys, keystores), compare two certificates. |
 | **Security audit** | Health score and findings (expired/expiring, weak keys and digests, deprecated ciphers, incomplete chains, self-signed servers), key rotation that keeps subject/SANs/usages and is re-issued by the original CA when it is open, same-key renewal, CSV report. |
@@ -22,7 +23,7 @@ your machine except TLS handshakes you start from **Examine**.
 ### Keyboard shortcuts
 
 `Ctrl+O` open · `Ctrl+N` new keystore · `Ctrl+S` save · `Ctrl+Shift+S` save as · `Ctrl+Z` / `Ctrl+Shift+Z` undo/redo ·
-`Ctrl+K` command palette · `` Ctrl+` `` terminal · `Ctrl+1…8` switch page (⌘ on macOS).
+`Ctrl+K` command palette · `` Ctrl+` `` terminal · `Ctrl+1…8` switch page · `Ctrl+9` Convert (⌘ on macOS).
 
 ### Not supported
 

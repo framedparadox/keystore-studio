@@ -1,7 +1,26 @@
 import { describe, expect, it, beforeEach } from "vitest";
 import type { KeystoreEntry, OpenKeystore } from "../types/crypto";
 import { daysUntilExpiry, entryHealth, expiryStatus, findingsFor, formatDuration, setThresholds, summarize } from "./metrics";
-import { aliasTaken, canonicalAlias, cnOf, entryKey, findIssuingCa, normalizeEntries, pkcs12BuildReady, profileUsages, renewalTerm, saveProblems, splitList, uniqueAlias } from "./keystore";
+import {
+  aliasTaken,
+  byTypeThenAlias,
+  canonicalAlias,
+  cnOf,
+  entryKey,
+  entryMatches,
+  entryTypeName,
+  findIssuingCa,
+  isKeyLocked,
+  keyPasswordMatches,
+  normalizeEntries,
+  pkcs12BuildReady,
+  profileUsages,
+  renewalTerm,
+  saveProblems,
+  splitList,
+  uniqueAlias,
+} from "./keystore";
+import { CERT_OUTPUTS, CONVERTERS, KEY_OUTPUTS, PUBLIC_OUTPUTS, cliHint, outputName, shellQuote } from "./convert";
 import { csvField } from "./csv";
 import { diffEntries } from "./diff";
 import { classifyError } from "./api";
@@ -257,5 +276,103 @@ describe("pkcs12BuildReady", () => {
   it("requires a non-empty passphrase that matches its confirmation", () => {
     expect(pkcs12BuildReady({ ...ok, passphrase: "", confirm: "" })).toBe(false);
     expect(pkcs12BuildReady({ ...ok, confirm: "different" })).toBe(false);
+  });
+});
+
+describe("key pair locking", () => {
+  const kp = entry("web");
+  const cert = entry("anchor", { entry_type: "TrustedCertificate" });
+  const secret = entry("aes", { daysLeft: null });
+
+  it("locks key pairs until they are unlocked, when unlocking is required", () => {
+    expect(isKeyLocked(kp, new Set(), true)).toBe(true);
+    expect(isKeyLocked(kp, new Set([kp.id]), true)).toBe(false);
+    expect(isKeyLocked(kp, new Set(), false)).toBe(false);
+  });
+
+  it("never locks certificates, and locks secret keys only when the engine could not decrypt them", () => {
+    expect(isKeyLocked(cert, new Set(), true)).toBe(false);
+    expect(isKeyLocked(secret, new Set(), true)).toBe(false);
+    expect(isKeyLocked({ ...secret, locked: true }, new Set([secret.id]), false)).toBe(true);
+  });
+
+  it("keeps a key with its own password locked whatever the session says", () => {
+    expect(isKeyLocked({ ...kp, locked: true }, new Set([kp.id]), false)).toBe(true);
+  });
+
+  it("checks the key password against the key's own password, else the store password", () => {
+    expect(keyPasswordMatches(kp, "store-pw", "store-pw")).toBe(true);
+    expect(keyPasswordMatches(kp, "other", "store-pw")).toBe(false);
+    expect(keyPasswordMatches({ ...kp, key_password: "own-pw" }, "store-pw", "store-pw")).toBe(false);
+    expect(keyPasswordMatches({ ...kp, key_password: "own-pw" }, "own-pw", "store-pw")).toBe(true);
+    expect(keyPasswordMatches(kp, "", "")).toBe(false);
+    expect(keyPasswordMatches(kp, "x", undefined)).toBe(false);
+  });
+});
+
+describe("entry listing", () => {
+  it("orders key pairs, then secret keys, then certificates, each by alias", () => {
+    const list = [entry("zeta", { entry_type: "TrustedCertificate" }), entry("b"), entry("aes", { daysLeft: null }), entry("a10"), entry("a2")];
+    expect([...list].sort(byTypeThenAlias).map((e) => e.alias)).toEqual(["a2", "a10", "b", "aes", "zeta"]);
+  });
+
+  it("matches alias, subject and fingerprints with or without colons", () => {
+    const e = entry("api", { sha256_fingerprint: "AB:CD:EF" });
+    expect(entryMatches(e, "")).toBe(true);
+    expect(entryMatches(e, "API")).toBe(true);
+    expect(entryMatches(e, "api.example")).toBe(true);
+    expect(entryMatches(e, "abcd")).toBe(true);
+    expect(entryMatches(e, "cd:ef")).toBe(true);
+    expect(entryMatches(e, "nope")).toBe(false);
+  });
+
+  it("names CA certificates apart from other trusted certificates", () => {
+    const anchor = entry("root", { entry_type: "TrustedCertificate" });
+    expect(entryTypeName(anchor)).toBe("Trusted certificate");
+    anchor.certificate_chain[0].is_ca = true;
+    expect(entryTypeName(anchor)).toBe("CA certificate");
+    expect(entryTypeName(entry("k"))).toBe("Key pair");
+  });
+});
+
+describe("conversion catalog", () => {
+  it("lists each converter once", () => {
+    const ids = CONVERTERS.map((c) => c.id);
+    expect(new Set(ids).size).toBe(ids.length);
+    expect(ids).toEqual(expect.arrayContaining(["certificate", "private_key", "public_key", "keystore", "pkcs12", "extract", "encoding"]));
+  });
+
+  it("offers exactly the targets the engine accepts", () => {
+    // Mirrors CERT_TARGETS, KEY_TARGETS and PUBLIC_TARGETS in src-tauri/src/convert.rs.
+    expect(CERT_OUTPUTS.map((t) => t.value).sort()).toEqual(["der", "pem", "pkcs7_der", "pkcs7_pem", "pkipath"]);
+    expect(KEY_OUTPUTS.map((t) => t.value).sort()).toEqual(["jwk", "pkcs8_der", "pkcs8_encrypted_der", "pkcs8_encrypted_pem", "pkcs8_pem", "traditional_der", "traditional_pem"]);
+    expect(PUBLIC_OUTPUTS.map((t) => t.value).sort()).toEqual(["der", "jwk", "openssh", "pem", "pkcs1_pem"]);
+    expect(KEY_OUTPUTS.every((t) => t.sensitive)).toBe(true);
+    expect(KEY_OUTPUTS.filter((t) => t.needsPassword).map((t) => t.value)).toEqual(["pkcs8_encrypted_pem", "pkcs8_encrypted_der"]);
+  });
+
+  it("suggests an output name from the input file", () => {
+    expect(outputName("/certs/server.pem", "certificate", "cer")).toBe("server.cer");
+    expect(outputName("C:\\keys\\id.pub.pem", "key", "jwk.json")).toBe("id.jwk.json");
+    expect(outputName(null, "My CA", "pem")).toBe("My_CA.pem");
+    expect(outputName("/a/store.p12", "keystore", "p12", "-converted")).toBe("store-converted.p12");
+    expect(outputName("", "", "pem")).toBe("converted.pem");
+  });
+
+  it("quotes paths for the shell only when needed", () => {
+    expect(shellQuote("/tmp/a.pem")).toBe("/tmp/a.pem");
+    expect(shellQuote("/tmp/my key.pem")).toBe("'/tmp/my key.pem'");
+    expect(shellQuote("it's.pem")).toBe(`'it'\\''s.pem'`);
+  });
+
+  it("gives a command-line equivalent where a standard tool exists", () => {
+    expect(cliHint("certificate", "pkcs7_pem", "/c/chain.pem")).toBe("openssl crl2pkcs7 -nocrl -certfile /c/chain.pem -out certificate.p7b");
+    expect(cliHint("certificate", "pkipath")).toBeNull();
+    expect(cliHint("private_key", "jwk")).toBeNull();
+    expect(cliHint("keystore", "PKCS12", "/k/a.jks")).toContain("-deststoretype PKCS12");
+    expect(cliHint("extract", "chain:none")).toContain("-nokeys");
+    expect(cliHint("extract", "leaf:pkcs8")).toContain("-clcerts -nodes");
+    expect(cliHint("encoding", "der")).toContain("openssl asn1parse");
+    expect(cliHint("encoding", "CERTIFICATE REQUEST")).toContain("openssl req -inform DER");
   });
 });

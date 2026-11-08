@@ -517,6 +517,79 @@ export function Segmented<T extends string>({
   );
 }
 
+/** Radio choices drawn as rows, each with a hint and an optional right-hand tag (e.g. a file extension). */
+export function OptionList<T extends string>({
+  value,
+  onChange,
+  options,
+  label,
+  columns = 1,
+}: {
+  value: T;
+  onChange: (v: T) => void;
+  options: { value: T; label: React.ReactNode; hint?: React.ReactNode; meta?: React.ReactNode; disabled?: boolean; testId?: string }[];
+  label: string;
+  columns?: 1 | 2;
+}) {
+  return (
+    <div role="radiogroup" aria-label={label} className={clsx("grid gap-2", columns === 2 && "sm:grid-cols-2")}>
+      {options.map((o) => {
+        const active = o.value === value;
+        return (
+          <button
+            key={o.value}
+            type="button"
+            role="radio"
+            aria-checked={active}
+            disabled={o.disabled}
+            data-testid={o.testId}
+            onClick={() => onChange(o.value)}
+            className={clsx(
+              "text-left rounded-control border px-3 py-2.5 flex items-start gap-2.5 transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed",
+              active ? "border-brand bg-brand-tint ring-2 ring-brand-soft" : "border-line bg-surface hover:border-line-strong"
+            )}
+          >
+            <span className={clsx("mt-0.5 w-4 h-4 rounded-full border flex items-center justify-center shrink-0", active ? "border-brand" : "border-line-strong")}>
+              {active && <span className="w-2 h-2 rounded-full bg-brand" />}
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block text-[13px] font-medium text-ink">{o.label}</span>
+              {o.hint && <span className="block text-[12px] text-faint mt-0.5">{o.hint}</span>}
+            </span>
+            {o.meta && <span className="shrink-0 mt-0.5 text-[11px] font-mono text-faint">{o.meta}</span>}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/** A row of small figures in one card, for a page header. Lighter than a row of KpiCards. */
+export const StatStrip: React.FC<{
+  items: { label: string; value: React.ReactNode; hint?: React.ReactNode; hintTone?: "neutral" | "success" | "warning" | "danger" }[];
+  className?: string;
+}> = ({ items, className }) => (
+  <div className={clsx("bg-surface border border-line rounded-card shadow-card flex flex-wrap", className)}>
+    {items.map((i, idx) => (
+      <div key={i.label} className={clsx("flex-1 min-w-[150px] px-4 py-3", idx > 0 && "border-l border-line")}>
+        <div className="text-[11.5px] font-medium text-faint">{i.label}</div>
+        <div className="text-[18px] font-semibold text-ink leading-6 mt-0.5">{i.value}</div>
+        {i.hint && (
+          <div
+            title={typeof i.hint === "string" ? i.hint : undefined}
+            className={clsx(
+              "text-[12px] mt-0.5 truncate",
+              i.hintTone === "danger" ? "text-danger" : i.hintTone === "warning" ? "text-warning" : i.hintTone === "success" ? "text-success" : "text-faint"
+            )}
+          >
+            {i.hint}
+          </div>
+        )}
+      </div>
+    ))}
+  </div>
+);
+
 /* -------------------------------------------------------------------------- */
 /* Data table                                                                  */
 /* -------------------------------------------------------------------------- */

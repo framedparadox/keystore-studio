@@ -83,7 +83,7 @@ const RotateDialog: React.FC<{ row: Row | null; onClose: () => void }> = ({ row,
 };
 
 export const ScannerView: React.FC = () => {
-  const { keystores, replaceEntry, settings, openFiles, setTab } = useStore();
+  const { keystores, replaceEntry, settings, openFiles, setTab, ensureKeyAccess } = useStore();
   const toast = useToast();
   const [filter, setFilter] = useState<"issues" | "all">("issues");
   const [rotate, setRotate] = useState<Row | null>(null);
@@ -97,6 +97,15 @@ export const ScannerView: React.FC = () => {
   const scoreTone = sum.healthScore >= 85 ? "success" : sum.healthScore >= 65 ? "warning" : "danger";
   const incomplete = rows.filter((r) => r.findings.some((f) => f.title === "Incomplete chain")).length;
   const sealed = keystores.filter((k) => k.sealed).length;
+
+  /** Renewing uses the entry's key and the issuing CA's key, so both must be unlocked first. */
+  const renewUnlocked = (r: Row) => {
+    const ca = findIssuingCa(r.entry, keystores);
+    const caKs = ca ? keystores.find((k) => k.entries.some((e) => e.id === ca.id)) : undefined;
+    if (!ca || !caKs) return void renew(r);
+    if (caKs.id === r.ks.id) return ensureKeyAccess(r.ks.id, [r.entry.id, ca.id], () => void renew(r));
+    ensureKeyAccess(r.ks.id, [r.entry.id], () => ensureKeyAccess(caKs.id, [ca.id], () => void renew(r)));
+  };
 
   /** Renew the certificate keeping the key: CSR → sign with the open issuing CA → install reply. */
   const renew = async (r: Row) => {
@@ -220,11 +229,11 @@ export const ScannerView: React.FC = () => {
         r.entry.entry_type === "KeyPair" && !r.entry.locked ? (
           <div className="inline-flex items-center gap-1.5">
             {!r.entry.certificate_chain[0]?.self_signed && (
-              <Button size="sm" icon={RefreshCw} disabled={busyId === r.entry.id} onClick={() => renew(r)} title={renewalTerm(r.entry).note}>
+              <Button size="sm" icon={RefreshCw} disabled={busyId === r.entry.id} onClick={() => renewUnlocked(r)} title={renewalTerm(r.entry).note}>
                 Renew
               </Button>
             )}
-            <Button size="sm" icon={RotateCcw} onClick={() => setRotate(r)} data-testid={`rotate-${r.entry.alias}`}>
+            <Button size="sm" icon={RotateCcw} onClick={() => ensureKeyAccess(r.ks.id, [r.entry.id], () => setRotate(r))} data-testid={`rotate-${r.entry.alias}`}>
               Rotate key
             </Button>
           </div>

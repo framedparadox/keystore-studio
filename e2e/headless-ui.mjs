@@ -29,7 +29,8 @@ let driver, bridge, server, bridgePort;
 
 const log = (...a) => console.log("[headless]", ...a);
 const sh = (cmd, args) => {
-  const r = spawnSync(cmd, args, { encoding: "utf8", env: { ...process.env, JAVA_TOOL_OPTIONS: "" } });
+  // stdin closed: OpenSSL 3.4+ tries to prompt on a piped stdin even when -passin is given.
+  const r = spawnSync(cmd, args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], env: { ...process.env, JAVA_TOOL_OPTIONS: "" } });
   if (r.status !== 0) throw new Error(`${cmd} ${args.join(" ")} failed:\n${r.stdout}${r.stderr}`);
   return `${r.stdout}${r.stderr}`;
 };
@@ -118,6 +119,13 @@ const setField = async (id, value) => {
      el.dispatchEvent(new Event("input", { bubbles: true }));
      el.dispatchEvent(new Event("change", { bubbles: true }));`,
     el, value);
+};
+/** Set XKS_SCREENSHOTS=<dir> to save a PNG of the window at the main screens, for review. */
+const shot = async (name) => {
+  const dir = process.env.XKS_SCREENSHOTS;
+  if (!dir) return;
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, `${name}.png`), await driver.takeScreenshot(), "base64");
 };
 const waitText = (text, timeout = 15000) =>
   driver.wait(async () => (await driver.findElement(By.tagName("body")).getText()).includes(text), timeout, `never saw "${text}"`);
@@ -250,6 +258,159 @@ async function run() {
     await click("ks-compare");
     await click("diff-disk");
     await waitText("Added: extra", 15000);
+  });
+
+  // ---- Keystore navigator, locked key pairs and the Convert page ----
+  const P12 = path.join(WORK, "nav.p12");
+  const P12_PW = "navpass1";
+  const clickTab = async (label) => {
+    const el = await driver.wait(until.elementLocated(By.xpath(`//button[@role="tab"][contains(normalize-space(.), ${JSON.stringify(label)})]`)), 10000);
+    await driver.executeScript("arguments[0].click()", el);
+  };
+  const exists = async (css) => (await driver.findElements(By.css(css))).length > 0;
+  const certPem = () => fs.readFileSync(path.join(WORK, "ui-cert.pem"), "utf8");
+
+  await step("a key pair read from a file opens locked and needs its key password", async () => {
+    await driver.actions().sendKeys("\uE00C").perform(); // close the compare dialog
+    sh("keytool", ["-genkeypair", "-alias", "web", "-keyalg", "RSA", "-keysize", "2048", "-dname", "CN=web.nav.test", "-storetype", "PKCS12", "-keystore", P12, "-storepass", P12_PW]);
+    sh("keytool", ["-importcert", "-noprompt", "-alias", "anchor", "-file", path.join(WORK, "ui-cert.pem"), "-storetype", "PKCS12", "-keystore", P12, "-storepass", P12_PW]);
+    await driver.executeScript(`window.__xksStub.open.push(${JSON.stringify(P12)});`);
+    await click("ks-open");
+    await setField("open-password", P12_PW);
+    await click("open-submit");
+    // Both keystores are listed in the navigator, with this one's entries under it.
+    await driver.wait(until.elementLocated(byTest("tree-entry-web")), 10000);
+    if (!(await exists('[data-testid="ks-tab-kp-out.jks"]'))) throw new Error("the earlier keystore is missing from the navigator");
+    if (!(await exists('[data-testid="tree-entry-anchor"]'))) throw new Error("the certificate is missing from the navigator");
+    // Each type has its own icon, and the key pair wears a lock.
+    if (!(await exists('[data-entry-type="KeyPair"][data-locked="true"]'))) throw new Error("the key pair is not shown locked");
+    if (!(await exists('[data-entry-type="TrustedCertificate"]'))) throw new Error("no certificate icon");
+    await shot("keystores-locked");
+    await click("tree-entry-web");
+    await driver.wait(until.elementLocated(byTest("unlock-key-dialog")), 10000);
+    await shot("unlock-dialog");
+    if (await exists('[data-testid="entry-inspector"]')) throw new Error("the inspector opened before the key was unlocked");
+    await setField("unlock-key-password", "not-the-password");
+    await click("unlock-key-submit");
+    await waitText("Incorrect key password", 10000);
+    await setField("unlock-key-password", P12_PW);
+    await click("unlock-key-submit");
+    await driver.wait(until.elementLocated(byTest("entry-inspector")), 10000);
+    if (await exists('[data-entry-type="KeyPair"][data-locked="true"]')) throw new Error("the key pair still shows locked");
+    await driver.actions().sendKeys("\uE00C").perform();
+  });
+
+  await step("the Convert row toggles its submenu and Open is icon-only", async () => {
+    const expanded = async () => (await driver.findElement(byTest("nav-convert"))).getAttribute("aria-expanded");
+    if (await expanded() !== "true") throw new Error("conversions should start expanded");
+    await click("nav-convert");
+    if (await expanded() !== "false" || await exists('[data-testid="nav-convert-certificate"]')) {
+      throw new Error("clicking Convert did not collapse its submenu");
+    }
+    await click("nav-convert");
+    if (await expanded() !== "true" || !(await exists('[data-testid="nav-convert-certificate"]'))) {
+      throw new Error("clicking Convert did not expand its submenu");
+    }
+    const open = await driver.findElement(byTest("header-open"));
+    if (await open.getText() || await open.getAttribute("aria-label") !== "Open (Ctrl+O)") throw new Error("Open should be an accessible icon-only button");
+    if ((await driver.findElement(By.tagName("body")).getText()).includes("Local Rust engine · offline")) throw new Error("offline status is still shown");
+  });
+
+  await step("convert a certificate to a PKCS#7 bundle that OpenSSL reads", async () => {
+    const out = path.join(WORK, "conv.p7b");
+    await click("nav-convert-certificate");
+    await setField("convert-input", certPem());
+    await waitText("X.509 certificate", 10000);
+    await click("convert-target-pkcs7_pem");
+    await driver.executeScript(`window.__xksStub.save.push(${JSON.stringify(out)});`);
+    await click("convert-save");
+    await driver.wait(async () => fs.existsSync(out), 20000, "the PKCS#7 file was never written");
+    await shot("convert-certificate");
+    const dump = sh("openssl", ["pkcs7", "-in", out, "-print_certs", "-noout"]);
+    if (!dump.includes("headless.e2e.test")) throw new Error(`unexpected bundle:\n${dump}`);
+  });
+
+  await step("preview a certificate's public key as an OpenSSH line", async () => {
+    await click("nav-convert-public_key");
+    await setField("convert-input", certPem());
+    await click("convert-target-openssh");
+    await click("convert-preview");
+    const el = await driver.wait(until.elementLocated(byTest("convert-output")), 15000);
+    const line = (await el.getText()).trim();
+    await shot("convert-public-key");
+    if (!line.startsWith("ssh-rsa ")) throw new Error(`not an OpenSSH line: ${line}`);
+    const pub = path.join(WORK, "conv.pub");
+    fs.writeFileSync(pub, `${line}\n`);
+    sh("ssh-keygen", ["-l", "-f", pub]);
+  });
+
+  await step("convert a private key to encrypted PKCS#8", async () => {
+    const out = path.join(WORK, "conv-enc.key");
+    await click("nav-convert-private_key");
+    await setField("convert-input", fs.readFileSync(path.join(WORK, "ui-key.pem"), "utf8"));
+    await click("convert-target-pkcs8_encrypted_pem");
+    await setField("convert-out-password", "enc-pass-1");
+    await setField("convert-out-password-confirm", "enc-pass-1");
+    await driver.executeScript(`window.__xksStub.save.push(${JSON.stringify(out)});`);
+    await click("convert-save");
+    await driver.wait(async () => fs.existsSync(out), 20000, "the key was never written");
+    if (!fs.readFileSync(out, "utf8").includes("BEGIN ENCRYPTED PRIVATE KEY")) throw new Error("the key is not encrypted PKCS#8");
+    sh("openssl", ["pkey", "-in", out, "-passin", "pass:enc-pass-1", "-noout"]);
+    if (spawnSync("openssl", ["pkey", "-in", out, "-passin", "pass:wrong", "-noout"], { stdio: "ignore" }).status === 0) throw new Error("the wrong password decrypted the key");
+  });
+
+  await step("convert a JKS file to PKCS#12 that keytool accepts", async () => {
+    const out = path.join(WORK, "from-jks.p12");
+    await click("nav-convert-keystore");
+    await clickTab("File on disk");
+    await driver.executeScript(`window.__xksStub.open.push(${JSON.stringify(JKS_OUT)});`);
+    await click("convert-ks-pick");
+    await setField("convert-ks-password", STORE_PW);
+    await click("convert-ks-load");
+    await driver.wait(until.elementLocated(byTest("convert-ks-summary")), 15000);
+    // 'sep' has its own key password, so PKCS#12 is refused until it is given.
+    await click("convert-format-PKCS12");
+    await waitText("can only be saved back to JKS", 10000);
+    await setField("convert-ks-keypw", "newkey99");
+    await click("convert-ks-unlock");
+    await driver.wait(async () => !(await driver.findElement(By.tagName("body")).getText()).includes("locked by their own key password"), 15000, "the locked key never unlocked");
+    await driver.executeScript(`window.__xksStub.save.push(${JSON.stringify(out)});`);
+    await click("convert-save");
+    await driver.wait(async () => fs.existsSync(out), 20000, "the PKCS#12 was never written");
+    const list = sh("keytool", ["-list", "-keystore", out, "-storetype", "PKCS12", "-storepass", STORE_PW]);
+    if (!list.includes("extra") || !list.includes("sep")) throw new Error(`entries missing:\n${list}`);
+    // Every key, including the one that had its own password, opens with the one PKCS#12 password.
+    const dump = sh("openssl", ["pkcs12", "-in", out, "-passin", `pass:${STORE_PW}`, "-nodes"]);
+    if ((dump.match(/BEGIN PRIVATE KEY/g) ?? []).length !== 2) throw new Error(`expected two keys under the store password:\n${dump}`);
+  });
+
+  await step("export an open keystore to PEM after unlocking its key pair", async () => {
+    const out = path.join(WORK, "nav.pem");
+    await click("nav-keystores");
+    await click("ks-tab-nav.p12");
+    await click("ks-more");
+    await click("ks-lock-all");
+    await click("ks-more");
+    await click("ks-extract");
+    await driver.wait(until.elementLocated(byTest("convert-entries")), 10000);
+    await driver.executeScript(`window.__xksStub.save.push(${JSON.stringify(out)});`);
+    await click("convert-save");
+    // The key pair was locked again, so its key password is asked for first.
+    await driver.wait(until.elementLocated(byTest("unlock-key-dialog")), 10000);
+    if (fs.existsSync(out)) throw new Error("the PEM was written before the key was unlocked");
+    await setField("unlock-key-password", P12_PW);
+    await click("unlock-key-submit");
+    await driver.wait(async () => fs.existsSync(out), 20000, "the PEM was never written");
+    await shot("convert-extract");
+    await click("nav-keystores");
+    await waitText("Median key age");
+    await shot("keystores-unlocked");
+    await click("nav-convert");
+    await shot("convert-overview");
+    const pem = fs.readFileSync(out, "utf8");
+    if ((pem.match(/BEGIN CERTIFICATE/g) ?? []).length !== 2) throw new Error(`expected 2 certificates:\n${pem}`);
+    sh("openssl", ["pkey", "-in", out, "-noout"]);
+    sh("openssl", ["x509", "-in", out, "-noout"]);
   });
 }
 

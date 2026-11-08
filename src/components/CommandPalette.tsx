@@ -2,7 +2,8 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import clsx from "clsx";
 import { FilePlus2, FolderArchive, FolderOpen, KeyRound, Lock, Redo2, Save, Search, TerminalSquare, Undo2, X } from "lucide-react";
 import { useStore } from "../state/store";
-import { NAV_GROUPS, PAGE_TITLES } from "./Sidebar";
+import { CONVERTER_ICONS, NAV_GROUPS, PAGE_TITLES } from "./Sidebar";
+import { CONVERTERS } from "../lib/convert";
 import { useTerminal } from "./Terminal";
 import { cnOf } from "../lib/keystore";
 
@@ -52,6 +53,14 @@ export const CommandPalette: React.FC<{ open: boolean; onClose: () => void }> = 
         icon: item.icon,
         run: () => store.setTab(item.id),
         hint: `Ctrl+${item.shortcut}`,
+      })),
+      ...CONVERTERS.map((c) => ({
+        id: `convert-${c.id}`,
+        label: `Convert: ${c.title}`,
+        hint: c.short,
+        group: "Convert",
+        icon: CONVERTER_ICONS[c.id],
+        run: () => store.openConverter(c.id),
       })),
       ...store.keystores.map((k) => ({
         id: `ks-${k.id}`,

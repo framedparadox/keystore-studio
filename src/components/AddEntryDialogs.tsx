@@ -17,10 +17,10 @@ const PROFILE_LABELS: Record<CertProfileName, string> = {
   ca: "Certificate authority",
 };
 
-/** CA key pairs from every loaded keystore that can issue certificates. */
+/** CA key pairs from every loaded keystore that can issue certificates, with their lock state. */
 export function useCaSigners() {
-  const { keystores } = useStore();
-  return useMemo(() => keystores.flatMap((ks) => ks.entries.filter(isCaEntry).map((entry) => ({ entry, ks }))), [keystores]);
+  const { keystores, isKeyLocked } = useStore();
+  return useMemo(() => keystores.flatMap((ks) => ks.entries.filter(isCaEntry).map((entry) => ({ entry, ks, locked: isKeyLocked(entry) }))), [keystores, isKeyLocked]);
 }
 
 export const FileOrText: React.FC<{
@@ -68,7 +68,7 @@ export const FileOrText: React.FC<{
 // ----------------------------------------------------------------------------- key pair
 
 export const GenerateKeyPairDialog: React.FC<{ keystore: OpenKeystore; open: boolean; onClose: () => void; presetCa?: boolean }> = ({ keystore, open, onClose, presetCa }) => {
-  const { addEntries } = useStore();
+  const { addEntries, ensureKeyAccess } = useStore();
   const toast = useToast();
   const signers = useCaSigners();
   const [alias, setAlias] = useState("");
@@ -126,11 +126,17 @@ export const GenerateKeyPairDialog: React.FC<{ keystore: OpenKeystore; open: boo
   const aliasError = alias.trim() && aliasTaken(keystore, alias) ? "An entry with this alias already exists" : undefined;
   const [algorithm, param] = keySpec.split(":");
 
-  const submit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const submit = async (e?: React.FormEvent, caUnlocked = false) => {
+    e?.preventDefault();
     setError(null);
     if (!alias.trim()) return setError("Enter an alias.");
     if (!useFullDn && !cn.trim()) return setError("Enter a common name (CN).");
+    const chosen = signers.find((s) => s.entry.id === signer);
+    if (chosen?.locked && !caUnlocked) {
+      // Signing needs the CA's private key: ask for its key password, then carry on.
+      ensureKeyAccess(chosen.ks.id, [chosen.entry.id], () => void submit(undefined, true));
+      return;
+    }
     setBusy(true);
     try {
       const input: GenerateKeyPairInput = {
@@ -245,11 +251,23 @@ export const GenerateKeyPairDialog: React.FC<{ keystore: OpenKeystore; open: boo
             <TextInput label="OCSP URL (AIA)" value={ocspUrl} onChange={(e) => setOcspUrl(e.target.value)} placeholder="http://ocsp.example" />
             <TextInput label="CA Issuers URL (AIA)" value={caIssuerUrl} onChange={(e) => setCaIssuerUrl(e.target.value)} placeholder="http://ca.example/ca.crt" />
           </div>
-          <Select label="Signed by" value={signer} onChange={(e) => setSigner(e.target.value)} hint={signers.length ? "Pick a CA from any open keystore, or self-sign." : "No CA key pairs are open; the certificate will be self-signed."} data-testid="kp-signer">
+          <Select
+            label="Signed by"
+            value={signer}
+            onChange={(e) => setSigner(e.target.value)}
+            hint={
+              !signers.length
+                ? "No CA key pairs are open; the certificate will be self-signed."
+                : signers.find((s) => s.entry.id === signer)?.locked
+                  ? "This CA is locked. You will be asked for its key password."
+                  : "Pick a CA from any open keystore, or self-sign."
+            }
+            data-testid="kp-signer"
+          >
             <option value="">Self-signed</option>
             {signers.map((s) => (
               <option key={s.entry.id} value={s.entry.id}>
-                {s.entry.alias} — {cnOf(s.entry.subject)} ({s.ks.name})
+                {s.entry.alias} — {cnOf(s.entry.subject)} ({s.ks.name}){s.locked ? " · locked" : ""}
               </option>
             ))}
           </Select>
@@ -664,11 +682,13 @@ export const ImportFromKeystoreDialog: React.FC<{ keystore: OpenKeystore; open: 
 // ------------------------------------------------------------------ build a PKCS#12 from files
 
 /**
- * Builds a .p12/.pfx straight from a certificate, its private key and a passphrase, without
- * needing an open keystore. The engine matches the key to the certificate before writing, so a
- * mismatched pair is reported here rather than producing a file that no tool will accept.
+ * State, fields and submit action for building a .p12/.pfx from a certificate, its private key and
+ * a passphrase, without an open keystore. The engine matches the key to the certificate before
+ * writing, so a mismatched pair is reported here rather than producing a file no tool accepts.
+ * Used by the "Create PKCS#12" dialog and inline on the Convert page; `testIdPrefix` keeps their
+ * test ids apart.
  */
-export const BuildPkcs12Dialog: React.FC<{ open: boolean; onClose: () => void }> = ({ open, onClose }) => {
+export function usePkcs12Builder(testIdPrefix = "build-p12") {
   const toast = useToast();
   const [alias, setAlias] = useState("");
   const [certPath, setCertPath] = useState<string | null>(null);
@@ -683,22 +703,19 @@ export const BuildPkcs12Dialog: React.FC<{ open: boolean; onClose: () => void }>
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (open) {
-      setAlias("");
-      setCertPath(null);
-      setCertText("");
-      setKeyPath(null);
-      setKeyText("");
-      setKeyPw("");
-      setPass("");
-      setPass2("");
-      setMac("pkcs12");
-      setError(null);
-      setDone(null);
-    }
-  }, [open]);
-  if (!open) return null;
+  const reset = () => {
+    setAlias("");
+    setCertPath(null);
+    setCertText("");
+    setKeyPath(null);
+    setKeyText("");
+    setKeyPw("");
+    setPass("");
+    setPass2("");
+    setMac("pkcs12");
+    setError(null);
+    setDone(null);
+  };
 
   const hasCert = !!certPath || !!certText.trim();
   const hasKey = !!keyPath || !!keyText.trim();
@@ -734,10 +751,82 @@ export const BuildPkcs12Dialog: React.FC<{ open: boolean; onClose: () => void }>
     }
   };
 
+  const fields = (
+    <div className="space-y-4">
+      <FileOrText
+        label="Certificate (or full chain)"
+        filters={[FILTERS.certificates]}
+        path={certPath}
+        setPath={setCertPath}
+        text={certText}
+        setText={setCertText}
+        placeholder="-----BEGIN CERTIFICATE-----"
+        testId={`${testIdPrefix}-cert`}
+      />
+      <FileOrText
+        label="Private key"
+        filters={[FILTERS.keys]}
+        path={keyPath}
+        setPath={setKeyPath}
+        text={keyText}
+        setText={setKeyText}
+        placeholder="-----BEGIN PRIVATE KEY-----"
+        testId={`${testIdPrefix}-key`}
+      />
+      <PasswordInput label="Password of the private key (only if it is encrypted)" value={keyPw} onChange={setKeyPw} data-testid={`${testIdPrefix}-keypw`} />
+      <div className="grid grid-cols-2 gap-3">
+        <PasswordInput label="Passphrase for the new file" value={pass} onChange={setPass} data-testid={`${testIdPrefix}-pass`} />
+        <PasswordInput
+          label="Confirm passphrase"
+          value={pass2}
+          onChange={setPass2}
+          error={mismatch ? "Passphrases do not match" : undefined}
+          data-testid={`${testIdPrefix}-pass-confirm`}
+        />
+      </div>
+      <TextInput
+        label="Alias (friendly name)"
+        value={alias}
+        onChange={(e) => setAlias(e.target.value)}
+        placeholder="Defaults to the certificate file name"
+        data-testid={`${testIdPrefix}-alias`}
+      />
+      <Select
+        label="Integrity MAC"
+        value={mac}
+        onChange={(e) => setMac(e.target.value as "pkcs12" | "pbmac1")}
+        hint="The legacy MAC is read by every tool. PBMAC1 needs OpenSSL 3.4 or newer."
+      >
+        <option value="pkcs12">Legacy PKCS#12 MAC (compatible)</option>
+        <option value="pbmac1">PBMAC1 (RFC 9579)</option>
+      </Select>
+      {error && <Alert tone="danger">{error}</Alert>}
+      {done && (
+        <Alert tone="success" title="PKCS#12 created">
+          <span className="font-mono text-[12px] break-all">{done}</span>
+        </Alert>
+      )}
+      <Alert tone="info">
+        The key is matched against the certificate before anything is written. The file holds private key material — protect it with a strong passphrase.
+      </Alert>
+    </div>
+  );
+
+  return { fields, submit, ready, busy, done, reset, keyPath, certPath };
+}
+
+/** The PKCS#12 builder as a dialog, opened from the dashboard, command palette and Convert page. */
+export const BuildPkcs12Dialog: React.FC<{ open: boolean; onClose: () => void }> = ({ open, onClose }) => {
+  const builder = usePkcs12Builder("build-p12");
+  const { reset } = builder;
+  useEffect(() => {
+    if (open) reset();
+  }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
+  if (!open) return null;
   return (
     <Modal
       open
-      busy={busy}
+      busy={builder.busy}
       onClose={onClose}
       icon={FolderArchive}
       size="lg"
@@ -746,76 +835,14 @@ export const BuildPkcs12Dialog: React.FC<{ open: boolean; onClose: () => void }>
       testId="build-p12-dialog"
       footer={
         <>
-          <Button onClick={onClose}>{done ? "Close" : "Cancel"}</Button>
-          <Button variant="primary" onClick={submit} disabled={busy || !ready} data-testid="build-p12-submit">
-            {busy && <Spinner />} Create…
+          <Button onClick={onClose}>{builder.done ? "Close" : "Cancel"}</Button>
+          <Button variant="primary" onClick={builder.submit} disabled={builder.busy || !builder.ready} data-testid="build-p12-submit">
+            {builder.busy && <Spinner />} Create…
           </Button>
         </>
       }
     >
-      <div className="space-y-4">
-        <FileOrText
-          label="Certificate (or full chain)"
-          filters={[FILTERS.certificates]}
-          path={certPath}
-          setPath={setCertPath}
-          text={certText}
-          setText={setCertText}
-          placeholder="-----BEGIN CERTIFICATE-----"
-          testId="build-p12-cert"
-        />
-        <FileOrText
-          label="Private key"
-          filters={[FILTERS.keys]}
-          path={keyPath}
-          setPath={setKeyPath}
-          text={keyText}
-          setText={setKeyText}
-          placeholder="-----BEGIN PRIVATE KEY-----"
-          testId="build-p12-key"
-        />
-        <PasswordInput
-          label="Password of the private key (only if it is encrypted)"
-          value={keyPw}
-          onChange={setKeyPw}
-          data-testid="build-p12-keypw"
-        />
-        <div className="grid grid-cols-2 gap-3">
-          <PasswordInput label="Passphrase for the new file" value={pass} onChange={setPass} data-testid="build-p12-pass" />
-          <PasswordInput
-            label="Confirm passphrase"
-            value={pass2}
-            onChange={setPass2}
-            error={mismatch ? "Passphrases do not match" : undefined}
-            data-testid="build-p12-pass-confirm"
-          />
-        </div>
-        <TextInput
-          label="Alias (friendly name)"
-          value={alias}
-          onChange={(e) => setAlias(e.target.value)}
-          placeholder="Defaults to the certificate file name"
-          data-testid="build-p12-alias"
-        />
-        <Select
-          label="Integrity MAC"
-          value={mac}
-          onChange={(e) => setMac(e.target.value as "pkcs12" | "pbmac1")}
-          hint="The legacy MAC is read by every tool. PBMAC1 needs OpenSSL 3.4 or newer."
-        >
-          <option value="pkcs12">Legacy PKCS#12 MAC (compatible)</option>
-          <option value="pbmac1">PBMAC1 (RFC 9579)</option>
-        </Select>
-        {error && <Alert tone="danger">{error}</Alert>}
-        {done && (
-          <Alert tone="success" title="PKCS#12 created">
-            <span className="font-mono text-[12px] break-all">{done}</span>
-          </Alert>
-        )}
-        <Alert tone="info">
-          The key is matched against the certificate before anything is written. The file holds private key material — protect it with a strong passphrase.
-        </Alert>
-      </div>
+      {builder.fields}
     </Modal>
   );
 };

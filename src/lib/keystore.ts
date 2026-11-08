@@ -41,6 +41,49 @@ export const ENTRY_TYPE_LABEL: Record<EntryType, string> = {
 
 export const isCaEntry = (e: KeystoreEntry) => e.entry_type === "KeyPair" && !e.locked && !!e.certificate_chain[0]?.is_ca;
 
+/** Type label for one entry: trusted certificates that are CAs read "CA certificate". */
+export const entryTypeName = (e: Pick<KeystoreEntry, "entry_type" | "certificate_chain">) =>
+  e.entry_type === "TrustedCertificate" && e.certificate_chain[0]?.is_ca ? "CA certificate" : ENTRY_TYPE_LABEL[e.entry_type];
+
+/**
+ * Whether an entry's key must be unlocked before it can be used.
+ *
+ * Entries the engine could not decrypt (`locked`: a separate key password) are always locked.
+ * With `requireUnlock`, key pairs also open locked: their private key is not usable until the key
+ * password is entered for this session. `unlocked` holds the ids unlocked so far.
+ */
+export function isKeyLocked(e: Pick<KeystoreEntry, "id" | "entry_type" | "locked">, unlocked: ReadonlySet<string>, requireUnlock: boolean): boolean {
+  if (e.locked) return true;
+  return requireUnlock && e.entry_type === "KeyPair" && !unlocked.has(e.id);
+}
+
+/**
+ * Checks a key password for a key the engine already decrypted. Its key password is the keystore
+ * password unless the key carries its own (`key_password`).
+ */
+export const keyPasswordMatches = (e: Pick<KeystoreEntry, "key_password">, password: string, storePassword: string | undefined) =>
+  password.length > 0 && password === (e.key_password || storePassword);
+
+/** Entries listed by type (key pairs, secret keys, certificates), then alias. */
+export const ENTRY_TYPE_ORDER: Record<EntryType, number> = { KeyPair: 0, SecretKey: 1, TrustedCertificate: 2 };
+
+export const byTypeThenAlias = (a: KeystoreEntry, b: KeystoreEntry) =>
+  ENTRY_TYPE_ORDER[a.entry_type] - ENTRY_TYPE_ORDER[b.entry_type] || a.alias.localeCompare(b.alias, undefined, { sensitivity: "base", numeric: true });
+
+/** Free-text match on alias, subject, issuer, algorithm, serial and SHA-256 fingerprint. */
+export function entryMatches(e: KeystoreEntry, query: string): boolean {
+  const q = query.trim().toLowerCase();
+  if (!q) return true;
+  return (
+    e.alias.toLowerCase().includes(q) ||
+    e.subject.toLowerCase().includes(q) ||
+    e.issuer.toLowerCase().includes(q) ||
+    e.algorithm.toLowerCase().includes(q) ||
+    e.serial_number.toLowerCase().includes(q) ||
+    e.sha256_fingerprint.toLowerCase().replace(/:/g, "").includes(q.replace(/:/g, ""))
+  );
+}
+
 export const cnOf = (dn: string) => /(?:^|,\s*)CN=((?:\\.|[^,])+)/.exec(dn)?.[1]?.replace(/\\(.)/g, "$1") ?? dn;
 
 export interface ExportTarget {

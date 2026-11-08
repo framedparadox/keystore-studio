@@ -4,6 +4,7 @@ import type {
   CertificateInfo,
   CmsSignResult,
   CmsVerifyResult,
+  ConvertResult,
   CrlInfo,
   CsrInfo,
   CsrOptions,
@@ -21,6 +22,7 @@ import type {
   KeystoreEntry,
   KeystoreFile,
   KeystoreFormat,
+  PemBundleOptions,
   RevokedCertEntry,
   SaveResult,
   SecretSummary,
@@ -116,6 +118,17 @@ export const api = {
   exportEntry: (entry: KeystoreEntry, target: string, path: string, password?: string | null) =>
     call<ExportResult>("export_entry", { entry, target, path, password: password ?? null }),
   jwtAlgorithms: (entry: KeystoreEntry) => call<string[]>("jwt_algorithms", { entry }),
+
+  // Conversions. Without `path` a conversion is a preview: nothing is written and only
+  // non-sensitive text comes back.
+  convertCertificates: (data: DataSource, target: string, order: boolean, path?: string | null) =>
+    call<ConvertResult>("convert_certificates", { data, target, order, path: path ?? null }),
+  convertPrivateKey: (data: DataSource, password: string | null, target: string, outPassword: string | null, path?: string | null) =>
+    call<ConvertResult>("convert_private_key", { data, password, target, outPassword, path: path ?? null }),
+  convertPublicKey: (data: DataSource, password: string | null, target: string, comment: string, path?: string | null) =>
+    call<ConvertResult>("convert_public_key", { data, password, target, comment, path: path ?? null }),
+  convertEncoding: (data: DataSource, label: string | null, path?: string | null) => call<ConvertResult>("convert_encoding", { data, label, path: path ?? null }),
+  entriesToPem: (entries: KeystoreEntry[], options: PemBundleOptions, path?: string | null) => call<ConvertResult>("entries_to_pem", { entries, options, path: path ?? null }),
 
   signCsr: (input: SignCsrInput, caEntry: KeystoreEntry) => call<SignedCertificateResult>("sign_csr", { input, caEntry }),
   inspectCsr: (data: DataSource) => call<CsrInfo>("inspect_csr", { data }),
