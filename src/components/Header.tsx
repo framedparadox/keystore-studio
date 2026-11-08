@@ -1,39 +1,18 @@
 import React from "react";
-import { ChevronRight, FilePlus2, FolderOpen, LockOpen, Redo2, Search, TerminalSquare, Undo2 } from "lucide-react";
+import { FilePlus2, FolderOpen, LockOpen, Redo2, Search, TerminalSquare, Undo2 } from "lucide-react";
 import { useTerminal } from "./Terminal";
 import { Button, IconButton, Kbd } from "./ui";
 import { useStore } from "../state/store";
-import { PAGE_TITLES } from "./Sidebar";
-import { converterInfo } from "../lib/convert";
 
-/** Top bar: breadcrumb on the left, global actions on the right. */
+/** Top bar: search in the middle, global actions on the right. Page titles live in each page's header. */
 export const Header: React.FC<{ onOpenPalette: () => void }> = ({ onOpenPalette }) => {
   const { toggle: toggleTerminal } = useTerminal();
-  const { tab, setTab, activeKeystore, canUndo, canRedo, undo, redo, openFiles, setNewKeystoreOpen, vault, lockVault, convertMode, openConverter } = useStore();
+  const { canUndo, canRedo, undo, redo, openFiles, setNewKeystoreOpen, vault, lockVault } = useStore();
   return (
     <header className="h-14 px-6 grid grid-cols-[1fr_auto_1fr] items-center gap-4 shrink-0 bg-surface border-b border-line">
-      <nav aria-label="Breadcrumb" className="flex items-center gap-1.5 text-[13px] min-w-0">
-        <button className="font-medium text-ink truncate hover:text-brand cursor-pointer" onClick={() => (tab === "convert" ? openConverter(null) : setTab(tab))}>
-          {PAGE_TITLES[tab]}
-        </button>
-        {tab === "convert" && convertMode && (
-          <>
-            <ChevronRight className="w-3.5 h-3.5 text-subtle shrink-0" />
-            <span className="text-muted truncate" data-testid="breadcrumb-converter">
-              {converterInfo(convertMode).title}
-            </span>
-          </>
-        )}
-        {tab === "keystores" && activeKeystore && (
-          <>
-            <ChevronRight className="w-3.5 h-3.5 text-subtle shrink-0" />
-            <span className="text-muted truncate" data-testid="breadcrumb-keystore">
-              {activeKeystore.name}
-              {activeKeystore.dirty && " •"}
-            </span>
-          </>
-        )}
-      </nav>
+      {/* Left column is intentionally empty: each page names itself in its own header. */}
+      <div aria-hidden />
+
 
       <button
         onClick={onOpenPalette}

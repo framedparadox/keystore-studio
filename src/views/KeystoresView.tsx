@@ -499,7 +499,11 @@ export const KeystoresView: React.FC = () => {
     ensureKeyAccess(keystoreId, [entry.id], () => setDialog({ kind: "inspect", entry }));
   };
 
-  const navigator = navHidden ? null : (
+  // The navigator only earns its space with two or more keystores. With one or none it is hidden
+  // along with its toggle. The saved preference is kept, so it applies again once a second one opens.
+  const multiple = keystores.length > 1;
+  const navOff = !multiple || navHidden;
+  const navigator = navOff ? null : (
     <KeystoreNavigator
       activeId={ks?.id ?? null}
       focusEntryId={focusEntryId}
@@ -514,7 +518,7 @@ export const KeystoresView: React.FC = () => {
       onHide={() => setNavHidden(true)}
     />
   );
-  const showNav = navHidden ? (
+  const showNav = multiple && navHidden ? (
     <IconButton icon={PanelLeftOpen} label="Show the keystore list" onClick={() => setNavHidden(false)} className="!w-9 !h-9 border border-line-strong bg-surface" data-testid="ks-nav-show" />
   ) : null;
 
@@ -524,8 +528,7 @@ export const KeystoresView: React.FC = () => {
         {navigator}
         <div className="flex-1 min-w-0 overflow-y-auto">
           <div className="max-w-[1320px] mx-auto px-8 py-7">
-            {showNav && <div className="mb-4">{showNav}</div>}
-            <PageHeader title="Keystores" description="Open PKCS#12, JKS and JCEKS keystores, or create a new one." />
+            <PageHeader title="Keystores" leading={showNav} description="Open PKCS#12, JKS and JCEKS keystores, or create a new one." />
             <Card className="py-16">
               <EmptyState
                 icon={FolderArchive}
@@ -658,8 +661,8 @@ export const KeystoresView: React.FC = () => {
     { id: "alg", header: "Algorithm", sortValue: (e) => e.algorithm, cell: (e) => <AlgorithmCell entry={e} /> },
     { id: "expiry", header: "Expires", width: "190px", sortValue: (e) => daysUntilExpiry(e), cell: (e) => <ExpiryCell entry={e} /> },
     // The navigator takes about 300px, so the optional columns need a wider window while it shows.
-    { id: "status", header: "Status", hideBelow: navHidden ? "xl" : "2xl", sortValue: (e) => HEALTH_RANK[entryHealth(e)], cell: (e) => <HealthBadge entry={e} /> },
-    ...(navHidden ? [{ id: "labels", header: "Labels", hideBelow: "2xl" as const, cell: (e: KeystoreEntry) => <LabelList labels={e.labels} /> }] : []),
+    { id: "status", header: "Status", hideBelow: navOff ? "xl" : "2xl", sortValue: (e) => HEALTH_RANK[entryHealth(e)], cell: (e) => <HealthBadge entry={e} /> },
+    ...(navOff ? [{ id: "labels", header: "Labels", hideBelow: "2xl" as const, cell: (e: KeystoreEntry) => <LabelList labels={e.labels} /> }] : []),
     {
       id: "actions",
       header: <span className="sr-only">Actions</span>,
@@ -755,9 +758,9 @@ export const KeystoresView: React.FC = () => {
       <div className="flex-1 min-w-0 overflow-y-auto" data-testid="keystore-detail">
         <div className="max-w-[1320px] mx-auto px-8 py-7">
           <PageHeader
+            leading={showNav}
             eyebrow={
               <span className="inline-flex items-center gap-2">
-                {showNav}
                 <Badge tone="brand">{FORMAT_INFO[ks.format].label}</Badge>
                 {ks.dirty && <Badge tone="warning">Unsaved changes</Badge>}
                 {!ks.path && !ks.sealed && <Badge>Not saved yet</Badge>}
