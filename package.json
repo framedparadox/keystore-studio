@@ -1,0 +1,44 @@
+{
+  "name": "xkeystore",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "tauri": "tauri",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:rust": "cargo test --manifest-path src-tauri/Cargo.toml",
+    "test:e2e": "tauri build --debug --no-bundle && node e2e/app.e2e.mjs",
+    "test:e2e:headless": "pnpm build && node e2e/headless-ui.mjs",
+    "test:e2e:mac": "pnpm build && cargo build --manifest-path src-tauri/Cargo.toml --bin xkeystore --features custom-protocol && node e2e/eval-drive.mjs",
+    "lint": "cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings",
+    "fuzz": "./src-tauri/fuzz/run-all.sh",
+    "test:all": "pnpm typecheck && pnpm test && pnpm lint && pnpm test:rust"
+  },
+  "dependencies": {
+    "@tailwindcss/vite": "^4.3.3",
+    "@tauri-apps/api": "^2",
+    "@tauri-apps/plugin-dialog": "^2.8.4",
+    "@tauri-apps/plugin-opener": "^2",
+    "clsx": "^2.1.1",
+    "lucide-react": "^1.61.0",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "tailwindcss": "^4.3.3"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2",
+    "@types/react": "^19.1.8",
+    "@types/react-dom": "^19.1.6",
+    "@vitejs/plugin-react": "^6.0.2",
+    "selenium-webdriver": "^4.52.0",
+    "typescript": "~6.0.3",
+    "vite": "^8.0.16",
+    "vitest": "^3.2.7"
+  },
+  "description": "Native keystore and X.509 certificate workbench (Tauri + Rust)",
+  "license": "MIT"
+}

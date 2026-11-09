@@ -1,0 +1,61 @@
+[package]
+name = "xkeystore-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+
+# The engine only: linking the Tauri/WebKit stack into a sanitizer build fails, and
+# none of it is needed to parse a file.
+[dependencies.xkeystore]
+path = ".."
+default-features = false
+
+# Fuzzing is pointless at opt-level 0 and the panic hook must stay, so keep the
+# release profile but with debug assertions on: an overflow should be a finding.
+[profile.release]
+debug = true
+debug-assertions = true
+overflow-checks = true
+incremental = false
+codegen-units = 1
+
+[[bin]]
+name = "examine"
+path = "fuzz_targets/examine.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "keystore"
+path = "fuzz_targets/keystore.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "x509"
+path = "fuzz_targets/x509.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "cms"
+path = "fuzz_targets/cms.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "keys"
+path = "fuzz_targets/keys.rs"
+test = false
+doc = false
+bench = false
