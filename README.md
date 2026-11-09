@@ -1,1 +1,157 @@
 # xkeystore
+
+A native desktop workbench for Java keystores, PKCS#12 files and X.509 certificates, built with
+Rust, Tauri v2 and React. All cryptography runs locally in the bundled Rust engine; nothing leaves
+your machine except the TLS handshakes and connection tests you start from **Examine** or the terminal.
+
+## Features
+
+| Area | What you can do |
+| --- | --- |
+| **Keystores** | Open, create, edit and save **PKCS#12**, **JKS** and **JCEKS** files (keytool/OpenSSL compatible). Convert between formats and change passwords with *Save as…*. Key pairs, trusted certificates and secret keys, each with its own icon. Open keystores are listed in a navigator beside the entry table, each with its entries grouped by type, so a session with many keystores stays manageable. Key pairs open locked and need their key password before they can be inspected, exported, copied or used for signing (Settings can turn this off). Per-key passwords (JKS/JCEKS) are preserved. Undo/redo, cut/copy/paste between keystores, rename, labels, CSV inventory export. Unsaved-changes tracking with a guard on close/quit. |
+| **Certificates** | Certificate files opened on their own (PEM, DER, chains, PKCS#7 bundles) are listed under Keystores, one row per certificate with its type, algorithm, expiry and health. Inspect, export (PEM, DER, PKCS#7, public key, JWK), copy, add to any open keystore or to a workspace; paste PEM, or keep certificates found in Examine. The list survives restarts; removing a certificate never changes its file. |
+| **Entries** | Generate RSA (2048–4096), ECDSA (P-256/384/521) and Ed25519 key pairs with certificates that are self-signed or issued by any open CA; generate AES/HMAC/3DES secret keys; import trusted certificates (PEM/DER/PKCS#7, bundles), key pairs from PEM/DER (PKCS#8, encrypted PKCS#8, PKCS#1, SEC1) or from another keystore. Generate CSRs, install CA replies. |
+| **Export** | Certificate (PEM/DER), full chain, PKCS#7 (PEM/DER), PkiPath, public key (PEM, OpenSSH, JWK), private key (encrypted or plain PKCS#8, JWK), single-entry PKCS#12, secret key (hex, JWK). |
+| **Build a PKCS#12** | Bundle an existing certificate (or chain) and its private key into a passphrase-protected **.p12 / .pfx** in one step, without opening a keystore first — from the dashboard or the command palette. The input key may be encrypted (its own password is asked for separately), and it is matched against the certificate before anything is written. Readable by OpenSSL and `keytool`. |
+| **Convert** | One place for format conversions, each listed under Convert in the sidebar: certificates (PEM, DER, PKCS#7, PkiPath), private keys (PKCS#8, encrypted PKCS#8, PKCS#1/SEC1, JWK), public keys from a certificate, CSR or key (PEM, DER, PKCS#1, OpenSSH, JWK), keystores (PKCS#12 ↔ JKS ↔ JCEKS, BKS in), key + certificate → PKCS#12, keystore → PEM bundle, and PEM ↔ DER for any object. Each shows the equivalent OpenSSL/keytool command. |
+| **CA & Signing** | Sign CSRs (with CSR inspection and one-click installation into the matching key pair), issue v2 CRLs, CMS/PKCS#7 sign & verify (attached/detached), JWT sign & verify (RS/ES/EdDSA/HS), JAR signing (jarsigner-verifiable), **RFC 3161 trusted timestamps** on CMS and JAR signatures, DH parameters (RFC 7919 groups or freshly generated safe primes). |
+| **Examine** | Live TLS inspection (protocol, cipher, ALPN, chain, trust and hostname verdict against the OS trust store), a connection test that says whether a server port can be reached from this machine (every resolved address, source address and interface, connect time, and why it failed: refused, timed out, unreachable or not resolved), decode anything you paste or pick there (certificates, chains, CSRs, CRLs, keys, PKCS#7, JWTs, OpenSSH keys, keystores), compare two certificates. Opened key, CSR, CRL and signature files land here; certificate files go to Certificates. |
+| **Security audit** | Health score and findings (expired/expiring, weak keys and digests, deprecated ciphers, incomplete chains, self-signed servers), key rotation that keeps subject/SANs/usages and is re-issued by the original CA when it is open, same-key renewal, CSV report. |
+| **Workspaces** | Group keystore entries and certificates from the Certificates page by project or audit scope; persisted across sessions. |
+| **Vault** | Remember keystore passwords under one master key (Argon2id → AES-256-GCM), auto-lock after inactivity, change master key (re-encrypts every secret), reset if forgotten. Keystores from the last session reopen automatically once the vault is unlocked. |
+| **Productivity** | Window-wide drag and drop, command palette (`Ctrl+K`), keyboard shortcuts, built-in terminal (`Ctrl+\``) with ready-made keytool/openssl commands and `Test-NetConnection` built in on every platform (`-ComputerName`, `-Port`, `-CommonTCPPort`, `-InformationLevel Detailed|Quiet`), recent files, session restore. |
+
+### Keyboard shortcuts
+
+`Ctrl+O` open · `Ctrl+N` new keystore · `Ctrl+S` save · `Ctrl+Shift+S` save as · `Ctrl+Z` / `Ctrl+Shift+Z` undo/redo ·
+`Ctrl+K` command palette · `` Ctrl+` `` terminal · `Ctrl+1…8` switch page · `Ctrl+9` Convert · `Ctrl+0` Certificates (⌘ on macOS).
+
+### Not supported
+
+- **Bouncy Castle BKS, BCFKS and UBER keystores.** xkeystore recognises each one and prints the
+  `keytool -importkeystore` command that converts it, with the correct `-srcstoretype`.
+- **PKCS#11 hardware tokens.** Keys on a token cannot be exported, so signing has to happen on the
+  device through a vendor library; that does not fit the "a keystore is a file" model the app is
+  built on.
+- **Post-quantum keys** (ML-DSA, ML-KEM, SLH-DSA) written by newer JDKs load and save losslessly
+  but cannot be used for signing.
+
+PKCS#12 files are written with the classic MAC for maximum compatibility; PBMAC1 (RFC 9579) is read
+and can be written. Timestamp tokens are bound to the signature they cover, but the timestamp
+authority's own certificate chain is not validated in-app — `openssl ts -verify` and
+`jarsigner -verify` do that.
+
+[IMPROVEMENT.md](IMPROVEMENT.md) explains why each gap exists and what is planned.
+[GAPS.md](GAPS.md) is the developer backlog: defects, missing certificate and keystore operations, and the todo list for tackling them.
+
+## Supported platforms
+
+| OS | Versions | Installer | Webview |
+| --- | --- | --- | --- |
+| Windows | 10 and 11 (x64) | `.msi` | WebView2, installed by the setup if missing |
+| macOS | 11 Big Sur or later, with Safari 16.4 or later | `.dmg` | WKWebView (system) |
+| Linux | Ubuntu 22.04+, Debian 12+, Fedora 38+ or similar | `.deb`, `.rpm`, `.AppImage` | WebKitGTK 4.1, 2.40 or later |
+
+The UI needs a Safari 16.4-level engine (the stylesheet uses `color-mix()`, `@property` and
+cascade layers), which sets the macOS and WebKitGTK minimums. The built-in terminal runs commands
+with `cmd.exe` on Windows and `/bin/sh` elsewhere, and the suggested commands are quoted for that
+shell. Keyboard shortcuts use Ctrl on Windows and Linux and ⌘ on macOS (Ctrl works there too).
+
+## Development
+
+Requirements: Node 22 + pnpm 10, Rust (stable, edition 2024), and the
+[Tauri system dependencies](https://v2.tauri.app/start/prerequisites/) for your OS.
+
+```bash
+pnpm install
+pnpm tauri dev          # desktop app with hot reload
+pnpm tauri build        # release bundles (.deb/.AppImage, .dmg, .msi …)
+```
+
+`pnpm dev` serves the UI in a browser for layout work only; the native engine is unavailable there.
+
+## Testing
+
+```bash
+pnpm typecheck          # TypeScript
+pnpm test               # frontend unit tests (Vitest)
+pnpm test:rust          # Rust unit tests + interop tests against keytool, jarsigner and openssl
+pnpm test:e2e           # builds the app and drives a full user journey via tauri-driver
+pnpm test:e2e:headless  # drives the real UI in headless Chrome against the real engine
+
+# What the CI lint job runs:
+cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
+cargo deny --manifest-path src-tauri/Cargo.toml check    # advisories, licences, sources, bans
+```
+
+- **Interop tests** (`src-tauri/tests/interop.rs`) round-trip keystores, CSRs, CRLs, CMS, JARs, DH
+  parameters and exports through the real `keytool`, `jarsigner`, `openssl` and `ssh-keygen`, and
+  run a TLS handshake against `openssl s_server`. Each test is skipped if its tool is missing.
+- **Robustness tests** (`src-tauri/tests/robustness.rs`) feed every parser malformed input —
+  truncations, bit flips and forged length headers of real keystores, plus a deep-nesting case —
+  and assert that each returns an error rather than panicking. `XKS_MUTATION_POINTS=2000` runs a
+  deeper sweep. For coverage-guided fuzzing see [src-tauri/fuzz/README.md](src-tauri/fuzz/README.md).
+- **End-to-end** (`e2e/app.e2e.mjs`) needs `tauri-driver` (`cargo install tauri-driver --locked`)
+  and WebKitWebDriver (`webkit2gtk-driver` on Debian/Ubuntu); on a headless machine run it with
+  `xvfb-run -a`. It creates, saves, edits, signs, audits, restarts and restores a session, and
+  verifies the written files with keytool/openssl. Native file dialogs are scripted only when the
+  app is started with `XKEYSTORE_E2E=1`.
+- **End-to-end on macOS** (`e2e/eval-drive.mjs`) replaces the above, where `tauri-driver` has no
+  WKWebView backend. It drives the real window over a local bridge and needs no display
+  permissions. The binary **must** be built with the `custom-protocol` feature
+  (`pnpm tauri build --debug --no-bundle`, or `cargo build --features custom-protocol`); without
+  it the webview is pointed at `devUrl` and stays blank unless `pnpm dev` is running, and the
+  bridge exits saying so.
+- **End-to-end in a browser** (`e2e/headless-ui.mjs`, `pnpm test:e2e:headless`) is a lighter
+  alternative that needs no Tauri build at all — useful for iterating on UI code and for CI
+  without a WebKit runtime. It serves the production `dist/` bundle, points `window.__TAURI_INTERNALS__` at
+  `src-tauri/examples/ui_bridge.rs` (which calls the same engine functions as the Tauri commands),
+  and drives the real React UI in headless Chrome: it builds a PKCS#12, unlocks keys, converts
+  certificates, keys and keystores, and verifies what it writes with `openssl` and `keytool`. Its
+  "review" steps guard the behaviour fixed in the 2026-11-08 review (GAPS.md, Section 8): key
+  unlocking on every path, stacked dialogs and focus, undo across opened files, Save As, bulk
+  actions. The webview and the IPC transport are the only things replaced; the UI code and the
+  crypto are the real ones. It runs on a pinned Chrome for Testing build that Selenium Manager
+  downloads once (an everyday Chrome with an update pending ends headless sessions after ~35 s);
+  `XKS_CHROME=system` uses the installed Chrome instead. `XKS_SCREENSHOTS=<dir>` saves screenshots.
+
+CI (`.github/workflows/ci.yml`) runs the type check, unit tests, Rust tests with the interop suite,
+clippy, rustfmt, cargo-deny, a fuzz smoke run, the Linux WebDriver journey and the headless UI
+suite on Ubuntu, and builds the installers on Linux, macOS and Windows.
+
+## Architecture
+
+```
+src/                      React UI
+  state/store.tsx         app state: open keystores (+ in-memory passwords), undo/redo, workspaces,
+                          labels, settings, vault status, open/save/close flows, session persistence
+  lib/api.ts              typed wrappers for every Tauri command
+  views/                  one file per page; components/ shared UI (see DESIGN.md)
+src-tauri/src/            Rust engine
+  keys.rs  x509.rs        keys, signing/verification, certificate/CSR/CRL building and parsing
+  pkcs12.rs jks.rs        keystore codecs (javaser.rs: JCEKS sealed secret keys), pbe.rs: PBE schemes
+  ops.rs entry.rs         entry operations and display models
+  cms.rs jwt.rs jar.rs dh.rs tls.rs detect.rs export.rs  netcheck.rs: TCP connection test
+  vault.rs                master-key vault; terminal.rs: built-in shell
+  lib.rs                  Tauri commands (all run off the UI thread)
+```
+
+### Data and security
+
+- Keystore contents and passwords are held in memory only; they reach disk solely in the keystore
+  files you save (written atomically, then read back to verify before replacing the original).
+- Session state (paths of open keystores, workspaces, labels, recent files, settings) is stored in
+  the app data folder (`~/.local/share/xkeystore`, `~/Library/Application Support/xkeystore`,
+  `%APPDATA%\xkeystore`; override with `XKEYSTORE_DATA_DIR`). No key material is stored there.
+- Remembered passwords are sealed individually with AES-256-GCM under the vault key (bound to their
+  ID as associated data); the master key itself is never stored.
+- The webview runs under a strict Content Security Policy.
+
+## Design
+
+UI conventions (tokens, components, layout) are documented in [DESIGN.md](DESIGN.md). Static HTML
+explorations live in [`mockups/`](mockups/index.html).
+
+## License
+
+MIT — see [LICENSE](LICENSE).

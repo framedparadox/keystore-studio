@@ -1,0 +1,88 @@
+# cargo-deny configuration. Run locally with:
+#   cargo install cargo-deny --locked && cargo deny --manifest-path src-tauri/Cargo.toml check
+#
+# This matters more than usual here: a keystore tool's dependency tree is almost entirely
+# cryptography, and an advisory against a cipher or ASN.1 crate is a bug in this app.
+
+[advisories]
+version = 2
+yanked = "deny"
+
+# Advisories accepted for now. Each needs a reason this app is not exploitable and a plan; an
+# empty list is the goal. Verified against `cargo deny check advisories` on 2026-11-06.
+ignore = [
+  # crypto-bigint 0.5.5: secret-dependent branches in operations meant to be constant-time.
+  # This one is real rather than theoretical — crypto-bigint underlies ECDSA on P-256/384/521, so
+  # it touches private key operations. It is not exploitable here in practice: xkeystore is a
+  # local desktop tool, so an attacker has no way to time many signing operations, which is what
+  # a timing attack needs. It cannot be fixed by an update: 0.5.5 is pinned by elliptic-curve 0.13,
+  # which p256/p384/p521 0.13 require, and the fix is in 0.7.6. Revisit when those crates publish
+  # a release built on elliptic-curve 0.14.
+  { id = "RUSTSEC-2026-0387", reason = "ECDSA timing; no remote timing surface in a local desktop app, and no upgrade path until elliptic-curve 0.14" },
+
+  # rsa 0.9: the Marvin attack, a timing side channel in PKCS#1 v1.5 *decryption*. It needs an
+  # attacker who can submit many ciphertexts and time the replies. xkeystore only signs and
+  # verifies, never decrypts attacker-supplied ciphertext, so there is no oracle to query. No fixed
+  # release of the rsa crate exists; revisit when 0.10 ships.
+  { id = "RUSTSEC-2023-0071", reason = "RSA decryption oracle; this app only signs and verifies, and is a local tool" },
+
+  # zip 2.6: four advisories, all in ZipArchive::extract / ZipStreamReader::extract — unpacking an
+  # archive to disk, where a malicious entry can escape the destination via a symlink, preserve
+  # setuid bits, or abort the process. xkeystore never extracts: JAR signing reads entries into
+  # memory and rewrites them into a new archive, so these functions are unreachable (verified: no
+  # `.extract(` call anywhere in src/ or tests/).
+  { id = "RUSTSEC-2026-0367", reason = "extract() unused: JARs are read and rewritten, never unpacked to disk" },
+  { id = "RUSTSEC-2026-0368", reason = "extract() unused: JARs are read and rewritten, never unpacked to disk" },
+  { id = "RUSTSEC-2026-0369", reason = "extract() unused: JARs are read and rewritten, never unpacked to disk" },
+  { id = "RUSTSEC-2026-0429", reason = "extract() unused: JARs are read and rewritten, never unpacked to disk" },
+
+  # Unmaintained transitive dependencies pulled in by Tauri, not chosen here and not reachable from
+  # the engine. They disappear when Tauri updates them.
+  { id = "RUSTSEC-2024-0370", reason = "proc-macro-error: build-time only, via a Tauri macro dependency" },
+  { id = "RUSTSEC-2026-0370", reason = "zvariant: Linux D-Bus support, via tauri-plugin-opener" },
+  { id = "RUSTSEC-2026-0371", reason = "zbus_names: Linux D-Bus support, via tauri-plugin-opener" },
+  { id = "RUSTSEC-2026-0372", reason = "zvariant_derive: Linux D-Bus support, via tauri-plugin-opener" },
+]
+
+[licenses]
+version = 2
+# Permissive licences only: this ships as a binary to end users. A few entries are not currently
+# matched by any dependency (cargo-deny warns about them); they are kept because they are common in
+# the RustCrypto and Tauri trees and a routine bump would otherwise fail the build.
+unused-allowed-license = "allow"
+allow = [
+  "Apache-2.0",
+  "Apache-2.0 WITH LLVM-exception",
+  "BSD-2-Clause",
+  "BSD-3-Clause",
+  "BSL-1.0",
+  "CC0-1.0",
+  "ISC",
+  "MIT",
+  "MIT-0",
+  "MPL-2.0",
+  "Unicode-3.0",
+  "Unicode-DFS-2016",
+  "Zlib",
+  "OpenSSL",
+  # webpki-roots, which carries the Mozilla CA bundle. A permissive licence for data, and the
+  # bundle is exactly what the TLS inspector needs as a fallback trust store.
+  "CDLA-Permissive-2.0",
+]
+confidence-threshold = 0.9
+
+# `ring` carries a non-standard licence file that cargo-deny cannot classify on its own. Its
+# licence is permissive (MIT/ISC/OpenSSL), so it is allowed by name rather than by a file hash,
+# which would need updating on every version bump.
+[[licenses.exceptions]]
+name = "ring"
+allow = ["MIT", "ISC", "OpenSSL"]
+
+[bans]
+multiple-versions = "allow" # The Tauri and RustCrypto trees legitimately overlap versions.
+wildcards = "deny"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
