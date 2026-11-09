@@ -11,7 +11,7 @@ does today.
 | # | Item | State |
 |---|------|-------|
 | 1 | RFC 3161 timestamping for JAR and CMS signatures | **done** — implemented, cross-checked with `openssl ts` and `jarsigner` |
-| 2 | macOS and Windows build and test matrix | **written, unverified** — CI has never run; needs a push to GitHub |
+| 2 | macOS and Windows build and test matrix | **running** — CI has executed on GitHub; Windows interop `/dev/null` + PEM CRLF and a keystore fuzz crash were found and fixed |
 | 3 | Fuzzing the file parsers | **done** — 5 libFuzzer targets + a stable-Rust robustness suite; **found and fixed a crash on malicious key files** |
 | 4 | PBMAC1-protected PKCS#12 | **done** — read and write, round-tripped against OpenSSL 4.1 |
 | 5 | Bouncy Castle BKS and BCFKS reading | **partly** — detection fixed; decoder blocked on test fixtures |
@@ -45,17 +45,17 @@ Decisions worth knowing:
   named in it claims this time". `openssl ts -verify` and `jarsigner -verify` do check it, and the
   interop tests use them. Verifying the chain in-app is listed under "Beyond the five items".
 
-### 2. macOS and Windows — written, not yet verified
+### 2. macOS and Windows — CI has run; keep it green
 
-`.github/workflows/ci.yml` now runs the Rust engine and its interop tests on Linux, macOS and
+`.github/workflows/ci.yml` runs the Rust engine and its interop tests on Linux, macOS and
 Windows, builds the installer for each (`.deb`, `.dmg`, `.msi`), and adds a lint job
 (`clippy -D warnings` and `cargo-deny`).
 
-**This is the one item I could not verify.** The workflow has never executed — GitHub Actions is
-the only thing that can run it, and that needs a push plus a pull request. Everything it runs does
-pass locally on macOS (52 unit tests, 13 interop, 5 robustness, clippy, cargo-deny), so the Rust
-jobs should be sound; the Windows and macOS *installer* steps are the untested part. Expect the
-first run to need a fix or two.
+The first GitHub Actions runs proved the matrix and surfaced real breaks: Windows OpenSSL
+interop used `/dev/null` (fixed to `NUL`) and compared PEMs without normalizing CRLF, and the
+keystore fuzz smoke found a yasna overflow in BCFKS detection. Installer jobs for all three
+platforms have succeeded; unsigned macOS builds still need notarization before end-user
+distribution.
 
 Two things are worth knowing:
 

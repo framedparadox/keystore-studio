@@ -13,6 +13,13 @@ edition = "2024"
 name = "keystore_studio_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
+# Without this, `cargo test --no-default-features` still builds the binary and fails looking for
+# `run`, which lives behind `tauri-app`. Fuzz and engine-only builds need the lib alone.
+[[bin]]
+name = "keystore-studio"
+path = "src/main.rs"
+required-features = ["tauri-app"]
+
 # The fuzz crate is built only by cargo-fuzz, on nightly, against the engine without default
 # features. Excluding it keeps `cargo build`, `cargo test` and `cargo clippy` here from trying to
 # compile libfuzzer-sys on stable.

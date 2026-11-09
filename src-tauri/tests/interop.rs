@@ -11,6 +11,16 @@ fn have(tool: &str) -> bool {
     Command::new("sh").arg("-c").arg(format!("command -v {tool}")).output().map(|o| o.status.success()).unwrap_or(false)
 }
 
+/// Discard path for openssl `-out`. `/dev/null` does not exist on Windows; `NUL` does.
+fn null_out() -> &'static str {
+    if cfg!(windows) { "NUL" } else { "/dev/null" }
+}
+
+/// PEM / OpenSSL text comparison that ignores CRLF differences on Windows.
+fn same_pem(a: &str, b: &str) -> bool {
+    a.replace("\r\n", "\n").replace('\r', "\n").trim() == b.replace("\r\n", "\n").replace('\r', "\n").trim()
+}
+
 /// Runs a command, returning (success, combined output).
 fn run(dir: &Path, cmd: &str, args: &[&str]) -> (bool, String) {
     let out = Command::new(cmd).args(args).current_dir(dir).env("JAVA_TOOL_OPTIONS", "").output().unwrap_or_else(|e| panic!("cannot run {cmd}: {e}"));
@@ -414,11 +424,11 @@ fn cms_interop_with_openssl() {
         assert!(out.contains("interop payload") && out.contains("Verification successful"), "{} {out}", e.alias);
         let detached = cms::sign(b"interop payload\n", &key, &chain, true).unwrap();
         write(d.path(), "det.der", &detached);
-        let out = must(d.path(), "openssl", &["cms", "-verify", "-in", "det.der", "-inform", "DER", "-content", "data.txt", "-noverify", "-binary", "-out", "/dev/null"]);
+        let out = must(d.path(), "openssl", &["cms", "-verify", "-in", "det.der", "-inform", "DER", "-content", "data.txt", "-noverify", "-binary", "-out", null_out()]);
         assert!(out.contains("Verification successful"), "{out}");
         // Tampered content fails in OpenSSL.
         write(d.path(), "bad.txt", b"interop payloaD\n");
-        let (ok, _) = run(d.path(), "openssl", &["cms", "-verify", "-in", "det.der", "-inform", "DER", "-content", "bad.txt", "-noverify", "-binary", "-out", "/dev/null"]);
+        let (ok, _) = run(d.path(), "openssl", &["cms", "-verify", "-in", "det.der", "-inform", "DER", "-content", "bad.txt", "-noverify", "-binary", "-out", null_out()]);
         assert!(!ok);
     }
     // OpenSSL-produced signatures verify in Keystore Studio.
@@ -445,7 +455,7 @@ fn exports_are_readable_by_openssl() {
         let path = |n: &str| d.path().join(n).to_string_lossy().to_string();
         export::export_entry(e, "private_pkcs8_encrypted", &path("enc.key"), Some("exportpw")).unwrap();
         let out = must(d.path(), "openssl", &["pkey", "-in", "enc.key", "-passin", "pass:exportpw", "-pubout"]);
-        assert!(out.trim() == e.public_key_pem.as_ref().unwrap().trim(), "{out}");
+        assert!(same_pem(&out, e.public_key_pem.as_ref().unwrap()), "{out}");
         export::export_entry(e, "pkcs7_der", &path("b.p7b"), None).unwrap();
         let certs = must(d.path(), "openssl", &["pkcs7", "-in", "b.p7b", "-inform", "DER", "-print_certs", "-noout"]);
         assert_eq!(certs.matches("subject=").count(), e.chain_length, "{certs}");
@@ -759,7 +769,7 @@ fn timestamps_verify_with_openssl_ts() {
     // (the test PKI's leaf is not an S/MIME certificate); the signature itself is still checked.
     write(d.path(), "msg.txt", b"timestamped payload");
     write(d.path(), "sig.p7s", &signed);
-    let out = must(d.path(), "openssl", &["cms", "-verify", "-in", "sig.p7s", "-inform", "DER", "-content", "msg.txt", "-noverify", "-binary", "-out", "/dev/null"]);
+    let out = must(d.path(), "openssl", &["cms", "-verify", "-in", "sig.p7s", "-inform", "DER", "-content", "msg.txt", "-noverify", "-binary", "-out", null_out()]);
     assert!(out.contains("Verification successful"), "{out}");
 
     // A token moved onto a different signature must be rejected, not accepted silently.

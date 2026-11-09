@@ -469,7 +469,7 @@ while C1–C7 are open; those defects ship in files people will trust.
 - [x] **E4.** rustfmt in one commit, then `cargo fmt --check` on CI. `src-tauri/rustfmt.toml` sets `max_width = 200` so the ASN.1 builders stay readable. The lint job runs `cargo fmt --check`.
 - [x] **E5.** Speed up the keytool interop test with shared fixtures. *(Verified: `tests/interop.rs` parallelizes `keytool_keystores_open_in_keystore_studio` across formats with `std::thread::scope`.)*
 - [x] **E6.** Frontend tests for rename, save-as format guards, profile key usage, and renew's CA selection. *(Verified: 18 tests in `src/lib/lib.test.ts`.)*
-- [ ] **E7.** Push the CI workflow and fix the first macOS and Windows breaks. The workflow now includes `cargo fmt --check`. It has not been pushed, so the macOS and Windows jobs are still unproven. Signing and notarization stay a release task.
+- [ ] **E7.** Keep the macOS/Windows CI matrix green. A prior run proved the workflow: Linux/Windows/macOS installers built, frontend and headless e2e passed; Windows interop failed on `/dev/null` and PEM CRLF (fixed), and the keystore fuzz smoke found a yasna overflow in BCFKS detection (fixed). Signing and notarization stay a release task.
 - [x] **E8. S6** Remove MD5 from the default certificate view. *(Verified: `CertificateView.tsx`, `x509.rs`.)*
 
 ### Milestone F — fix review findings (2026-11-06)

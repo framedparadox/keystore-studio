@@ -311,9 +311,9 @@ engine alone, which is how the fuzz targets and the UI bridge link it.
 
 ## Limitations
 
-- **Bouncy Castle BKS, BCFKS and UBER keystores** cannot be opened. Keystore Studio recognises each
-  one and prints the `keytool -importkeystore` command that converts it, with the correct
-  `-srcstoretype`.
+- **Bouncy Castle BCFKS and UBER keystores** cannot be opened. **BKS version 2** opens read-only
+  (save as PKCS#12 to keep the entries). Keystore Studio recognises BCFKS and UBER and prints the
+  `keytool -importkeystore` command that converts them, with the correct `-srcstoretype`.
 - **PKCS#11 hardware tokens** are not supported. Keys on a token cannot be exported, so signing has
   to happen on the device through a vendor library; that does not fit the "a keystore is a file"
   model the app is built on.
@@ -327,7 +327,8 @@ authority's own certificate chain is not validated in-app; `openssl ts -verify` 
 
 [IMPROVEMENT.md](IMPROVEMENT.md) explains why each gap exists and what is planned.
 [GAPS.md](GAPS.md) is the developer backlog: defects, missing certificate and keystore operations,
-and the todo list for tackling them.
+and the todo list for tackling them. [docs/APP_READINESS.md](docs/APP_READINESS.md) is the latest
+full-app readiness review (coverage, design, security posture and release blockers).
 
 ## License
 
