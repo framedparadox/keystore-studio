@@ -1121,6 +1121,41 @@ async function run() {
     if (await present("sidebar-expand")) throw new Error("the chevron stays in the title bar while the sidebar is expanded");
   });
 
+  await step("details: the certificate table has a Subject CN row under Subject and an Issuer CN row under Issuer", async () => {
+    // The Overview table's rows, label and value, in order.
+    const rows = (id) =>
+      driver.executeScript(`return [...document.querySelectorAll('[data-testid="${id}"] table tr')].map((tr) => ({
+         label: tr.querySelector("th")?.innerText.trim(), value: tr.querySelector("td")?.innerText.trim(),
+         copy: tr.querySelector("td button")?.getAttribute("aria-label") ?? null }))`);
+    const expect = async (id, subjectCn, issuerCn) => {
+      await driver.wait(until.elementLocated(byTest(id)), 10000);
+      const r = await rows(id);
+      const labels = r.map((x) => x.label);
+      const at = labels.indexOf("Subject");
+      if (JSON.stringify(labels.slice(at, at + 4)) !== JSON.stringify(["Subject", "Subject CN", "Issuer", "Issuer CN"])) throw new Error(`rows in ${id}: ${labels.join(", ")}`);
+      const row = (l) => r.find((x) => x.label === l);
+      if (row("Subject CN").value !== subjectCn) throw new Error(`Subject CN in ${id}: ${row("Subject CN").value}, want ${subjectCn}`);
+      if (row("Issuer CN").value !== issuerCn) throw new Error(`Issuer CN in ${id}: ${row("Issuer CN").value}, want ${issuerCn}`);
+      if (row("Subject CN").copy !== "Copy Subject CN" || row("Issuer CN").copy !== "Copy Issuer CN") throw new Error(`the CN rows have no copy buttons in ${id}`);
+    };
+    // A leaf issued by a CA: two different CNs.
+    await click("nav-certificates");
+    await click(`cert-inspect-${LEAF_CN}`);
+    await expect("certificate-inspector", LEAF_CN, ROOT_CN);
+    await shotSizes("33-certificate-cn-rows");
+    await keys(ESC);
+    await gone("certificate-inspector");
+    // A keystore entry whose subject has other parts before the CN (O=xkeystore UI, CN=headless.e2e.test).
+    await click("nav-keystores");
+    await click("ks-tab-cols.p12");
+    await driver.wait(async () => (await aliases()).includes("cols-anchor"), 10000, "cols.p12 is not shown");
+    await clickAlias("cols-anchor");
+    await expect("entry-inspector", "headless.e2e.test", "headless.e2e.test");
+    await shotSizes("34-entry-cn-rows");
+    await keys(ESC);
+    await gone("entry-inspector");
+  });
+
   // A listening port and a closed one on this machine: the connection test needs no internet.
   const listening = net.createServer((sock) => sock.end());
   await new Promise((r) => listening.listen(0, "127.0.0.1", r));

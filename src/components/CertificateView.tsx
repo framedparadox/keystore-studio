@@ -30,13 +30,24 @@ const Row: React.FC<{ label: string; value?: React.ReactNode; copy?: string; mon
     </tr>
   );
 
+/** The CN of a distinguished name, or null when it has none (cnOf would return the whole name). */
+const cnOrNull = (dn: string) => (/(?:^|,\s*)CN=/.test(dn) ? cnOf(dn) : null);
+
+/** A CN row under its distinguished name: the CN to copy, or "None" when the name has no CN. */
+const CnRow: React.FC<{ label: string; dn: string }> = ({ label, dn }) => {
+  const cn = cnOrNull(dn);
+  return <Row label={label} value={cn ?? <span className="font-sans text-faint">None</span>} copy={cn ?? undefined} mono />;
+};
+
 /** Field table for one certificate. */
 export const CertificateDetails: React.FC<{ cert: CertificateInfo; showPem?: boolean }> = ({ cert, showPem }) => (
   <div className="space-y-3">
     <table className="w-full border border-line rounded-card overflow-hidden border-separate border-spacing-0">
       <tbody>
         <Row label="Subject" value={cert.subject} copy={cert.subject} mono />
+        <CnRow label="Subject CN" dn={cert.subject} />
         <Row label="Issuer" value={cert.issuer} copy={cert.issuer} mono />
+        <CnRow label="Issuer CN" dn={cert.issuer} />
         <Row label="Serial number" value={cert.serial_number} copy={cert.serial_number} mono />
         <Row label="Valid from" value={cert.valid_from} />
         <Row
