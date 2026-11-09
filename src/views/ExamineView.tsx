@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import clsx from "clsx";
-import { Clipboard, FileSearch, FolderOpen, GitCompare, Globe, Plus, Save, Sparkles } from "lucide-react";
+import { Clipboard, FileBadge, FileSearch, FolderOpen, GitCompare, Globe, Plus, Save, Sparkles } from "lucide-react";
 import type { CertificateInfo, DetectionResult, KeystoreEntry, TlsInspectionResult } from "../types/crypto";
 import { api, errorMessage } from "../lib/api";
 import { FILTERS, baseName, pickFile, safeFileStem } from "../lib/files";
@@ -11,6 +11,7 @@ import { Alert, Badge, Button, Card, CodeBlock, EmptyState, Page, PageHeader, Pa
 import { CertificateDetails, ChainView, TrustBanner, WarningList } from "../components/CertificateView";
 import { TerminalHint } from "../components/Terminal";
 import { useSaveText } from "../components/EntryDialogs";
+import { useAddCertificateToKeystore, useKeepCertificates } from "../components/CertificateDialogs";
 
 type Mode = "tls" | "decode" | "compare";
 
@@ -22,33 +23,19 @@ type Mode = "tls" | "decode" | "compare";
 let modeHandledNonce = 0;
 let decodeHandledNonce = 0;
 
-/** "Add to keystore" for certificates found while examining. */
+/** "Add to keystore" for certificates found while examining: the active keystore, when it can be edited. */
 function useImportCert() {
-  const { activeKeystore, addEntries, setTab } = useStore();
-  const toast = useToast();
-  return {
-    target: activeKeystore && !activeKeystore.sealed ? activeKeystore : null,
-    importCert: async (cert: CertificateInfo) => {
-      if (!activeKeystore || activeKeystore.sealed) {
-        toast.error("Open or create a keystore first.");
-        return;
-      }
-      try {
-        const alias = cnOf(cert.subject).toLowerCase().replace(/[^\w.-]+/g, "-").replace(/^-+|-+$/g, "") || "certificate";
-        const added = await api.importTrustedCertificates(alias, { text: cert.pem }, activeKeystore.entries.map((e) => e.alias));
-        addEntries(activeKeystore.id, added);
-        toast.success(`Added '${added[0].alias}' to ${activeKeystore.name} as a trusted certificate.`, { label: "View", onClick: () => setTab("keystores") });
-      } catch (err) {
-        toast.error(errorMessage(err));
-      }
-    },
-  };
+  const { activeKeystore } = useStore();
+  const { add } = useAddCertificateToKeystore();
+  const target = activeKeystore && !activeKeystore.sealed ? activeKeystore : null;
+  return { target, importCert: (cert: CertificateInfo) => (target ? add(cert, target.id) : Promise.resolve()) };
 }
 
 // ====================================================================================== TLS
 
 const TlsPanel: React.FC = () => {
   const saveText = useSaveText();
+  const keep = useKeepCertificates();
   const { target, importCert } = useImportCert();
   const [host, setHost] = useState("");
   const [port, setPort] = useState(443);
@@ -111,10 +98,13 @@ const TlsPanel: React.FC = () => {
           <TrustBanner trusted={result.trusted} error={result.verification_error} />
           <ChainView
             certs={result.certificates}
-            actions={(c) => (
+            actions={(c, i) => (
               <>
                 <Button size="sm" icon={Save} onClick={() => saveText(`${safeFileStem(cnOf(c.subject))}.pem`, c.pem, "Certificate")}>
                   Save
+                </Button>
+                <Button size="sm" icon={FileBadge} onClick={() => void keep([c], `${result.host}:${result.port}`)} data-testid={`tls-keep-${i}`}>
+                  Add to Certificates
                 </Button>
                 {target && (
                   <Button size="sm" icon={Plus} onClick={() => importCert(c)}>
@@ -140,6 +130,7 @@ const TlsPanel: React.FC = () => {
 const DecodePanel: React.FC = () => {
   const { examineRequest, openFiles, setTab } = useStore();
   const toast = useToast();
+  const keep = useKeepCertificates();
   const { target, importCert } = useImportCert();
   const [text, setText] = useState("");
   const [path, setPath] = useState<string | null>(null);
@@ -250,13 +241,18 @@ const DecodePanel: React.FC = () => {
             {result.certificates.length > 0 && (
               <ChainView
                 certs={result.certificates}
-                actions={(c) =>
-                  target ? (
-                    <Button size="sm" icon={Plus} onClick={() => importCert(c)}>
-                      Add to {target.name}
+                actions={(c, i) => (
+                  <>
+                    <Button size="sm" icon={FileBadge} onClick={() => void keep([c], path ? baseName(path) : "Decoded")} data-testid={`decode-keep-${i}`}>
+                      Add to Certificates
                     </Button>
-                  ) : null
-                }
+                    {target && (
+                      <Button size="sm" icon={Plus} onClick={() => importCert(c)}>
+                        Add to {target.name}
+                      </Button>
+                    )}
+                  </>
+                )}
               />
             )}
             {result.csr && (

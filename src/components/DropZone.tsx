@@ -41,7 +41,7 @@ export const DropOverlay: React.FC<{ visible: boolean }> = ({ visible }) =>
       <div className="rounded-panel bg-surface shadow-pop px-8 py-6 text-center">
         <UploadCloud className="w-8 h-8 text-brand mx-auto mb-2" />
         <div className="text-[14px] font-semibold text-ink">Drop to open</div>
-        <div className="text-[13px] text-faint mt-1">Keystores open on the Keystores page; certificates, keys, CSRs and CRLs open in Examine; JARs in CA & Signing.</div>
+        <div className="text-[13px] text-faint mt-1">Keystores open on the Keystores page and certificates on Certificates; keys, CSRs and CRLs open in Examine; JARs in CA & Signing.</div>
       </div>
     </div>
   ) : null;

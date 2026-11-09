@@ -463,7 +463,7 @@ export const AssignWorkspaceDialog: React.FC<{ entry: KeystoreEntry | null; onCl
   const [name, setName] = useState("");
   if (!entry) return null;
   return (
-    <Modal open onClose={onClose} icon={Layers} title={`Workspaces for ${entry.alias}`} description="Group entries from any keystore by project or audit scope." footer={<Button variant="primary" onClick={onClose}>Done</Button>}>
+    <Modal open onClose={onClose} icon={Layers} title={`Workspaces for ${entry.alias}`} description="Group keystore entries and certificates by project or audit scope." footer={<Button variant="primary" onClick={onClose}>Done</Button>}>
       <div className="space-y-2">
         {workspaces.map((ws) => {
           const on = ws.entryIds.includes(entry.id);

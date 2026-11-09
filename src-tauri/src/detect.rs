@@ -365,6 +365,53 @@ pub fn examine(bytes: &[u8], password: Option<&str>) -> Res<DetectionResult> {
 mod tests {
     use super::*;
 
+    /// The UI lists a PKCS#7 file on the Certificates page only when it is a certificates-only
+    /// bundle (`isCertificateBundle` in src/lib/certificates.ts matches this format); CMS signed
+    /// data, which also carries certificates, stays in Examine.
+    #[test]
+    fn tells_a_pkcs7_bundle_from_a_signature() {
+        let input = crate::model::GenerateKeyPairInput {
+            alias: "p7".into(),
+            algorithm: "ECDSA".into(),
+            key_size: 0,
+            curve: Some("P-256".into()),
+            signature_hash: None,
+            subject_dn: "CN=detect.example".into(),
+            common_name: String::new(),
+            organization: String::new(),
+            organizational_unit: String::new(),
+            locality: String::new(),
+            state: String::new(),
+            country: String::new(),
+            email: String::new(),
+            validity_days: 10,
+            is_ca: false,
+            path_len: None,
+            sans: vec![],
+            key_usage: vec![],
+            extended_key_usage: vec![],
+            labels: vec![],
+            not_before: String::new(),
+            not_after: String::new(),
+            crl_distribution_points: vec![],
+            ocsp_urls: vec![],
+            ca_issuer_urls: vec![],
+        };
+        let e = crate::ops::generate_key_pair(&input, None).unwrap();
+        let der = pem::parse(e.certificate_chain[0].pem.as_bytes()).unwrap().contents().to_vec();
+
+        let bundle = examine(&cms::certs_only(std::slice::from_ref(&der)), None).unwrap();
+        assert_eq!((bundle.kind.as_str(), bundle.format.as_str(), bundle.certificates.len()), ("pkcs7", "PKCS#7 certificate bundle", 1));
+        let pem_bundle = examine(to_pem("PKCS7", &cms::certs_only(std::slice::from_ref(&der))).as_bytes(), None).unwrap();
+        assert_eq!(pem_bundle.format, "PKCS#7 certificate bundle");
+
+        let key = PrivateKey::from_bytes(e.private_key_pem.as_ref().unwrap().as_bytes(), None).unwrap();
+        let signed = examine(&cms::sign(b"hello", &key, std::slice::from_ref(&der), false).unwrap(), None).unwrap();
+        assert_eq!(signed.kind, "pkcs7");
+        assert_ne!(signed.format, "PKCS#7 certificate bundle");
+        assert!(!signed.certificates.is_empty(), "a signature carries its signer's certificate");
+    }
+
     #[test]
     fn detects_common_inputs() {
         let input = crate::model::GenerateKeyPairInput {

@@ -10,6 +10,7 @@ import { BuildPkcs12Dialog } from "./components/AddEntryDialogs";
 import { StoreProvider, useStore } from "./state/store";
 import { HomeView } from "./views/HomeView";
 import { KeystoresView } from "./views/KeystoresView";
+import { CertificatesView } from "./views/CertificatesView";
 import { WorkspacesView } from "./views/WorkspacesView";
 import { ExamineView } from "./views/ExamineView";
 import { CaSigningView } from "./views/CaSigningView";
@@ -19,8 +20,8 @@ import { VaultView } from "./views/VaultView";
 import { SettingsView } from "./views/SettingsView";
 import type { TabType } from "./types/crypto";
 
-/** Ctrl+1 … Ctrl+9. Convert came last so the older shortcuts kept their numbers. */
-const TAB_ORDER: TabType[] = ["home", "keystores", "workspaces", "examine", "ca_signing", "scanner", "vault", "settings", "convert"];
+/** Ctrl+1 … Ctrl+9, then Ctrl+0. Pages added later take the next free key, so older shortcuts keep their numbers. */
+const TAB_ORDER: TabType[] = ["home", "keystores", "workspaces", "examine", "ca_signing", "scanner", "vault", "settings", "convert", "certificates"];
 
 const isEditable = (el: EventTarget | null) =>
   el instanceof HTMLElement && (el.isContentEditable || el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.tagName === "SELECT");
@@ -82,9 +83,9 @@ const Shell: React.FC = () => {
         e.preventDefault();
         if (key === "y" || e.shiftKey) store.redo();
         else store.undo();
-      } else if (/^[1-9]$/.test(key)) {
+      } else if (/^[0-9]$/.test(key)) {
         e.preventDefault();
-        store.setTab(TAB_ORDER[Number(key) - 1]);
+        store.setTab(TAB_ORDER[(Number(key) + 9) % 10]);
       }
     };
     window.addEventListener("keydown", onKey);
@@ -113,6 +114,7 @@ const Shell: React.FC = () => {
           <PageBoundary resetKey={store.tab}>
             {store.tab === "home" && <HomeView />}
             {store.tab === "keystores" && <KeystoresView />}
+            {store.tab === "certificates" && <CertificatesView />}
             {store.tab === "workspaces" && <WorkspacesView />}
             {store.tab === "examine" && <ExamineView />}
             {store.tab === "ca_signing" && <CaSigningView />}

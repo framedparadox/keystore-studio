@@ -18,11 +18,12 @@ import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { Builder, By, until } from "selenium-webdriver";
+import { Builder, By, Key, until } from "selenium-webdriver";
 import chrome from "selenium-webdriver/chrome.js";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const DIST = path.join(ROOT, "dist");
+// XKS_DIST=<dir> drives another build of the frontend, e.g. the previous one, to show a new test fails there.
+const DIST = path.resolve(process.env.XKS_DIST || path.join(ROOT, "dist"));
 const WORK = fs.mkdtempSync(path.join(os.tmpdir(), "xks-headless-"));
 const results = [];
 let driver, bridge, server, bridgePort;
@@ -107,6 +108,11 @@ async function step(name, fn) {
     results.push({ name, ok: false, err: String(err?.message ?? err) });
     log(`FAIL ${name}: ${err?.message ?? err}`);
     try { log("page text at failure:\n" + (await driver.findElement(By.tagName("body")).getText()).slice(0, 1500)); } catch { /* page gone */ }
+    // XKS_KEEP_GOING=1 runs every step, to see all that fail (e.g. new steps against an old build).
+    if (process.env.XKS_KEEP_GOING) {
+      try { await driver.actions().sendKeys("\uE00C").perform(); } catch { /* no page */ }
+      return;
+    }
     throw err;
   }
 }
@@ -681,9 +687,10 @@ async function run() {
     await driver.wait(async () => (await aliases()).includes("move-me"), 5000, "the secret key could not be pasted back");
   });
 
-  await step("review: a dropped certificate opens in Examine once, not on every visit", async () => {
-    const cert = path.join(R, "examine-once.pem");
-    fs.writeFileSync(cert, certPem());
+  await step("review: a dropped CSR opens in Examine once, not on every visit", async () => {
+    // A CSR, not a certificate: certificates are listed on the Certificates page instead (below).
+    const cert = path.join(R, "examine-once.csr");
+    sh("openssl", ["req", "-new", "-key", path.join(WORK, "ui-key.pem"), "-subj", "/CN=examine-once.e2e.test", "-out", cert]);
     await driver.executeScript(`window.__xksStub.open.push(${JSON.stringify(cert)});`);
     await click("header-open");
     await driver.wait(until.elementLocated(byTest("decode-title")), 15000);
@@ -708,6 +715,257 @@ async function run() {
     if (box.h > 32) throw new Error(`the path wraps (${box.h}px tall)`);
     if (!box.copy || !box.title?.endsWith("nav.p12")) throw new Error(`path tooltip or copy missing: ${JSON.stringify(box)}`);
   });
+
+  // ---- Certificates: opened certificate files are listed under Keystores, not decoded in Examine ----
+  const C = path.join(WORK, "certs");
+  fs.mkdirSync(C, { recursive: true });
+  const ROOT_CN = "E2E Cert Root";
+  const LEAF_CN = "leaf.certs.e2e.test";
+  const c = (f) => path.join(C, f);
+  sh("openssl", ["req", "-x509", "-newkey", "ec", "-pkeyopt", "ec_paramgen_curve:P-256", "-nodes", "-keyout", c("root.key"), "-out", c("root.pem"), "-days", "365", "-subj", `/CN=${ROOT_CN}`,
+    "-addext", "basicConstraints=critical,CA:TRUE", "-addext", "keyUsage=critical,keyCertSign,cRLSign"]);
+  sh("openssl", ["req", "-new", "-newkey", "ec", "-pkeyopt", "ec_paramgen_curve:P-256", "-nodes", "-keyout", c("leaf.key"), "-out", c("leaf.csr"), "-subj", `/CN=${LEAF_CN}`]);
+  fs.writeFileSync(c("leaf.ext"), `basicConstraints=CA:FALSE\nsubjectAltName=DNS:${LEAF_CN}\nextendedKeyUsage=serverAuth\n`);
+  sh("openssl", ["x509", "-req", "-in", c("leaf.csr"), "-CA", c("root.pem"), "-CAkey", c("root.key"), "-CAcreateserial", "-out", c("leaf.pem"), "-days", "30", "-extfile", c("leaf.ext")]);
+  fs.writeFileSync(c("chain.pem"), fs.readFileSync(c("leaf.pem"), "utf8") + fs.readFileSync(c("root.pem"), "utf8"));
+  // A certificates-only PKCS#7 bundle holding a certificate not opened any other way, and a CMS signature.
+  sh("openssl", ["crl2pkcs7", "-nocrl", "-certfile", path.join(WORK, "ui-cert.pem"), "-outform", "DER", "-out", c("bundle.p7b")]);
+  fs.writeFileSync(c("msg.txt"), "signed by the e2e leaf\n");
+  sh("openssl", ["cms", "-sign", "-in", c("msg.txt"), "-signer", c("leaf.pem"), "-inkey", c("leaf.key"), "-outform", "DER", "-out", c("msg.p7s"), "-nodetach", "-binary"]);
+
+  const certAliases = () => driver.executeScript(`return [...document.querySelectorAll('[data-testid="certificates-page"] tbody [data-testid="entry-alias"]')].map((e) => e.textContent.trim())`);
+  const countOf = async (alias) => (await certAliases()).filter((a) => a === alias).length;
+  const lastToast = () => driver.executeScript(`const t = [...document.querySelectorAll('[data-testid^="toast-"]')].pop(); return t ? t.innerText : ""`);
+  const openFile = async (file) => {
+    await driver.executeScript(`window.__xksStub.open.push(${JSON.stringify(file)});`);
+    await click("header-open");
+  };
+  const tableText = () => driver.executeScript(`const t = document.querySelector("tbody"); return t ? t.innerText : ""`);
+  /** Sizes the window so the page itself is w×h: the frame of a headless window still takes some height. */
+  const setViewport = async (w, h) => {
+    await driver.manage().window().setRect({ width: w, height: h });
+    const [iw, ih] = await driver.executeScript("return [window.innerWidth, window.innerHeight]");
+    await driver.manage().window().setRect({ width: w + (w - iw), height: h + (h - ih) });
+    await sleep(250);
+  };
+  const restoreWindow = async () => {
+    await driver.manage().window().setRect({ width: 1400, height: 900 });
+    await sleep(150);
+  };
+  /** With XKS_SCREENSHOTS set: the default window (1320×860) and the smallest one (1024×680). */
+  const shotSizes = async (name) => {
+    if (!process.env.XKS_SCREENSHOTS) return;
+    // Toasts left by earlier steps would cover the page.
+    await driver.executeScript(`document.querySelectorAll('[data-testid^="toast-"] button[aria-label="Dismiss"]').forEach((b) => b.click())`);
+    for (const [w, h] of [[1320, 860], [1024, 680]]) {
+      await setViewport(w, h);
+      await shot(`${name}-${w}x${h}`);
+    }
+    await restoreWindow();
+  };
+
+  await step("certificates: Certificates sits right under Keystores in the sidebar", async () => {
+    const order = await driver.executeScript(`return [...document.querySelectorAll('nav[aria-label="Primary"] [data-testid^="nav-"]')].map((b) => b.dataset.testid)`);
+    const i = order.indexOf("nav-keystores");
+    if (i < 0 || order[i + 1] !== "nav-certificates") throw new Error(`sidebar order: ${order.join(", ")}`);
+    await click("nav-certificates");
+    await driver.wait(until.elementLocated(byTest("cert-empty-open")), 10000);
+    await shotSizes("20-certificates-empty");
+  });
+
+  await step("certificates: an opened certificate file is listed on Certificates, not decoded in Examine", async () => {
+    await click("nav-home");
+    await openFile(c("leaf.pem"));
+    await driver.wait(until.elementLocated(byTest("certificates-page")), 15000);
+    await driver.wait(async () => (await countOf(LEAF_CN)) === 1, 10000, "the certificate is not listed");
+    const t = await lastToast();
+    if (!t.includes("Opened leaf.pem: 1 certificate")) throw new Error(`toast: ${t}`);
+    // Examine must not have picked the file up.
+    await click("nav-examine");
+    await sleep(300);
+    if (await present("decode-title")) throw new Error("the certificate was also decoded in Examine");
+    const selected = await driver.executeScript(`return [...document.querySelectorAll('[role="tab"][aria-selected="true"]')].map((t) => t.innerText.trim()).join("|")`);
+    if (selected.includes("Decode")) throw new Error("Examine switched to Decode for an opened certificate");
+  });
+
+  await step("certificates: a chain file lists every certificate once, and opening it again adds nothing", async () => {
+    await openFile(c("chain.pem"));
+    await driver.wait(async () => (await countOf(ROOT_CN)) === 1, 10000, "the root of the chain is not listed");
+    if ((await countOf(LEAF_CN)) !== 1) throw new Error("the leaf is listed twice");
+    const t = await lastToast();
+    if (!t.includes("1 already listed")) throw new Error(`toast: ${t}`);
+    await openFile(c("chain.pem"));
+    await driver.wait(async () => (await lastToast()).includes("already listed"), 10000, "no 'already listed' note");
+    if ((await certAliases()).length !== 2) throw new Error(`listed: ${(await certAliases()).join(", ")}`);
+  });
+
+  await step("certificates: a PKCS#7 bundle is listed on Certificates, a CMS signature opens in Examine", async () => {
+    await openFile(c("bundle.p7b"));
+    await driver.wait(async () => (await countOf("headless.e2e.test")) === 1, 10000, "the bundle's certificate is not listed");
+    await openFile(c("msg.p7s"));
+    await driver.wait(until.elementLocated(byTest("decode-title")), 15000);
+    const title = await (await driver.findElement(byTest("decode-title"))).getText();
+    if (!title.includes("signed data")) throw new Error(`Examine shows: ${title}`);
+    await click("nav-certificates");
+    if ((await certAliases()).length !== 3) throw new Error(`a signature was listed as a certificate: ${(await certAliases()).join(", ")}`);
+  });
+
+  await step("certificates: the inspector shows details, the source file and no false 'anchor not open'", async () => {
+    await click(`cert-inspect-${LEAF_CN}`);
+    const dlg = await driver.wait(until.elementLocated(byTest("certificate-inspector")), 10000);
+    const text = await dlg.getText();
+    for (const want of [LEAF_CN, "leaf.pem", "SHA-256", `DNS:${LEAF_CN}`]) if (!text.includes(want)) throw new Error(`inspector lacks "${want}":\n${text}`);
+    if (!text.includes(`issued by ${ROOT_CN}`)) throw new Error(`inspector does not name the issuer:\n${text}`);
+    // The root is open on the same page, so the issuer is known.
+    if (text.includes("Trust anchor not open")) throw new Error("the inspector says the trust anchor is not open while it is listed");
+    await shotSizes("21-certificate-inspector");
+    await keys(ESC);
+    await gone("certificate-inspector");
+    await shotSizes("22-certificates-list");
+  });
+
+  await step("certificates: at the smallest window (1024×680) the row actions are not cut off", async () => {
+    await setViewport(1024, 680);
+    try {
+      const r = await driver.executeScript(`const t = document.querySelector('[data-testid="certificates-page"] table');
+         const box = t.parentElement.getBoundingClientRect();
+         const more = [...t.querySelectorAll('tbody [aria-label^="More actions"]')].map((b) => b.getBoundingClientRect().right);
+         return { overflow: t.parentElement.scrollWidth - t.parentElement.clientWidth, right: Math.max(...more), edge: box.right }`);
+      if (r.overflow > 0 || r.right > r.edge) throw new Error(`the table scrolls sideways by ${r.overflow}px; the row menu ends at ${r.right}, the table at ${r.edge}`);
+    } finally {
+      await restoreWindow();
+    }
+  });
+
+  await step("certificates: a certificate is added to a new workspace and shows there", async () => {
+    await click(`cert-workspaces-${LEAF_CN}`);
+    const input = await driver.wait(until.elementLocated(By.css('input[placeholder="New workspace name"]')), 10000);
+    await driver.executeScript(
+      `Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(arguments[0], "Cert review");
+       arguments[0].dispatchEvent(new Event("input", { bubbles: true }));`, input);
+    await clickButton("Create & add");
+    await waitText("Included");
+    await clickButton("Done");
+    await click("nav-workspaces");
+    await driver.wait(async () => (await tableText()).includes(LEAF_CN), 10000, "the certificate is not in the workspace");
+    if (!(await tableText()).includes("Certificate · leaf.pem")) throw new Error(`row: ${await tableText()}`);
+    // A certificate has no key: Inspect opens the certificate inspector, never the key password prompt.
+    await driver.executeScript(`const row = [...document.querySelectorAll("tbody tr")].find((r) => r.innerText.includes(${JSON.stringify(LEAF_CN)})); row.click();`);
+    await driver.wait(until.elementLocated(byTest("certificate-inspector")), 10000);
+    if (await present("unlock-key-dialog")) throw new Error("a certificate asked for a key password");
+    await keys(ESC);
+    await gone("certificate-inspector");
+  });
+
+  await step("certificates: the workspace picker offers certificates next to keystore entries", async () => {
+    await click("workspace-assign");
+    await click(`picker-cert-${ROOT_CN}`);
+    const pressed = await (await driver.findElement(byTest(`picker-cert-${ROOT_CN}`))).getAttribute("aria-pressed");
+    if (pressed !== "true") throw new Error("the picker did not mark the certificate as included");
+    await shotSizes("23-workspace-picker");
+    await clickButton("Done");
+    await driver.wait(async () => (await tableText()).includes(ROOT_CN), 10000, "the root is not in the workspace");
+    await waitText("2 certificates");
+    await shotSizes("24-workspace-with-certificates");
+  });
+
+  await step("certificates: add a listed certificate to an open keystore", async () => {
+    await click("nav-certificates");
+    await click(`cert-menu-${ROOT_CN}`);
+    await click("cert-menu-add-nav.p12");
+    await driver.wait(async () => (await lastToast()).includes("to nav.p12"), 10000, "no confirmation of the add");
+    await click("nav-keystores");
+    await click("ks-tab-nav.p12");
+    await driver.wait(async () => (await aliases()).includes("e2e-cert-root"), 10000, "the certificate is not in nav.p12");
+  });
+
+  await step("certificates: removing one that is in a workspace asks first, and opening the file brings it back", async () => {
+    await click("nav-certificates");
+    await click(`cert-menu-${LEAF_CN}`);
+    await click("cert-menu-remove");
+    await driver.wait(until.elementLocated(byTest("confirm-ok")), 10000);
+    const ask = await driver.executeScript(`return document.querySelector('[data-testid="confirm-ok"]').closest('[role="dialog"]').innerText`);
+    if (!ask.includes("Cert review")) throw new Error(`the confirmation does not name the workspace:\n${ask}`);
+    await click("confirm-ok");
+    await driver.wait(async () => (await countOf(LEAF_CN)) === 0, 10000, "the certificate was not removed");
+    if (!fs.existsSync(c("leaf.pem"))) throw new Error("removing from the list deleted the file");
+    await click("nav-workspaces");
+    await waitText("Certificate not open");
+    await openFile(c("leaf.pem"));
+    await driver.wait(async () => (await countOf(LEAF_CN)) === 1, 10000, "reopening did not list it again");
+    await click("nav-workspaces");
+    await driver.wait(async () => (await tableText()).includes(LEAF_CN), 10000, "the workspace did not find the reopened certificate");
+  });
+
+  await step("certificates: removing one that is in no workspace needs no confirmation, and Undo restores it", async () => {
+    await click("nav-certificates");
+    await click("cert-menu-headless.e2e.test");
+    await click("cert-menu-remove");
+    await driver.wait(async () => (await countOf("headless.e2e.test")) === 0, 10000, "not removed");
+    if (await present("confirm-ok")) throw new Error("asked to confirm a removal that loses nothing");
+    // The newest toast's Undo: the previous step's "Removed…" toast can still be on screen, and its
+    // Undo correctly does nothing (that certificate was opened again since).
+    await driver.executeScript(`const t = [...document.querySelectorAll('[data-testid^="toast-"]')].pop();
+       if (!t || !t.innerText.includes("headless.e2e.test")) throw new Error("no toast for the removal: " + (t ? t.innerText : "none"));
+       [...t.querySelectorAll("button")].find((b) => b.innerText.trim() === "Undo").click();`);
+    await driver.wait(async () => (await countOf("headless.e2e.test")) === 1, 10000, "Undo did not bring it back");
+  });
+
+  await step("certificates: Examine can add a decoded certificate to Certificates", async () => {
+    sh("openssl", ["req", "-x509", "-newkey", "ec", "-pkeyopt", "ec_paramgen_curve:P-256", "-nodes", "-keyout", c("dec.key"), "-out", c("dec.pem"), "-days", "10", "-subj", "/CN=decoded.e2e.test"]);
+    await click("nav-examine");
+    await clickTab("Decode");
+    await setField("decode-input", fs.readFileSync(c("dec.pem"), "utf8"));
+    await click("decode-run");
+    await click("decode-keep-0");
+    await driver.wait(async () => (await lastToast()).includes("Added 'decoded.e2e.test' to Certificates"), 10000, "no confirmation");
+    await click("nav-certificates");
+    await driver.wait(async () => (await countOf("decoded.e2e.test")) === 1, 10000, "not listed");
+  });
+
+  await step("certificates: Paste reports bad input inline and adds valid PEM", async () => {
+    sh("openssl", ["req", "-x509", "-newkey", "ec", "-pkeyopt", "ec_paramgen_curve:P-256", "-nodes", "-keyout", c("paste.key"), "-out", c("paste.pem"), "-days", "10", "-subj", "/CN=pasted.e2e.test"]);
+    await click("cert-paste");
+    await setField("cert-paste-input", "not a certificate");
+    await click("cert-paste-submit");
+    const dlg = await driver.findElement(byTest("cert-paste-dialog"));
+    await driver.wait(async () => (await dlg.getText()).toLowerCase().includes("no certificate"), 10000, "no inline error");
+    await setField("cert-paste-input", fs.readFileSync(c("paste.pem"), "utf8"));
+    await click("cert-paste-submit");
+    await gone("cert-paste-dialog");
+    await driver.wait(async () => (await countOf("pasted.e2e.test")) === 1, 10000, "not listed");
+    if (!(await tableText()).includes("Pasted")) throw new Error("the source of a pasted certificate is not shown");
+  });
+
+  await step("certificates: a row opens from the keyboard, and focus returns to it", async () => {
+    await click("nav-certificates");
+    await driver.executeScript(`document.querySelector('[data-testid="certificates-page"] tbody tr').focus()`);
+    await keys(Key.ENTER);
+    await driver.wait(until.elementLocated(byTest("certificate-inspector")), 5000);
+    await keys(ESC);
+    await gone("certificate-inspector");
+    const back = await driver.executeScript(`const a = document.activeElement; return a?.tagName === "TR" && !!a.closest('[data-testid="certificates-page"]')`);
+    if (!back) throw new Error(`focus went to ${await activeTestId()} instead of the row`);
+  });
+
+  await step("certificates: Ctrl+0 opens Certificates", async () => {
+    await click("nav-home");
+    await driver.actions().keyDown(Key.CONTROL).sendKeys("0").keyUp(Key.CONTROL).perform();
+    await driver.wait(until.elementLocated(byTest("certificates-page")), 5000);
+  });
+
+  await step("certificates: the list and workspace membership survive a restart", async () => {
+    const before = (await certAliases()).sort();
+    await sleep(900); // the state is saved 400 ms after the last change
+    await driver.navigate().refresh();
+    await waitText("xkeystore", 20000);
+    await click("nav-certificates");
+    await driver.wait(async () => JSON.stringify((await certAliases()).sort()) === JSON.stringify(before), 15000, "the certificates did not come back");
+    await click("nav-workspaces");
+    await driver.executeScript(`const el = [...document.querySelectorAll('[role="tab"]')].find((t) => t.innerText.includes("Cert review")); if (!el) throw new Error("no Cert review workspace"); el.click();`);
+    await driver.wait(async () => (await tableText()).includes(LEAF_CN) && (await tableText()).includes(ROOT_CN), 10000, "the workspace lost its certificates");
+    if ((await tableText()).includes("Certificate not open")) throw new Error("a restored certificate shows as not open");
+  });
 }
 
 let failed = false;
@@ -720,6 +978,7 @@ try {
   server?.close();
   bridge?.kill();
   const passed = results.filter((r) => r.ok).length;
+  if (results.some((r) => !r.ok)) failed = true;
   log(`${passed}/${results.length} steps passed. Work dir: ${WORK}`);
   process.exit(failed ? 1 : 0);
 }

@@ -4,6 +4,9 @@
 
 use std::io::{BufRead, BufReader, Read, Write};
 
+/// The app state the UI saves, kept in memory so a page reload restores it like a restart does.
+static APP_STATE: std::sync::Mutex<serde_json::Value> = std::sync::Mutex::new(serde_json::Value::Null);
+
 fn json_err(msg: &str) -> String {
     serde_json::json!({ "error": msg }).to_string()
 }
@@ -49,8 +52,11 @@ fn handle(cmd: &str, args: &serde_json::Value) -> Result<serde_json::Value, Stri
             "home_dir": std::env::var("HOME").unwrap_or_default(),
             "e2e": true,
         })),
-        "load_app_state" => Ok(serde_json::Value::Null),
-        "save_app_state" => Ok(serde_json::Value::Null),
+        "load_app_state" => Ok(APP_STATE.lock().map_err(|e| e.to_string())?.clone()),
+        "save_app_state" => {
+            *APP_STATE.lock().map_err(|e| e.to_string())? = args.get("state").cloned().unwrap_or_default();
+            Ok(serde_json::Value::Null)
+        }
         "vault_status" => Ok(serde_json::json!({ "exists": false, "unlocked": false, "secret_count": 0 })),
         "build_pkcs12" => {
             let key_password = args.get("keyPassword").and_then(|v| v.as_str()).map(String::from).filter(|p| !p.is_empty());

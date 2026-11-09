@@ -77,7 +77,8 @@ everywhere an entry is listed; never draw a type icon by hand. Derived numbers
 Add a variant to a primitive rather than restyling one-off.
 
 ## 6. Page layout
-App shell: 240px `Sidebar` (grouped nav: Overview · Inventory · Tools · Security, Settings in the footer) +
+App shell: 240px `Sidebar` (grouped nav: Overview · Inventory (Keystores, Certificates, Workspaces) · Tools · Security,
+Settings in the footer) +
 `Header` (breadcrumb, undo/redo, command palette, vault lock, terminal, Open, New keystore). Under Tools, Convert
 lists every conversion beneath it (collapsible) so each one is a click away. Every page:
 `Page` → `PageHeader` → content on a 12-column grid with `gap-4`. Lists of records are tables, not card grids.
@@ -111,8 +112,12 @@ own — it opens the terminal (`Ctrl+\``) with the command pre-filled for the us
 
 ## 9. Files and state
 - File dialogs go through `src/lib/files.ts` (`pickFile`, `pickSavePath`); window-wide drops through
-  `useWindowFileDrop`, and every path is routed by `store.openFiles()` (keystores → Keystores, certificates and
-  keys → Examine, archives → CA & Signing).
+  `useWindowFileDrop`, and every path is routed by `store.openFiles()` (keystores → Keystores, certificate files and
+  PKCS#7 certificate bundles → Certificates, keys, CSRs, CRLs and CMS signatures → Examine, archives → CA & Signing).
+- Certificates opened on their own live in the store (`certificates`, `addCertificates`, `removeCertificates`), keyed
+  `cert::<sha256>` (`src/lib/certificates.ts`) so the same certificate is listed once and a workspace can hold it next
+  to keystore entries. They are public, so their PEM is persisted with the app state and they come back after a
+  restart; removing one from the list never touches its file.
 - All backend calls go through the typed `api` in `src/lib/api.ts`; show failures with `errorMessage(err)`.
 - Keystore state lives in `src/state/store.tsx`. Mutate keystores only through store actions (`updateKeystore`,
   `addEntries`, `replaceEntry`, …) so undo/redo, dirty tracking and persistence stay correct.

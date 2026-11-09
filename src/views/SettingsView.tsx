@@ -27,6 +27,7 @@ export const SHORTCUTS: [string, string][] = [
   ["Ctrl+`", "Toggle terminal"],
   ["Ctrl+1 … Ctrl+8", "Switch page"],
   ["Ctrl+9", "Convert"],
+  ["Ctrl+0", "Certificates"],
 ];
 
 type SectionId = "general" | "security" | "signing" | "terminal" | "shortcuts" | "data" | "about";
@@ -371,7 +372,7 @@ export const SettingsView: React.FC = () => {
             </Card>
 
             <Card className="space-y-4 border-danger/30">
-              <CardHeader title="Reset app data" subtitle="Deletes workspaces, labels, recent files and settings. Keystore files and the vault are not touched." icon={RotateCcw} className="!mb-0" />
+              <CardHeader title="Reset app data" subtitle="Deletes workspaces, labels, the Certificates list, recent files and settings. Keystore and certificate files and the vault are not touched." icon={RotateCcw} className="!mb-0" />
               <div>
                 <Button
                   variant="danger"
@@ -379,7 +380,7 @@ export const SettingsView: React.FC = () => {
                   onClick={async () => {
                     const ok = await confirm({
                       title: "Reset xkeystore data?",
-                      message: "Deletes workspaces, labels, recent files and settings. Keystore files and the vault are not touched.",
+                      message: "Deletes workspaces, labels, the Certificates list, recent files and settings. Keystore and certificate files and the vault are not touched.",
                       confirmLabel: "Reset",
                       danger: true,
                     });

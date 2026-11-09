@@ -27,6 +27,18 @@ import { diffEntries } from "./diff";
 import { classifyError } from "./api";
 import { baseName, dirName, safeFileStem, withExtension } from "./files";
 import { connectTarget, parseTlsTarget } from "./net";
+import {
+  aliasForCertificate,
+  certificateId,
+  certificateName,
+  isCertificateBundle,
+  isCertificateId,
+  isCertificateProbe,
+  mergeCertificates,
+  persistCertificates,
+  shortFingerprint,
+  toOpenCertificates,
+} from "./certificates";
 
 const DAY = 86_400;
 const now = () => Math.floor(Date.now() / 1000);
@@ -458,5 +470,72 @@ describe("review fixes", () => {
     expect(entryMix({ keyPairs: 6, trusted: 0, secrets: 1 })).toBe("6 key pairs · 1 secret key");
     expect(entryMix({ keyPairs: 1, trusted: 3, secrets: 0 })).toBe("1 key pair · 3 certificates");
     expect(entryMix({ keyPairs: 0, trusted: 0, secrets: 0 })).toBe("No entries");
+  });
+});
+
+describe("certificates page", () => {
+  const FP = "3F:A2:00:11:22:33:44:55:66:77:88:99:AA:BB:CC:DD:EE:FF:00:11:22:33:44:55:66:77:88:99:AA:BB:9C:01";
+  const cert = (alias: string, fp: string) => {
+    const e = entry(alias, { entry_type: "TrustedCertificate", sha256_fingerprint: fp, subject: `CN=${alias} Root CA,O=Example` });
+    e.certificate_chain[0].pem = `-----BEGIN CERTIFICATE-----\n${alias}\n-----END CERTIFICATE-----\n`;
+    return e;
+  };
+  const origin = { path: "/certs/chain.pem", source: "chain.pem", openedAt: "2026-11-08T00:00:00Z" };
+
+  it("keys a certificate by its SHA-256 fingerprint, apart from keystore entries", () => {
+    expect(certificateId(FP)).toBe("cert::3fa200112233445566778899aabbccddeeff00112233445566778899aabb9c01");
+    expect(certificateId(FP.toLowerCase())).toBe(certificateId(FP));
+    expect(isCertificateId(certificateId(FP))).toBe(true);
+    // A keystore entry key is `path::alias`; neither a path nor an in-memory id starts with "cert::".
+    expect(isCertificateId(entryKey({ id: "ks-1", path: "/tmp/cert.p12" }, "cert"))).toBe(false);
+    expect(isCertificateId(entryKey({ id: "ks-1", path: "" }, "x"))).toBe(false);
+    expect(shortFingerprint(certificateId(FP))).toBe("3F:A2:…:9C:01");
+  });
+
+  it("names a certificate after its CN and makes a keystore alias from it", () => {
+    expect(certificateName("CN=Example Root CA,O=Example")).toBe("Example Root CA");
+    expect(certificateName("O=No Common Name")).toBe("O=No Common Name");
+    expect(aliasForCertificate("CN=Example Root CA,O=Example")).toBe("example-root-ca");
+    expect(aliasForCertificate("CN=***")).toBe("certificate");
+  });
+
+  it("turns engine entries into listed certificates keyed and named for the page", () => {
+    const [c] = toOpenCertificates([cert("one", FP)], origin);
+    expect(c.id).toBe(certificateId(FP));
+    expect(c.entry.id).toBe(c.id);
+    expect(c.entry.alias).toBe("one Root CA");
+    expect(c).toMatchObject({ path: "/certs/chain.pem", source: "chain.pem", opened_at: origin.openedAt });
+  });
+
+  it("lists each certificate once, newest file first, keeping the order inside a file", () => {
+    const [a, b] = toOpenCertificates([cert("a", "AA"), cert("b", "BB")], origin);
+    const [b2, c] = toOpenCertificates([cert("b", "BB"), cert("c", "CC")], { ...origin, source: "other.pem" });
+    const first = mergeCertificates([], [a, b, a]);
+    expect(first.list.map((x) => x.entry.alias)).toEqual(["a Root CA", "b Root CA"]);
+    expect(first.duplicates).toHaveLength(1);
+    const second = mergeCertificates(first.list, [b2, c]);
+    expect(second.list.map((x) => x.id)).toEqual([c.id, a.id, b.id]);
+    expect(second.added.map((x) => x.id)).toEqual([c.id]);
+    // The duplicate reported is the one already listed (its original source), not the new copy.
+    expect(second.duplicates[0].source).toBe("chain.pem");
+  });
+
+  it("routes certificate files and PKCS#7 bundles to the page, and keeps signatures in Examine", () => {
+    expect(isCertificateProbe("certificate")).toBe(true);
+    expect(isCertificateProbe("certificate_chain")).toBe(true);
+    for (const k of ["csr", "crl", "private_key", "public_key", "pkcs7", "keystore", "jar", "unknown"] as const) expect(isCertificateProbe(k)).toBe(false);
+    const certs = [cert("a", "AA").certificate_chain[0]];
+    expect(isCertificateBundle({ kind: "pkcs7", format: "PKCS#7 certificate bundle", certificates: certs })).toBe(true);
+    // CMS signed data carries its signer's certificate, but it is a signature, not a bundle.
+    expect(isCertificateBundle({ kind: "pkcs7", format: "DER (binary)", certificates: certs })).toBe(false);
+    expect(isCertificateBundle({ kind: "pkcs7", format: "PKCS#7 certificate bundle", certificates: [] })).toBe(false);
+    expect(isCertificateBundle({ kind: "certificate_chain", format: "PEM", certificates: certs })).toBe(true);
+  });
+
+  it("persists only public certificate data", () => {
+    const list = toOpenCertificates([cert("a", "AA")], origin);
+    const saved = persistCertificates(list);
+    expect(saved).toEqual([{ path: "/certs/chain.pem", source: "chain.pem", opened_at: origin.openedAt, pem: list[0].entry.certificate_chain[0].pem }]);
+    expect(Object.keys(saved[0]).sort()).toEqual(["opened_at", "path", "pem", "source"]);
   });
 });

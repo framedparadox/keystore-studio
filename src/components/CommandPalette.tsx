@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import clsx from "clsx";
-import { FilePlus2, FolderArchive, FolderOpen, KeyRound, Lock, Redo2, Save, Search, TerminalSquare, Undo2, X } from "lucide-react";
+import { FileBadge, FilePlus2, FolderArchive, FolderOpen, KeyRound, Lock, Redo2, Save, Search, TerminalSquare, Undo2, X } from "lucide-react";
 import { useStore } from "../state/store";
 import { CONVERTER_ICONS, NAV_GROUPS, PAGE_TITLES } from "./Sidebar";
 import { CONVERTERS } from "../lib/convert";
@@ -86,6 +86,14 @@ export const CommandPalette: React.FC<{ open: boolean; onClose: () => void }> = 
           },
         }))
       ),
+      ...store.certificates.map((c) => ({
+        id: `cert-${c.id}`,
+        label: c.entry.alias,
+        hint: `${c.entry.certificate_chain[0]?.is_ca ? "CA certificate" : "Certificate"} · ${c.source}`,
+        group: "Certificates",
+        icon: FileBadge,
+        run: () => store.setTab("certificates"),
+      })),
       ...store.recentFiles.map((f) => ({ id: `recent-${f.path}`, label: f.name, hint: f.path, group: "Recent files", icon: FolderOpen, run: () => store.openFiles([f.path]) })),
     ];
     return list;

@@ -1,20 +1,25 @@
 import React, { useLayoutEffect, useMemo, useState } from "react";
 import clsx from "clsx";
-import { AlertTriangle, CalendarClock, Check, Edit3, Eye, FolderPlus, KeyRound, Layers, Plus, Trash2, X } from "lucide-react";
-import type { KeystoreEntry, OpenKeystore, Workspace } from "../types/crypto";
+import { AlertTriangle, CalendarClock, Check, Edit3, Eye, FileBadge, FolderPlus, KeyRound, Layers, Plus, Trash2, X } from "lucide-react";
+import type { KeystoreEntry, OpenCertificate, OpenKeystore, Workspace } from "../types/crypto";
 import { useStore, uid } from "../state/store";
 import { baseName } from "../lib/files";
 import { ENTRY_TYPE_LABEL, cnOf } from "../lib/keystore";
+import { isCertificateId, shortFingerprint } from "../lib/certificates";
 import { daysUntilExpiry, plural, summarize } from "../lib/metrics";
 import { Badge, Button, Card, Column, DataTable, EmptyState, IconButton, KpiCard, Modal, Page, PageHeader, SearchInput, Select, TextArea, TextInput, useConfirm, useToast } from "../components/ui";
 import { AlgorithmCell, EntryNameCell, ExpiryCell, HealthBadge } from "../components/entry";
-import { EntryInspector, ExportDialog } from "../components/EntryDialogs";
+import { AssignWorkspaceDialog, EntryInspector, ExportDialog } from "../components/EntryDialogs";
+import { CertificateInspector } from "../components/CertificateDialogs";
 
 interface Member {
   id: string;
+  /** A certificate from the Certificates page, or an entry of a keystore. */
+  kind: "certificate" | "entry";
   entry: KeystoreEntry | null;
   ks: OpenKeystore | null;
-  /** For entries whose keystore is not open. */
+  cert: OpenCertificate | null;
+  /** For entries whose keystore is not open, and certificates that are not open. */
   alias: string;
   location: string;
 }
@@ -72,7 +77,7 @@ const WorkspaceDialog: React.FC<{ initial: Workspace | null; open: boolean; onCl
 };
 
 export const WorkspacesView: React.FC = () => {
-  const { workspaces, activeWorkspaceId, setActiveWorkspaceId, deleteWorkspace, toggleWorkspaceEntry, keystores, setTab, selectKeystore, ensureKeyAccess } = useStore();
+  const { workspaces, activeWorkspaceId, setActiveWorkspaceId, deleteWorkspace, toggleWorkspaceEntry, keystores, certificates, setTab, selectKeystore, ensureKeyAccess } = useStore();
   const confirm = useConfirm();
   const toast = useToast();
   const [search, setSearch] = useState("");
@@ -83,38 +88,54 @@ export const WorkspacesView: React.FC = () => {
   const [inspect, setInspect] = useState<{ ksId: string; entryId: string } | null>(null);
   const inspectKs = inspect ? keystores.find((k) => k.id === inspect.ksId) : undefined;
   const inspectEntry = inspectKs?.entries.find((e) => e.id === inspect?.entryId);
-  const [exporting, setExporting] = useState<{ entry: KeystoreEntry; keystoreId: string } | null>(null);
+  const [exporting, setExporting] = useState<{ entry: KeystoreEntry; keystoreId?: string } | null>(null);
+  const [inspectCertId, setInspectCertId] = useState<string | null>(null);
+  const [assigning, setAssigning] = useState<KeystoreEntry | null>(null);
 
   const active = workspaces.find((w) => w.id === activeWorkspaceId) ?? workspaces[0] ?? null;
   const all = useMemo(() => keystores.flatMap((ks) => ks.entries.map((entry) => ({ entry, ks }))), [keystores]);
   const byId = useMemo(() => new Map(all.map((x) => [x.entry.id, x])), [all]);
+  const certById = useMemo(() => new Map(certificates.map((c) => [c.id, c])), [certificates]);
+  const inspectCert = inspectCertId ? certById.get(inspectCertId) ?? null : null;
 
   const members: Member[] = useMemo(() => {
     if (!active) return [];
-    return active.entryIds.map((id) => {
+    return active.entryIds.map((id): Member => {
+      if (isCertificateId(id)) {
+        const cert = certById.get(id) ?? null;
+        return { id, kind: "certificate", entry: cert?.entry ?? null, ks: null, cert, alias: cert?.entry.alias ?? shortFingerprint(id), location: cert?.source ?? "Certificates" };
+      }
       const hit = byId.get(id);
       const [location, alias] = [id.slice(0, id.lastIndexOf("::")), id.slice(id.lastIndexOf("::") + 2)];
-      return { id, entry: hit?.entry ?? null, ks: hit?.ks ?? null, alias, location };
+      return { id, kind: "entry", entry: hit?.entry ?? null, ks: hit?.ks ?? null, cert: null, alias, location };
     });
-  }, [active, byId]);
+  }, [active, byId, certById]);
   const q = search.trim().toLowerCase();
   const visible = members.filter((m) => !q || m.alias.toLowerCase().includes(q) || (m.entry?.subject ?? "").toLowerCase().includes(q) || m.location.toLowerCase().includes(q));
   const loaded = members.filter((m) => m.entry).map((m) => m.entry!);
   const sum = summarize(loaded);
   const unavailable = members.length - loaded.length;
+  const keystoreCount = new Set(members.filter((m) => m.kind === "entry").map((m) => m.location)).size;
+  const certCount = members.filter((m) => m.kind === "certificate").length;
 
   /** Opens the inspector, asking for the key password first when the key is locked. Every way in goes through here. */
   const inspectMember = (m: Member) => {
+    if (m.cert) {
+      setInspectCertId(m.cert.id);
+      return;
+    }
     if (!m.entry || !m.ks) return;
     const ksId = m.ks.id;
     const entryId = m.entry.id;
     ensureKeyAccess(ksId, [entryId], () => setInspect({ ksId, entryId }));
   };
 
+  const pickerQuery = pickerSearch.trim().toLowerCase();
   const pickerRows = all.filter(({ entry, ks }) => {
-    const s = pickerSearch.trim().toLowerCase();
+    const s = pickerQuery;
     return !s || entry.alias.toLowerCase().includes(s) || entry.subject.toLowerCase().includes(s) || ks.name.toLowerCase().includes(s);
   });
+  const pickerCerts = certificates.filter((c) => !pickerQuery || c.entry.alias.toLowerCase().includes(pickerQuery) || c.entry.subject.toLowerCase().includes(pickerQuery) || c.source.toLowerCase().includes(pickerQuery) || "certificates".includes(pickerQuery));
 
   const columns: Column<Member>[] = [
     {
@@ -124,7 +145,12 @@ export const WorkspacesView: React.FC = () => {
       sortValue: (m) => m.alias,
       cell: (m) =>
         m.entry ? (
-          <EntryNameCell entry={m.entry} meta={`${cnOf(m.entry.subject)} · ${m.ks?.name}`} />
+          <EntryNameCell entry={m.entry} meta={m.cert ? `Certificate · ${m.cert.source}` : `${cnOf(m.entry.subject)} · ${m.ks?.name}`} />
+        ) : m.kind === "certificate" ? (
+          <div className="min-w-0">
+            <div className="font-medium text-muted truncate font-mono text-[12px]">SHA-256 {m.alias}</div>
+            <div className="text-[12px] text-faint truncate">Certificate not open — open its file again to see it</div>
+          </div>
         ) : (
           <div className="min-w-0">
             <div className="font-medium text-muted truncate">{m.alias}</div>
@@ -161,7 +187,7 @@ export const WorkspacesView: React.FC = () => {
     <Page>
       <PageHeader
         title="Workspaces"
-        description="Group certificates and keys from several keystores by project, environment or audit scope. Workspaces never change keystore files."
+        description="Group keys and certificates from your keystores and the Certificates page by project, environment or audit scope. Workspaces never change keystore or certificate files."
         actions={
           <>
             {active && (
@@ -181,7 +207,7 @@ export const WorkspacesView: React.FC = () => {
           <EmptyState
             icon={Layers}
             title="No workspaces yet"
-            description="Create a workspace for a project, cluster or audit and add entries from any keystore."
+            description="Create a workspace for a project, cluster or audit and add entries from any keystore, or certificates from the Certificates page."
             action={
               <Button variant="primary" icon={Plus} onClick={() => setEditing({ ws: null })}>
                 New workspace
@@ -240,7 +266,13 @@ export const WorkspacesView: React.FC = () => {
           {active && (
             <>
               <div className="grid grid-cols-2 xl:grid-cols-4 gap-4 mt-4">
-                <KpiCard label="Entries" value={members.length} icon={Layers} tone="brand" hint={unavailable ? `${unavailable} in keystores that are not open` : `From ${new Set(members.map((m) => m.location)).size} keystores`} />
+                <KpiCard
+                  label="Entries"
+                  value={members.length}
+                  icon={Layers}
+                  tone="brand"
+                  hint={unavailable ? `${unavailable} not open` : [keystoreCount && `From ${plural(keystoreCount, "keystore")}`, certCount && plural(certCount, "certificate")].filter(Boolean).join(" · ") || "Nothing added yet"}
+                />
                 <KpiCard label="Key pairs / certificates" value={`${sum.keyPairs} / ${sum.trusted}`} icon={KeyRound} hint={plural(sum.secrets, "secret key")} />
                 <KpiCard label="Expiring soon" value={sum.expiringWarning} icon={CalendarClock} tone="warning" hint={`${sum.expiringCritical} critical`} hintTone={sum.expiringCritical ? "warning" : "neutral"} />
                 <KpiCard label="Needs action" value={sum.expired + sum.weak} icon={AlertTriangle} tone="danger" hint={`${sum.expired} expired · ${sum.weak} weak`} hintTone={sum.expired + sum.weak ? "danger" : "success"} />
@@ -264,7 +296,7 @@ export const WorkspacesView: React.FC = () => {
                     <EmptyState
                       icon={FolderPlus}
                       title={search ? "No matching entries" : `Nothing in “${active.name}” yet`}
-                      description="Add entries from any open keystore."
+                      description="Add entries from any open keystore, or certificates from the Certificates page."
                       action={
                         <>
                           <Button variant="primary" icon={Plus} onClick={() => setPickerOpen(true)}>
@@ -292,18 +324,40 @@ export const WorkspacesView: React.FC = () => {
           icon={FolderPlus}
           size="lg"
           title={`Add entries to “${active.name}”`}
-          description="Click entries from any open keystore to include or exclude them."
+          description="Click entries from any open keystore, or certificates from the Certificates page, to include or exclude them."
           footer={
             <Button variant="primary" onClick={() => setPickerOpen(false)}>
               Done
             </Button>
           }
         >
-          <SearchInput value={pickerSearch} onChange={setPickerSearch} placeholder="Search alias, subject or keystore" className="mb-3" />
-          {all.length === 0 ? (
-            <EmptyState icon={KeyRound} title="No entries available" description="Open a keystore first." />
+          <SearchInput value={pickerSearch} onChange={setPickerSearch} placeholder="Search alias, subject, keystore or file" className="mb-3" />
+          {all.length === 0 && certificates.length === 0 ? (
+            <EmptyState icon={KeyRound} title="Nothing to add yet" description="Open a keystore, or open certificate files on the Certificates page." />
           ) : (
-            <ul className="space-y-1.5">
+            <ul className="space-y-1.5" aria-label="Entries and certificates">
+              {pickerCerts.map((c) => {
+                const on = active.entryIds.includes(c.id);
+                return (
+                  <li key={c.id}>
+                    <button
+                      onClick={() => toggleWorkspaceEntry(active.id, c.id)}
+                      aria-pressed={on}
+                      data-testid={`picker-cert-${c.entry.alias}`}
+                      className={clsx("w-full p-3 rounded-card flex items-center gap-3 cursor-pointer border text-left transition", on ? "bg-brand-tint/70 border-brand-soft-hover" : "hover:bg-surface-2 border-transparent")}
+                    >
+                      <span className={clsx("w-5 h-5 rounded-control flex items-center justify-center border shrink-0", on ? "bg-brand border-brand text-white" : "border-line-strong bg-surface")}>{on && <Check className="w-3.5 h-3.5" />}</span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block text-[13px] font-semibold text-ink truncate">{c.entry.alias}</span>
+                        <span className="block text-[12px] text-faint truncate">
+                          {c.entry.certificate_chain[0]?.is_ca ? "CA certificate" : "Certificate"} · {c.source}
+                        </span>
+                      </span>
+                      <Badge icon={FileBadge}>Certificates</Badge>
+                    </button>
+                  </li>
+                );
+              })}
               {pickerRows.map(({ entry, ks }) => {
                 const on = active.entryIds.includes(entry.id);
                 return (
@@ -351,6 +405,15 @@ export const WorkspacesView: React.FC = () => {
           }}
         />
       )}
+      {inspectCert && (
+        <CertificateInspector
+          certificate={inspectCert}
+          onClose={() => setInspectCertId(null)}
+          onExport={() => setExporting({ entry: inspectCert.entry })}
+          onWorkspaces={() => setAssigning(inspectCert.entry)}
+        />
+      )}
+      <AssignWorkspaceDialog entry={assigning} onClose={() => setAssigning(null)} />
       <ExportDialog entry={exporting?.entry ?? null} keystoreId={exporting?.keystoreId} onClose={() => setExporting(null)} />
     </Page>
   );

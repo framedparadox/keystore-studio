@@ -3,6 +3,7 @@
 export type TabType =
   | "home"
   | "keystores"
+  | "certificates"
   | "workspaces"
   | "examine"
   | "ca_signing"
@@ -113,6 +114,22 @@ export interface OpenKeystore extends KeystoreFile {
   sealed: boolean;
 }
 
+/**
+ * A certificate opened on its own (from a .pem/.crt/.cer/.der/.p7b file, pasted, or kept from
+ * Examine), listed on the Certificates page. Not part of any keystore.
+ */
+export interface OpenCertificate {
+  /** `cert::<sha256>`: see certificateId in lib/certificates. */
+  id: string;
+  /** The file it was read from; empty when it was pasted or kept from Examine. */
+  path: string;
+  /** Where it came from, for display: the file name, "Pasted" or a TLS endpoint. */
+  source: string;
+  opened_at: string;
+  /** The certificate as a trusted-certificate entry, so the entry atoms and metrics apply. */
+  entry: KeystoreEntry;
+}
+
 export interface Workspace {
   id: string;
   name: string;
@@ -120,7 +137,7 @@ export interface Workspace {
   environment: "Production" | "Staging" | "Development" | "Compliance";
   created_at: string;
   updated_at: string;
-  /** Entry keys: `${keystorePathOrId}::${alias}`. */
+  /** Entry keys: `${keystorePathOrId}::${alias}`, or `cert::<sha256>` for a certificate on the Certificates page. */
   entryIds: string[];
 }
 

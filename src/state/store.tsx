@@ -4,8 +4,9 @@ import { allowDialogStub, baseName, pickFile, FILTERS } from "../lib/files";
 import { canonicalAlias, entryKey, isKeyLocked, keyPasswordMatches, normalizeEntries, uniqueAlias } from "../lib/keystore";
 import type { ConverterId } from "../lib/convert";
 import { setThresholds } from "../lib/metrics";
+import { isCertificateBundle, isCertificateProbe, mergeCertificates, persistCertificates, toOpenCertificates, type PersistedCertificate } from "../lib/certificates";
 import { useConfirm, useToast } from "../components/ui";
-import type { AppInfo, KeystoreEntry, KeystoreFile, KeystoreFormat, OpenKeystore, TabType, VaultStatus, Workspace } from "../types/crypto";
+import type { AppInfo, DataSource, KeystoreEntry, KeystoreFile, KeystoreFormat, OpenCertificate, OpenKeystore, TabType, VaultStatus, Workspace } from "../types/crypto";
 
 export interface Settings {
   autoLockMinutes: number;
@@ -54,6 +55,8 @@ interface PersistedState {
   activeWorkspaceId: string | null;
   labels: Record<string, string[]>;
   settings: Settings;
+  /** The Certificates page. Optional: state saved before it existed has none. */
+  certificates?: PersistedCertificate[];
 }
 
 /** A file waiting for its password before it can be opened. */
@@ -162,6 +165,17 @@ interface Store {
   closeKeystore: (keystoreId: string) => Promise<boolean>;
   recentFiles: RecentFile[];
   clearRecentFiles: () => void;
+  // certificates
+  certificates: OpenCertificate[];
+  /**
+   * Reads the certificates in a file or text and lists each on the Certificates page once.
+   * Rejects when the data holds no certificate.
+   */
+  addCertificates: (data: DataSource, origin: { path?: string; source: string }) => Promise<{ added: OpenCertificate[]; duplicates: OpenCertificate[] }>;
+  /** Takes certificates off the page (their files are never touched). Returns a function that puts them back. */
+  removeCertificates: (ids: string[]) => () => void;
+  /** The certificate to highlight on the Certificates page: the one opened last. */
+  certificateFocus: string | null;
   // workspaces
   workspaces: Workspace[];
   activeWorkspaceId: string | null;
@@ -265,6 +279,14 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const [newKeystoreOpen, setNewKeystoreOpen] = useState(false);
   const [buildPkcs12Open, setBuildPkcs12Open] = useState(false);
   const [recentFiles, setRecentFiles] = useState<RecentFile[]>([]);
+  // Read and written synchronously through the ref, so two files dropped together both land.
+  const [certificates, setCertificatesState] = useState<OpenCertificate[]>([]);
+  const certificatesRef = useRef<OpenCertificate[]>([]);
+  const setCertificates = useCallback((list: OpenCertificate[]) => {
+    certificatesRef.current = list;
+    setCertificatesState(list);
+  }, []);
+  const [certificateFocus, setCertificateFocus] = useState<string | null>(null);
 
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [activeWorkspaceId, setActiveWorkspaceId] = useState<string | null>(null);
@@ -442,6 +464,47 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     setRecentFiles((r) => [{ path, name: baseName(path), format, openedAt: now() }, ...r.filter((x) => x.path !== path)].slice(0, 12));
   }, []);
 
+  // ------------------------------------------------------------ certificates
+  const addCertificates = useCallback(
+    async (data: DataSource, origin: { path?: string; source: string }) => {
+      // The engine reads PEM (one or many), DER or a PKCS#7 bundle, and orders a chain leaf first.
+      const entries = await api.importTrustedCertificates("certificate", data, []);
+      const incoming = toOpenCertificates(entries, { path: origin.path ?? "", source: origin.source, openedAt: now() });
+      const { list, added, duplicates } = mergeCertificates(certificatesRef.current, incoming);
+      if (added.length) setCertificates(list);
+      setCertificateFocus(added[0]?.id ?? duplicates[0]?.id ?? null);
+      return { added, duplicates };
+    },
+    [setCertificates]
+  );
+
+  const removeCertificates = useCallback(
+    (ids: string[]) => {
+      const before = certificatesRef.current;
+      const removed = before.map((c, index) => ({ c, index })).filter(({ c }) => ids.includes(c.id));
+      setCertificates(before.filter((c) => !ids.includes(c.id)));
+      // Undo puts each one back where it was, unless it was opened again in the meantime.
+      return () => {
+        const next = [...certificatesRef.current];
+        for (const { c, index } of removed) if (!next.some((x) => x.id === c.id)) next.splice(Math.min(index, next.length), 0, c);
+        setCertificates(next);
+      };
+    },
+    [setCertificates]
+  );
+
+  /** Lists a certificate file on the Certificates page. */
+  const openCertificateFile = useCallback(
+    async (path: string, name: string) => {
+      const { added, duplicates } = await addCertificates({ path }, { path, source: name });
+      setTab("certificates");
+      const count = (n: number) => `${n} certificate${n === 1 ? "" : "s"}`;
+      if (!added.length) toast.info(duplicates.length === 1 ? `${name} is already listed under Certificates.` : `The certificates in ${name} are already listed.`);
+      else toast.success(`Opened ${name}: ${count(added.length)}${duplicates.length ? ` (${duplicates.length} already listed)` : ""}.`);
+    },
+    [addCertificates, toast]
+  );
+
   // --------------------------------------------------------------- open flow
   const installOpened = useCallback(
     (file: KeystoreFile, password: string, sealedId?: string) => {
@@ -508,6 +571,9 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         } else if (probe.kind === "jar") {
           setJarRequest({ path, nonce: Date.now() });
           setTab("ca_signing");
+        } else if (isCertificateProbe(probe.kind) || (probe.kind === "pkcs7" && (await api.examineData({ path }).then(isCertificateBundle, () => false)))) {
+          // Certificates are listed on their own page; a PKCS#7 signature still goes to Examine.
+          await openCertificateFile(path, probe.name);
         } else if (probe.kind !== "unknown") {
           setExamineRequest({ path, nonce: Date.now() });
           setTab("examine");
@@ -519,7 +585,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       }
       showNextQueued();
     },
-    [installOpened, toast, showNextQueued]
+    [installOpened, toast, showNextQueued, openCertificateFile]
   );
   openPathRef.current = openPath;
 
@@ -872,13 +938,14 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const clearRecentFiles = useCallback(() => setRecentFiles([]), []);
 
   const resetAppData = useCallback(async () => {
+    setCertificates([]);
     setWorkspaces([]);
     setActiveWorkspaceId(null);
     setLabels({});
     setRecentFiles([]);
     setSettings(DEFAULT_SETTINGS);
     await api.saveAppState(null).catch(() => undefined);
-  }, []);
+  }, [setCertificates]);
 
   // -------------------------------------------------------------- bootstrap
   useEffect(() => {
@@ -901,6 +968,19 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           setLabels(raw.labels ?? {});
           labelsRef.current = raw.labels ?? {};
           setRecentFiles(raw.recentFiles ?? []);
+          // Certificates are public, so they come back whatever restoreSession says, like workspaces.
+          // Each is read again so its validity and findings are current.
+          if (raw.certificates?.length) {
+            const restored = await Promise.all(
+              raw.certificates.map((c) =>
+                api
+                  .importTrustedCertificates("certificate", { text: c.pem }, [])
+                  .then((entries) => toOpenCertificates(entries.slice(0, 1), { path: c.path, source: c.source, openedAt: c.opened_at }))
+                  .catch(() => [] as OpenCertificate[])
+              )
+            );
+            setCertificates(mergeCertificates([], restored.flat()).list);
+          }
           if (s.restoreSession && raw.keystores?.length) {
             const sealed: OpenKeystore[] = raw.keystores.map((k) => ({
               id: k.id,
@@ -942,10 +1022,11 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         activeWorkspaceId,
         labels,
         settings,
+        certificates: persistCertificates(certificates),
       };
       api.saveAppState(state).catch(() => undefined);
     }, 400);
-  }, [ready, desktop, version, activeKeystoreId, recentFiles, workspaces, activeWorkspaceId, labels, settings]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [ready, desktop, version, activeKeystoreId, recentFiles, workspaces, activeWorkspaceId, labels, settings, certificates]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ------------------------------------------------------- vault auto-lock
   const lastActivity = useRef(Date.now());
@@ -1059,6 +1140,10 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     closeKeystore,
     recentFiles,
     clearRecentFiles,
+    certificates,
+    addCertificates,
+    removeCertificates,
+    certificateFocus,
     workspaces,
     activeWorkspaceId,
     setActiveWorkspaceId,

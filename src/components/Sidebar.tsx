@@ -36,6 +36,8 @@ export const NAV_GROUPS: { label?: string; items: NavItem[] }[] = [
     label: "Inventory",
     items: [
       { id: "keystores", label: "Keystores", icon: FolderArchive, shortcut: "2" },
+      // Ctrl+0: the page came after 1–9 were taken, and the older shortcuts keep their numbers.
+      { id: "certificates", label: "Certificates", icon: FileBadge, shortcut: "0" },
       { id: "workspaces", label: "Workspaces", icon: Layers, shortcut: "3" },
     ],
   },
@@ -59,6 +61,7 @@ export const NAV_GROUPS: { label?: string; items: NavItem[] }[] = [
 export const PAGE_TITLES: Record<TabType, string> = {
   home: "Dashboard",
   keystores: "Keystores",
+  certificates: "Certificates",
   workspaces: "Workspaces",
   examine: "Examine",
   ca_signing: "CA & Signing",
@@ -99,7 +102,7 @@ const writeFlag = (key: string, value: boolean) => {
 };
 
 export const Sidebar: React.FC = () => {
-  const { tab, setTab, keystores, workspaces, vault, convertMode, openConverter } = useStore();
+  const { tab, setTab, keystores, certificates, workspaces, vault, convertMode, openConverter } = useStore();
   const [collapsed, setCollapsed] = useState(() => readFlag(COLLAPSED_KEY, false));
   const [convertOpen, setConvertOpen] = useState(() => readFlag(CONVERT_OPEN_KEY, true));
   useEffect(() => {
@@ -112,6 +115,7 @@ export const Sidebar: React.FC = () => {
   const unsaved = keystores.some((k) => k.dirty);
   const counts: Partial<Record<TabType, { value: number; tone?: "danger" | "neutral" }>> = {
     keystores: { value: keystores.length },
+    certificates: { value: certificates.length },
     workspaces: { value: workspaces.length },
     scanner: { value: atRisk, tone: "danger" },
   };
