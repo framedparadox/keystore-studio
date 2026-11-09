@@ -13,6 +13,7 @@ import {
   isCaEntry,
   isKeyLocked,
   keyPasswordMatches,
+  lockState,
   normalizeEntries,
   pkcs12BuildReady,
   profileUsages,
@@ -327,6 +328,18 @@ describe("key pair locking", () => {
 
   it("keeps a key with its own password locked whatever the session says", () => {
     expect(isKeyLocked({ ...kp, locked: true }, new Set([kp.id]), false)).toBe(true);
+  });
+
+  it("gives the Lock column one state per entry: no key, locked, own key password or unlocked", () => {
+    expect(lockState(cert, false)).toBe("no-key");
+    // A certificate never shows a lock, even if something marks it locked.
+    expect(lockState({ ...cert, locked: true }, true)).toBe("no-key");
+    expect(lockState(kp, isKeyLocked(kp, new Set(), true))).toBe("locked");
+    expect(lockState(kp, isKeyLocked(kp, new Set([kp.id]), true))).toBe("unlocked");
+    expect(lockState({ ...kp, locked: true }, true)).toBe("own-password");
+    const sk = { ...kp, entry_type: "SecretKey" as const };
+    expect(lockState(sk, false)).toBe("unlocked");
+    expect(lockState({ ...sk, locked: true }, true)).toBe("own-password");
   });
 
   it("checks the key password against the key's own password, else the store password", () => {

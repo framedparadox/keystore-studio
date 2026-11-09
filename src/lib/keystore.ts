@@ -61,6 +61,16 @@ export function isKeyLocked(e: Pick<KeystoreEntry, "id" | "entry_type" | "locked
   return requireUnlock && e.entry_type === "KeyPair" && !unlocked.has(e.id);
 }
 
+export type LockState = "locked" | "own-password" | "unlocked" | "no-key";
+
+/**
+ * What the Lock column shows: a certificate has no key to lock; a key is locked (its key password
+ * is needed first, "own-password" when it differs from the keystore password) or unlocked.
+ * `locked` is isKeyLocked for the entry.
+ */
+export const lockState = (e: Pick<KeystoreEntry, "entry_type" | "locked">, locked: boolean): LockState =>
+  e.entry_type === "TrustedCertificate" ? "no-key" : locked ? (e.locked ? "own-password" : "locked") : "unlocked";
+
 /**
  * Checks a key password for a key the engine already decrypted. Its key password is the keystore
  * password unless the key carries its own (`key_password`).

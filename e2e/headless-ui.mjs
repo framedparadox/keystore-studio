@@ -832,6 +832,9 @@ async function run() {
          const more = [...t.querySelectorAll('tbody [aria-label^="More actions"]')].map((b) => b.getBoundingClientRect().right);
          return { overflow: t.parentElement.scrollWidth - t.parentElement.clientWidth, right: Math.max(...more), edge: box.right }`);
       if (r.overflow > 0 || r.right > r.edge) throw new Error(`the table scrolls sideways by ${r.overflow}px; the row menu ends at ${r.right}, the table at ${r.edge}`);
+      // About 720px: room for the type, lock and status icons.
+      const names = await driver.executeScript(`return [...document.querySelectorAll('[data-testid="certificates-page"] thead th')].filter((th) => getComputedStyle(th).display !== "none").map((th) => th.textContent.trim())`);
+      for (const want of ["Type", "Lock status", "Expires", "Status"]) if (!names.includes(want)) throw new Error(`the ${want} column is hidden at the smallest window: ${names.join(", ")}`);
     } finally {
       await restoreWindow();
     }
@@ -934,7 +937,12 @@ async function run() {
     await click("cert-paste-submit");
     await gone("cert-paste-dialog");
     await driver.wait(async () => (await countOf("pasted.e2e.test")) === 1, 10000, "not listed");
-    if (!(await tableText()).includes("Pasted")) throw new Error("the source of a pasted certificate is not shown");
+    // The list has no Source column; the inspector names where a certificate came from.
+    await click("cert-inspect-pasted.e2e.test");
+    const insp = await driver.wait(until.elementLocated(byTest("certificate-inspector")), 10000);
+    if (!(await insp.getText()).includes("Pasted")) throw new Error("the source of a pasted certificate is not shown");
+    await keys(ESC);
+    await gone("certificate-inspector");
   });
 
   await step("certificates: a row opens from the keyboard, and focus returns to it", async () => {
@@ -952,6 +960,165 @@ async function run() {
     await click("nav-home");
     await driver.actions().keyDown(Key.CONTROL).sendKeys("0").keyUp(Key.CONTROL).perform();
     await driver.wait(until.elementLocated(byTest("certificates-page")), 5000);
+  });
+
+  // Both tables: type and lock as icons alone, then name, algorithm, expiry, status as an icon, actions.
+  // Each header's name (what a screen reader says) and visible text, and each cell, per visible column.
+  const TABLE_JS = `
+    const t = document.querySelector(arguments[0] + " table");
+    if (!t) return null;
+    const visible = (el) => getComputedStyle(el).display !== "none";
+    const shown = (el) => { const c = el.cloneNode(true); c.querySelectorAll(".sr-only").forEach((s) => s.remove()); return c.textContent.trim(); };
+    const heads = [...t.querySelectorAll("thead th")].filter(visible);
+    const names = heads.map((th) => th.textContent.trim());`;
+  const headersOf = (scope) =>
+    driver.executeScript(`${TABLE_JS}
+      return heads.map((th) => ({ name: th.textContent.trim(), text: shown(th), icon: !!th.querySelector("[data-header] svg") }));`, scope);
+  const cellsOf = (scope, alias) =>
+    driver.executeScript(`${TABLE_JS}
+      const tr = [...t.querySelectorAll("tbody tr")].find((r) => [...r.querySelectorAll('[data-testid="entry-alias"]')].some((a) => a.textContent.trim() === arguments[1]));
+      if (!tr) return null;
+      const out = {};
+      [...tr.children].filter(visible).forEach((td, i) => {
+        // Only what is drawn: the name cell keeps a hidden type tile for narrow tables.
+        const seen = (css) => [...td.querySelectorAll(css)].find((el) => el.getClientRects().length > 0) ?? null;
+        const img = seen('[role="img"]');
+        const tile = seen("[data-entry-type]");
+        out[names[i] || "pick"] = { text: shown(td), lock: seen("[data-lock]")?.dataset.lock ?? null, health: seen("[data-health]")?.dataset.health ?? null,
+          type: tile?.dataset.entryType ?? null, kind: seen("[data-cert-kind]")?.dataset.certKind ?? null, tip: img?.getAttribute("aria-label") ?? tile?.getAttribute("title") ?? null };
+      });
+      return out;`, scope, alias);
+  /** Gap between the bottom of the table's card and the top of the summary: negative when the summary is above. */
+  const summaryGap = (scope, figure) =>
+    driver.executeScript(`const t = document.querySelector(arguments[0] + " table");
+       const label = [...document.querySelectorAll(arguments[0] + " div")].find((d) => d.children.length === 0 && d.textContent.trim() === arguments[1]);
+       if (!t || !label) return null;
+       const card = t.closest(".rounded-card") ?? t;
+       return label.parentElement.parentElement.getBoundingClientRect().top - card.getBoundingClientRect().bottom;`, scope, figure);
+  const expectHeaders = async (scope, want) => {
+    const heads = await headersOf(scope);
+    if (!heads) throw new Error("no table");
+    const names = heads.map((h) => h.name);
+    if (JSON.stringify(names) !== JSON.stringify(want)) throw new Error(`columns: ${JSON.stringify(names)}, want ${JSON.stringify(want)}`);
+    for (const h of heads.filter((h) => h.name === "Type" || h.name === "Lock status"))
+      if (h.text || !h.icon) throw new Error(`the ${h.name} header should be an icon alone, it shows "${h.text}"`);
+  };
+  const expectIconOnly = (cells, col, what) => {
+    const c = cells[col];
+    if (!c) throw new Error(`no ${col} cell for ${what}`);
+    if (c.text) throw new Error(`the ${col} cell of ${what} shows text "${c.text}"; it should be an icon alone`);
+    if (!c.tip) throw new Error(`the ${col} icon of ${what} has no name for screen readers`);
+  };
+  const COLS = path.join(WORK, "cols.p12");
+
+  await step("tables: the keystore table is type and lock icons, alias, algorithm, expiry, status icon and actions", async () => {
+    keytoolPair(COLS, "cols-key", "PKCS12", ["-validity", "365"]);
+    sh("keytool", ["-importcert", "-noprompt", "-alias", "cols-anchor", "-file", path.join(WORK, "ui-cert.pem"), "-storetype", "PKCS12", "-keystore", COLS, "-storepass", REV_PW]);
+    await openKeystore(COLS);
+    await driver.wait(until.elementLocated(byTest("row-unlock-cols-key")), 10000);
+    const ks = '[data-testid="keystore-detail"]';
+    await expectHeaders(ks, ["", "Type", "Lock status", "Alias", "Algorithm", "Expires", "Status", "Actions"]);
+    const key = await cellsOf(ks, "cols-key");
+    const anchor = await cellsOf(ks, "cols-anchor");
+    for (const col of ["Type", "Lock status", "Status"]) {
+      expectIconOnly(key, col, "the key pair");
+      expectIconOnly(anchor, col, "the certificate");
+    }
+    if (key.Type.type !== "KeyPair" || anchor.Type.type !== "TrustedCertificate") throw new Error(`type icons: ${key.Type.type}, ${anchor.Type.type}`);
+    if (key["Lock status"].lock !== "locked") throw new Error(`the locked key pair shows lock "${key["Lock status"].lock}"`);
+    if (anchor["Lock status"].lock !== "no-key") throw new Error(`the certificate shows lock "${anchor["Lock status"].lock}"`);
+    if (key.Status.health !== "healthy" || key.Status.tip !== "Healthy") throw new Error(`status: ${JSON.stringify(key.Status)}`);
+    if (key.Alias.type) throw new Error("the alias cell still draws the type icon next to the new Type column");
+    if (!key.Alias.text.includes("cols-key")) throw new Error(`alias cell: ${key.Alias.text}`);
+    await click("row-unlock-cols-key");
+    await setField("unlock-key-password", REV_PW);
+    await click("unlock-key-submit");
+    await gone("unlock-key-dialog");
+    await driver.wait(async () => (await cellsOf(ks, "cols-key"))["Lock status"].lock === "unlocked", 5000, "the lock icon did not change after unlocking");
+  });
+
+  await step("tables: the keystore summary sits below the entry table", async () => {
+    const gap = await summaryGap('[data-testid="keystore-detail"]', "Median key age");
+    if (gap === null) throw new Error("no keystore summary");
+    if (gap < 0) throw new Error(`the summary is above the table (${Math.round(gap)}px)`);
+    if (!(await exists('[role="group"][aria-label="Keystore summary"]'))) throw new Error("the summary is not named for screen readers");
+    await shotSizes("23-keystore-table");
+  });
+
+  /** How far a table scrolls sideways, and whether the last row menu ends inside it. */
+  const fitOf = (scope) =>
+    driver.executeScript(`const t = document.querySelector(arguments[0] + " table");
+       const box = t.parentElement.getBoundingClientRect();
+       const more = [...t.querySelectorAll('tbody [aria-label^="More actions"]')].map((b) => b.getBoundingClientRect().right);
+       return { overflow: t.parentElement.scrollWidth - t.parentElement.clientWidth, right: Math.max(...more), edge: box.right, width: Math.round(box.width) }`, scope);
+  const expectFits = async (scope, required) => {
+    const r = await fitOf(scope);
+    if (r.overflow > 0 || r.right > r.edge) throw new Error(`the table (${r.width}px) scrolls sideways by ${r.overflow}px; the row menu ends at ${r.right}, the table at ${r.edge}`);
+    const names = (await headersOf(scope)).map((h) => h.name);
+    for (const want of required) if (!names.includes(want)) throw new Error(`the ${want} column is hidden in a ${r.width}px table: ${names.join(", ")}`);
+    return r;
+  };
+
+  await step("tables: with the navigator open the keystore table fits, and a narrow one keeps type, lock and status", async () => {
+    const ks = '[data-testid="keystore-detail"]';
+    try {
+      // The default window: every column the user asked for but Algorithm, which needs more room.
+      await setViewport(1320, 860);
+      await expectFits(ks, ["Type", "Lock status", "Alias", "Expires", "Status", "Actions"]);
+      // The smallest window leaves the table about 430px: Type and Lock move into the alias cell.
+      await setViewport(1024, 680);
+      await expectFits(ks, ["Alias", "Status", "Actions"]);
+      const key = await cellsOf(ks, "cols-key");
+      if (key.Alias.type !== "KeyPair" || !/ — (un)?locked$/.test(key.Alias.tip ?? "")) throw new Error(`a narrow alias cell should show the type and lock: ${JSON.stringify(key.Alias)}`);
+      expectIconOnly(key, "Status", "the key pair");
+    } finally {
+      await restoreWindow();
+    }
+  });
+
+  await step("tables: the certificates table is type and lock icons, certificate, algorithm, expiry, status icon and actions", async () => {
+    await click("nav-certificates");
+    const page = '[data-testid="certificates-page"]';
+    await driver.wait(async () => (await countOf(LEAF_CN)) === 1 && (await countOf(ROOT_CN)) === 1, 10000, "the e2e certificates are not listed");
+    await expectHeaders(page, ["Type", "Lock status", "Certificate", "Algorithm", "Expires", "Status", "Actions"]);
+    const leaf = await cellsOf(page, LEAF_CN);
+    const root = await cellsOf(page, ROOT_CN);
+    for (const col of ["Type", "Lock status", "Status"]) {
+      expectIconOnly(leaf, col, "the leaf");
+      expectIconOnly(root, col, "the root");
+    }
+    if (root.Type.kind !== "ca" || leaf.Type.kind !== "end-entity") throw new Error(`kind icons: root ${root.Type.kind}, leaf ${leaf.Type.kind}`);
+    if (!root.Type.tip.startsWith("CA certificate")) throw new Error(`root type tooltip: ${root.Type.tip}`);
+    if (leaf["Lock status"].lock !== "no-key" || root["Lock status"].lock !== "no-key") throw new Error("a certificate shows a key lock");
+    // The leaf is valid for 30 days: inside the critical window.
+    if (leaf.Status.health !== "critical" || leaf.Status.tip !== "Expires soon") throw new Error(`leaf status: ${JSON.stringify(leaf.Status)}`);
+    if (root.Status.health !== "healthy") throw new Error(`root status: ${JSON.stringify(root.Status)}`);
+    if (leaf.Certificate.type) throw new Error("the certificate cell still draws the type icon next to the new Type column");
+  });
+
+  await step("tables: the certificates summary sits below the table", async () => {
+    const gap = await summaryGap('[data-testid="certificates-page"]', "Expiring soon");
+    if (gap === null) throw new Error("no certificates summary");
+    if (gap < 0) throw new Error(`the summary is above the table (${Math.round(gap)}px)`);
+    if (!(await exists('[role="group"][aria-label="Certificates summary"]'))) throw new Error("the summary is not named for screen readers");
+    await shotSizes("24-certificates-table");
+  });
+
+  await step("sidebar: collapsed, it expands from a chevron in the title bar, not from a button in the sidebar", async () => {
+    const asideWidth = () => driver.executeScript(`return Math.round(document.querySelector("aside").getBoundingClientRect().width)`);
+    await driver.findElement(By.css('aside button[aria-label="Collapse sidebar"]')).click();
+    await driver.wait(async () => (await asideWidth()) === 64, 5000, "the sidebar did not collapse");
+    const r = await driver.executeScript(`const b = document.querySelector('header [aria-label="Expand sidebar"]');
+       return { header: !!b, chevron: !!b?.querySelector('svg path[d="m9 18 6-6-6-6"]') /* lucide ChevronRight */, inSidebar: document.querySelectorAll('aside [aria-label="Expand sidebar"]').length,
+         left: b ? Math.round(b.getBoundingClientRect().left - document.querySelector("header").getBoundingClientRect().left) : null }`);
+    if (r.inSidebar) throw new Error("the collapsed sidebar still has its own expand button");
+    if (!r.header) throw new Error("the title bar has no Expand sidebar button");
+    if (!r.chevron) throw new Error("the title bar button is not a chevron-right");
+    if (r.left > 24) throw new Error(`the chevron is not at the start of the title bar (${r.left}px in)`);
+    await shotSizes("25-sidebar-collapsed");
+    await click("sidebar-expand");
+    await driver.wait(async () => (await asideWidth()) === 240, 5000, "the sidebar did not expand");
+    if (await present("sidebar-expand")) throw new Error("the chevron stays in the title bar while the sidebar is expanded");
   });
 
   await step("certificates: the list and workspace membership survive a restart", async () => {

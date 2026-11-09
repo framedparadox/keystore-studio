@@ -1,10 +1,10 @@
 import React from "react";
 import clsx from "clsx";
-import { AlertTriangle, CheckCircle2, Clock, FileBadge, KeyRound, KeySquare, Lock, LockOpen, XCircle, Infinity as InfinityIcon } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Clock, ClockAlert, FileBadge, KeyRound, KeySquare, Lock, LockOpen, Minus, XCircle, Infinity as InfinityIcon } from "lucide-react";
 import { EntryType, KeystoreEntry } from "../types/crypto";
-import { Badge, Meter, Tone } from "./ui";
-import { daysUntilExpiry, entryHealth, expiryStatus, ExpiryStatus, formatDuration, isWeak, keyAgeDays, lifeUsed } from "../lib/metrics";
-import { cnOf, ENTRY_TYPE_LABEL, entryTypeName } from "../lib/keystore";
+import { Badge, badgeTones, Meter, Tone } from "./ui";
+import { daysUntilExpiry, expiryStatus, ExpiryStatus, formatDuration, isWeak, keyAgeDays, lifeUsed } from "../lib/metrics";
+import { cnOf, ENTRY_TYPE_LABEL, entryTypeName, lockState, LockState } from "../lib/keystore";
 import { useStore } from "../state/store";
 
 /*
@@ -31,12 +31,21 @@ const TYPE_TILE: Record<EntryType, string> = {
 
 export const entryTypeLabel = (t: EntryType) => ENTRY_TYPE_LABEL[t];
 
-/** Square glyph in front of an alias: the entry's type, plus a lock badge for keys. */
-export const EntryIcon: React.FC<{ type: EntryType; locked?: boolean; size?: "sm" | "md" }> = ({ type, locked, size = "md" }) => {
-  const Icon = TYPE_ICON[type];
+/**
+ * Square glyph for an entry's type, plus a lock badge for keys when `locked` is given. Tables with a
+ * Lock column leave `locked` out. `icon` and `label` refine a type, e.g. a CA among certificates.
+ */
+export const EntryIcon: React.FC<{ type: EntryType; locked?: boolean; size?: "sm" | "md"; icon?: React.ElementType; label?: string }> = ({
+  type,
+  locked,
+  size = "md",
+  icon,
+  label,
+}) => {
+  const Icon = icon ?? TYPE_ICON[type];
   // Key pairs always show whether they are locked; other entries only when they are.
   const badge = locked ? Lock : type === "KeyPair" && locked === false ? LockOpen : null;
-  const title = `${ENTRY_TYPE_LABEL[type]}${locked ? " — locked" : badge ? " — unlocked" : ""}`;
+  const title = `${label ?? ENTRY_TYPE_LABEL[type]}${locked ? " — locked" : badge ? " — unlocked" : ""}`;
   const sm = size === "sm";
   return (
     <span
@@ -61,43 +70,66 @@ export const EntryIcon: React.FC<{ type: EntryType; locked?: boolean; size?: "sm
   );
 };
 
-/** Alias + subject CN, the primary cell of every entry table. */
-export const EntryNameCell: React.FC<{ entry: KeystoreEntry; meta?: React.ReactNode }> = ({ entry, meta }) => {
+/**
+ * Alias + subject CN, the primary cell of every entry table. Where a table has Type and Lock columns,
+ * `icon="narrow"` draws the type tile (with its lock badge) only while those columns are hidden, below
+ * the "md" width of the table. `tile` replaces the drawn tile. Long names truncate; the tooltip has them.
+ */
+export const EntryNameCell: React.FC<{ entry: KeystoreEntry; meta?: React.ReactNode; icon?: boolean | "narrow"; tile?: React.ReactNode }> = ({
+  entry,
+  meta,
+  icon = true,
+  tile,
+}) => {
   const { isKeyLocked } = useStore();
   const locked = isKeyLocked(entry);
+  const drawn = tile ?? <EntryIcon type={entry.entry_type} locked={entry.entry_type === "KeyPair" ? locked : entry.locked || undefined} />;
+  const sub = meta ?? (entry.entry_type === "SecretKey" ? entry.subject : cnOf(entry.subject));
   return (
     <div className="flex items-center gap-3 min-w-0">
-      <EntryIcon type={entry.entry_type} locked={entry.entry_type === "KeyPair" ? locked : entry.locked || undefined} />
+      {/* The DataTable wrapper is the @container; @2xl matches hideBelow "md". */}
+      {icon === "narrow" ? <span className="inline-flex shrink-0 @2xl:hidden">{drawn}</span> : icon && drawn}
       <div className="min-w-0">
-        <div className="flex items-center gap-1.5">
-          <span className="font-medium text-ink truncate" data-testid="entry-alias">
+        <div className="flex items-center gap-1.5 min-w-0">
+          <span className="font-medium text-ink truncate" data-testid="entry-alias" title={entry.alias}>
             {entry.alias}
           </span>
         </div>
-        <div className="text-[12px] text-faint truncate max-w-[340px]">{meta ?? (entry.entry_type === "SecretKey" ? entry.subject : cnOf(entry.subject))}</div>
+        <div className="text-[12px] text-faint truncate max-w-[340px]" title={typeof sub === "string" ? sub : undefined}>
+          {sub}
+        </div>
       </div>
     </div>
   );
 };
 
-/** Type column: what the entry is and, for keys, whether it can be used yet. */
-export const EntryTypeCell: React.FC<{ entry: KeystoreEntry }> = ({ entry }) => {
-  const { isKeyLocked } = useStore();
-  const locked = isKeyLocked(entry);
-  const showLock = entry.entry_type === "KeyPair" || entry.locked;
+/** For the name column of an entry table: it takes the room left and truncates, so the table never scrolls sideways. */
+export const NAME_COLUMN_CLASS = "w-full max-w-0";
+
+/** Type column: the entry's type as its icon alone, named in the tooltip and to screen readers. */
+export const EntryTypeIconCell: React.FC<{ entry: KeystoreEntry }> = ({ entry }) => <EntryIcon type={entry.entry_type} label={entryTypeName(entry)} />;
+
+// Locked and unlocked differ in glyph as well as color; an entry without a key shows a dash.
+const LOCK_VIEW: Record<LockState, { icon: React.ElementType; label: string; cls: string }> = {
+  locked: { icon: Lock, label: "Locked: enter the key password to use it", cls: badgeTones.warning },
+  "own-password": { icon: Lock, label: "Locked: the key has its own key password", cls: badgeTones.warning },
+  unlocked: { icon: LockOpen, label: "Unlocked", cls: badgeTones.success },
+  "no-key": { icon: Minus, label: "No private key: nothing to unlock", cls: "border-transparent text-faint" },
+};
+
+/** Lock column: one glyph. Locked keys use the warning color because they need action. */
+export const LockIcon: React.FC<{ state: LockState }> = ({ state }) => {
+  const v = LOCK_VIEW[state];
   return (
-    <div className="min-w-0">
-      <div className="text-ink-2 font-medium">{entryTypeName(entry)}</div>
-      {showLock ? (
-        <div className={clsx("text-[12px] inline-flex items-center gap-1", locked ? "text-warning" : "text-success")}>
-          {locked ? <Lock className="w-3 h-3" /> : <LockOpen className="w-3 h-3" />}
-          {locked ? (entry.locked ? "Locked · own key password" : "Locked") : "Unlocked"}
-        </div>
-      ) : (
-        <div className="text-[12px] text-faint">{entry.entry_type === "SecretKey" ? "Symmetric" : entry.certificate_chain[0]?.self_signed ? "Self-signed" : "Public"}</div>
-      )}
-    </div>
+    <span role="img" aria-label={v.label} title={v.label} data-lock={state} className={clsx("inline-flex items-center justify-center w-6 h-6 rounded-full border", v.cls)}>
+      <v.icon className="w-3.5 h-3.5" aria-hidden />
+    </span>
   );
+};
+
+export const LockCell: React.FC<{ entry: KeystoreEntry }> = ({ entry }) => {
+  const { isKeyLocked } = useStore();
+  return <LockIcon state={lockState(entry, isKeyLocked(entry))} />;
 };
 
 export const EntryTypeBadge: React.FC<{ type: EntryType }> = ({ type }) => <Badge tone="neutral">{ENTRY_TYPE_LABEL[type]}</Badge>;
@@ -154,35 +186,34 @@ export const AgeCell: React.FC<{ entry: KeystoreEntry }> = ({ entry }) => (
   </div>
 );
 
-/** Status pill: icon + label so state never relies on color alone. */
-export const HealthBadge: React.FC<{ entry: KeystoreEntry }> = ({ entry }) => {
+/** What the status of an entry is: a glyph, a word and a tone. Every status has its own glyph. */
+export const healthView = (entry: KeystoreEntry): { key: string; label: string; detail: string; tone: Tone; icon: React.ElementType } => {
   const status = expiryStatus(entry);
-  if (status === "expired") return <Badge tone="danger" icon={XCircle}>Expired</Badge>;
-  if (isWeak(entry))
-    return (
-      <span title={entry.weak_reasons.join("\n")}>
-        <Badge tone="danger" icon={AlertTriangle}>
-          Weak
-        </Badge>
-      </span>
-    );
-  if (status === "critical") return <Badge tone="danger" icon={Clock}>Expires soon</Badge>;
-  if (status === "warning") return <Badge tone="warning" icon={Clock}>Renew</Badge>;
-  return entryHealth(entry) === "healthy" ? (
-    <Badge tone="success" icon={CheckCircle2}>
-      Healthy
-    </Badge>
-  ) : null;
+  if (status === "expired") return { key: "expired", label: "Expired", detail: "Expired", tone: "danger", icon: XCircle };
+  if (isWeak(entry)) return { key: "weak", label: "Weak", detail: entry.weak_reasons.length ? `Weak: ${entry.weak_reasons.join("; ")}` : "Weak", tone: "danger", icon: AlertTriangle };
+  if (status === "critical") return { key: "critical", label: "Expires soon", detail: "Expires soon", tone: "danger", icon: ClockAlert };
+  if (status === "warning") return { key: "renew", label: "Renew", detail: "Renew soon", tone: "warning", icon: Clock };
+  return { key: "healthy", label: "Healthy", detail: "Healthy", tone: "success", icon: CheckCircle2 };
 };
 
-export const LabelList: React.FC<{ labels: string[]; max?: number }> = ({ labels, max = 2 }) =>
-  labels.length === 0 ? (
-    <span className="text-faint">—</span>
-  ) : (
-    <div className="flex items-center gap-1">
-      {labels.slice(0, max).map((l) => (
-        <Badge key={l}>{l}</Badge>
-      ))}
-      {labels.length > max && <span className="text-[11px] text-faint">+{labels.length - max}</span>}
-    </div>
+/** Status pill: icon + label so state never relies on color alone. */
+export const HealthBadge: React.FC<{ entry: KeystoreEntry }> = ({ entry }) => {
+  const v = healthView(entry);
+  return (
+    <span title={v.key === "weak" ? entry.weak_reasons.join("\n") : undefined}>
+      <Badge tone={v.tone} icon={v.icon}>
+        {v.label}
+      </Badge>
+    </span>
   );
+};
+
+/** Status for a narrow column: the glyph alone, the word in the tooltip and for screen readers. */
+export const HealthIcon: React.FC<{ entry: KeystoreEntry }> = ({ entry }) => {
+  const v = healthView(entry);
+  return (
+    <span role="img" aria-label={v.detail} title={v.detail} data-health={v.key} className={clsx("inline-flex items-center justify-center w-6 h-6 rounded-full border", badgeTones[v.tone])}>
+      <v.icon className="w-3.5 h-3.5" aria-hidden />
+    </span>
+  );
+};

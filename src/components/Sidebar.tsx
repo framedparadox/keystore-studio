@@ -17,7 +17,6 @@ import {
   LockOpen,
   Package,
   PanelLeftClose,
-  PanelLeftOpen,
   Repeat,
   SearchCode,
   Settings,
@@ -101,14 +100,22 @@ const writeFlag = (key: string, value: boolean) => {
   }
 };
 
-export const Sidebar: React.FC = () => {
-  const { tab, setTab, keystores, certificates, workspaces, vault, convertMode, openConverter } = useStore();
+/**
+ * Whether the sidebar is collapsed to its icon rail, remembered across launches. App owns it: the
+ * sidebar collapses itself, and the title bar offers the way back while it is collapsed.
+ */
+export const useSidebarCollapsed = () => {
   const [collapsed, setCollapsed] = useState(() => readFlag(COLLAPSED_KEY, false));
-  const [convertOpen, setConvertOpen] = useState(() => readFlag(CONVERT_OPEN_KEY, true));
   useEffect(() => {
     document.documentElement.style.setProperty("--sidebar-w", collapsed ? "64px" : "240px");
     writeFlag(COLLAPSED_KEY, collapsed);
   }, [collapsed]);
+  return [collapsed, setCollapsed] as const;
+};
+
+export const Sidebar: React.FC<{ collapsed: boolean; onCollapse: () => void }> = ({ collapsed, onCollapse }) => {
+  const { tab, setTab, keystores, certificates, workspaces, vault, convertMode, openConverter } = useStore();
+  const [convertOpen, setConvertOpen] = useState(() => readFlag(CONVERT_OPEN_KEY, true));
   useEffect(() => writeFlag(CONVERT_OPEN_KEY, convertOpen), [convertOpen]);
 
   const atRisk = keystores.flatMap((k) => k.entries).filter((e) => entryHealth(e) === "at-risk").length;
@@ -198,27 +205,17 @@ export const Sidebar: React.FC = () => {
         </button>
         {!collapsed && (
           <button
-            onClick={() => setCollapsed(true)}
+            onClick={onCollapse}
             title="Collapse sidebar"
             aria-label="Collapse sidebar"
+            data-testid="sidebar-collapse"
             className="ml-auto w-7 h-7 rounded-control flex items-center justify-center text-faint hover:bg-surface-2 hover:text-ink transition cursor-pointer shrink-0"
           >
             <PanelLeftClose className="w-4 h-4" />
           </button>
         )}
       </div>
-      {collapsed && (
-        <div className="px-2 pb-1 flex justify-center shrink-0">
-          <button
-            onClick={() => setCollapsed(false)}
-            title="Expand sidebar"
-            aria-label="Expand sidebar"
-            className="w-9 h-7 rounded-control flex items-center justify-center text-faint hover:bg-surface-2 hover:text-ink transition cursor-pointer"
-          >
-            <PanelLeftOpen className="w-4 h-4" />
-          </button>
-        </div>
-      )}
+      {/* Collapsed, the way back is the chevron at the start of the title bar (Header). */}
 
       <nav className={clsx("flex-1 overflow-y-auto pt-1", collapsed ? "px-2" : "px-3")} aria-label="Primary">
         {NAV_GROUPS.map((g, i) => (

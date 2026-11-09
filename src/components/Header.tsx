@@ -1,18 +1,22 @@
 import React from "react";
-import { FilePlus2, FolderOpen, LockOpen, Redo2, Search, TerminalSquare, Undo2 } from "lucide-react";
+import { ChevronRight, FilePlus2, FolderOpen, LockOpen, Redo2, Search, TerminalSquare, Undo2 } from "lucide-react";
 import { useTerminal } from "./Terminal";
 import { Button, IconButton, Kbd } from "./ui";
 import { useStore } from "../state/store";
 
-/** Top bar: search in the middle, global actions on the right. Page titles live in each page's header. */
-export const Header: React.FC<{ onOpenPalette: () => void }> = ({ onOpenPalette }) => {
+/**
+ * Top bar: search in the middle, global actions on the right. Page titles live in each page's header.
+ * While the sidebar is collapsed, `onExpandSidebar` puts a chevron at the start of the bar to expand it.
+ */
+export const Header: React.FC<{ onOpenPalette: () => void; onExpandSidebar?: () => void }> = ({ onOpenPalette, onExpandSidebar }) => {
   const { toggle: toggleTerminal } = useTerminal();
   const { canUndo, canRedo, undo, redo, openFiles, setNewKeystoreOpen, vault, lockVault } = useStore();
   return (
     <header className="h-14 px-6 grid grid-cols-[1fr_auto_1fr] items-center gap-4 shrink-0 bg-surface border-b border-line">
-      {/* Left column is intentionally empty: each page names itself in its own header. */}
-      <div aria-hidden />
-
+      {/* No page title here: each page names itself in its own header. */}
+      <div className="flex items-center -ml-2">
+        {onExpandSidebar && <IconButton icon={ChevronRight} label="Expand sidebar" onClick={onExpandSidebar} className="!w-9 !h-9" data-testid="sidebar-expand" />}
+      </div>
 
       <button
         onClick={onOpenPalette}

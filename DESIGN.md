@@ -52,7 +52,8 @@ Build pages from `src/components/ui.tsx`:
   container query, not on the window, so a navigator or the sidebar never pushes the row actions out of view),
   `DescriptionList`, `KeyValueTable`, `Badge`, `EmptyState`, `CodeBlock` (with copy), `CopyButton`, `PathText` (a file
   path on one line: the folder truncates, the file name stays, full path in the tooltip, copy button)
-- Figures: `KpiCard`, `StatStrip` (a row of small figures in one card, for a page header), `Meter`, `SegmentedBar`,
+- Figures: `KpiCard`, `StatStrip` (a row of small figures in one card; on Keystores and Certificates it is the
+  summary under the table, named with `label`), `Meter`, `SegmentedBar`,
   `BarList`, `ColumnChart`, `ScoreRing`
 - Inputs: `TextInput`, `TextArea`, `Select`, `Checkbox`, `PasswordInput` (show/hide), `SearchInput`, `Segmented`,
   `OptionList` (radio rows with a hint and a tag, for choosing an output format), `Field`; the `.field` / `.label`
@@ -67,18 +68,31 @@ Build pages from `src/components/ui.tsx`:
 
 Certificates render with `src/components/CertificateView.tsx` (`CertificateDetails`, `ChainView`, `ExtensionsList`,
 `TrustBanner`, `WarningList`). Keystore entries use the atoms in `src/components/entry.tsx` (`EntryIcon`, `EntryNameCell`,
-`EntryTypeCell`, `AlgorithmCell`, `ExpiryCell`, `AgeCell`, `HealthBadge`, `LabelList`) so every table reads the same.
+`EntryTypeIconCell`, `LockCell` / `LockIcon`, `AlgorithmCell`, `ExpiryCell`, `AgeCell`, `HealthBadge`, `HealthIcon`) so
+every table reads the same.
+
+The Keystores and Certificates tables share one column order: Type (icon) · Lock status (icon) · Alias or Certificate ·
+Algorithm · Expires · Status (icon) · row actions. Icon-only headers use `IconHeader` (the label is the tooltip and the
+screen-reader name); icon-only cells are `role="img"` with an `aria-label` and a matching `title`. Every status has its
+own glyph (healthy, renew, expires soon, expired, weak; locked, unlocked, no key), so none relies on color alone. A
+certificate has no private key, so its lock is a dash. The name column takes the room left and truncates (full text in
+the tooltip), so the table never scrolls sideways. As the table narrows, columns give way in a fixed order: Algorithm
+(below `lg`); then Type and Lock (below `md`), whose tile and lock badge move into the name cell
+(`EntryNameCell icon="narrow"`); then Expires (below `sm`). Status and the row actions always stay. With the navigator
+open at the smallest window the keystore table is about 430px wide.
 
 Entry types are told apart by glyph and tile, never by status color: key pair = round key on a `brand-tint` tile,
-certificate = badged document on a white tile, secret key = square key on a grey tile. A key pair always wears a lock
-badge — `warning` when locked, `success` when unlocked — because lock state is status. Use `EntryIcon` for this
-everywhere an entry is listed; never draw a type icon by hand. Derived numbers
+certificate = badged document on a white tile (a shield for a CA on the Certificates page), secret key = square key on
+a grey tile. Lock state is status: `warning` when locked, `success` when unlocked. Where there is no Lock column (the
+navigator, pickers) a key pair wears it as a badge on `EntryIcon`. Use `EntryIcon` everywhere an entry is listed;
+never draw a type icon by hand. Derived numbers
 (days to expiry, key age, health, findings, buckets, summary) come from `src/lib/metrics.ts`, never computed inline.
 Add a variant to a primitive rather than restyling one-off.
 
 ## 6. Page layout
 App shell: 240px `Sidebar` (grouped nav: Overview · Inventory (Keystores, Certificates, Workspaces) · Tools · Security,
-Settings in the footer) +
+Settings in the footer; it collapses to a 64px icon rail from the button beside the logo, and while it is collapsed a
+chevron-right at the start of the `Header` expands it again) +
 `Header` (breadcrumb, undo/redo, command palette, vault lock, terminal, Open, New keystore). Under Tools, Convert
 lists every conversion beneath it (collapsible) so each one is a click away. Every page:
 `Page` → `PageHeader` → content on a 12-column grid with `gap-4`. Lists of records are tables, not card grids.
@@ -86,7 +100,7 @@ Every page has an empty state that offers the next useful action.
 
 Keystores is a two-pane workspace instead: a navigator on the left (every open keystore as a tree of its entries,
 grouped by type, filterable, with recent files below and a type legend at the foot) and the selected keystore on the
-right (header, `StatStrip`, entry table). The navigator scrolls, so any number of keystores fits; it can be hidden.
+right (header, entry table, then the `StatStrip` summary). The navigator scrolls, so any number of keystores fits; it can be hidden.
 
 ## 7. Interaction
 - Interactive cards use `<Card interactive>`; inner buttons stop propagation.

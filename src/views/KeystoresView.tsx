@@ -34,6 +34,7 @@ import {
   Save,
   Scissors,
   Search,
+  Shapes,
   ShieldCheck,
   Tag,
   Trash2,
@@ -43,7 +44,7 @@ import {
 import type { EntryType, KeystoreEntry, OpenKeystore } from "../types/crypto";
 import { api, classifyError, errorMessage } from "../lib/api";
 import { baseName, pickSavePath, safeFileStem, withExtension } from "../lib/files";
-import { ENTRY_TYPE_LABEL, ENTRY_TYPE_ORDER, FORMAT_INFO, byTypeThenAlias, canHoldSecretKeys, entryMatches, entryTypeName } from "../lib/keystore";
+import { ENTRY_TYPE_LABEL, ENTRY_TYPE_ORDER, FORMAT_INFO, LockState, byTypeThenAlias, canHoldSecretKeys, entryMatches, entryTypeName, lockState } from "../lib/keystore";
 import { diffEntries } from "../lib/diff";
 import { daysUntilExpiry, entryHealth, entryMix, formatDuration, summarize } from "../lib/metrics";
 import { useStore } from "../state/store";
@@ -56,6 +57,7 @@ import {
   DataTable,
   EmptyState,
   IconButton,
+  IconHeader,
   Menu,
   MenuItem,
   Modal,
@@ -69,7 +71,7 @@ import {
   useConfirm,
   useToast,
 } from "../components/ui";
-import { AlgorithmCell, EntryIcon, EntryNameCell, EntryTypeCell, ExpiryCell, HealthBadge, LabelList, TYPE_ICON } from "../components/entry";
+import { AlgorithmCell, EntryIcon, EntryNameCell, EntryTypeIconCell, ExpiryCell, HealthIcon, LockCell, NAME_COLUMN_CLASS, TYPE_ICON } from "../components/entry";
 import { AssignWorkspaceDialog, CaReplyDialog, CsrDialog, EntryInspector, ExportDialog, LabelsDialog, RenameDialog } from "../components/EntryDialogs";
 import { GenerateKeyPairDialog, GenerateSecretKeyDialog, ImportCertificateDialog, ImportFromKeystoreDialog, ImportKeyPairDialog } from "../components/AddEntryDialogs";
 
@@ -88,6 +90,8 @@ interface Clip {
 let clipboardMemory: Clip | null = null;
 
 const HEALTH_RANK = { "at-risk": 0, attention: 1, healthy: 2 } as const;
+// Keys that need their password first, then usable keys, then entries without a key.
+const LOCK_RANK: Record<LockState, number> = { locked: 0, "own-password": 0, unlocked: 1, "no-key": 2 };
 const NAV_HIDDEN_KEY = "xkeystore.keystoreNavHidden";
 /** Entries listed under one keystore before "Show more". */
 const TREE_PAGE = 100;
@@ -830,15 +834,32 @@ export const KeystoresView: React.FC = () => {
         />
       ),
     },
-    { id: "alias", header: "Alias", width: "28%", sortValue: (e) => e.alias.toLowerCase(), cell: (e) => <EntryNameCell entry={e} /> },
-    // Optional columns give way as the table narrows (the navigator and the sidebar take room the
-    // window size does not show), so the row actions are never cut off. The entry icon still shows
-    // the type and the lock when the Type column is hidden.
-    { id: "type", header: "Type", width: "140px", hideBelow: "sm", sortValue: (e) => `${ENTRY_TYPE_ORDER[e.entry_type]}${e.alias.toLowerCase()}`, cell: (e) => <EntryTypeCell entry={e} /> },
+    // Type and lock are glyphs alone, named in the tooltip and to screen readers. Columns give way as the
+    // table narrows (the navigator and the sidebar take room the window size does not show) so status and
+    // the row actions always stay in view: Algorithm first; then Type and Lock, whose tile and lock badge
+    // move into the alias cell; then Expires. The alias takes the room left and truncates.
+    {
+      id: "type",
+      header: <IconHeader icon={Shapes} label="Type" />,
+      width: "64px",
+      align: "center",
+      hideBelow: "md",
+      sortValue: (e) => `${ENTRY_TYPE_ORDER[e.entry_type]}${e.alias.toLowerCase()}`,
+      cell: (e) => <EntryTypeIconCell entry={e} />,
+    },
+    {
+      id: "lock",
+      header: <IconHeader icon={Lock} label="Lock status" />,
+      width: "64px",
+      align: "center",
+      hideBelow: "md",
+      sortValue: (e) => `${LOCK_RANK[lockState(e, isKeyLocked(e))]}${e.alias.toLowerCase()}`,
+      cell: (e) => <LockCell entry={e} />,
+    },
+    { id: "alias", header: "Alias", className: NAME_COLUMN_CLASS, sortValue: (e) => e.alias.toLowerCase(), cell: (e) => <EntryNameCell entry={e} icon="narrow" /> },
     { id: "alg", header: "Algorithm", hideBelow: "lg", sortValue: (e) => e.algorithm, cell: (e) => <AlgorithmCell entry={e} /> },
-    { id: "expiry", header: "Expires", width: "180px", sortValue: (e) => daysUntilExpiry(e), cell: (e) => <ExpiryCell entry={e} /> },
-    { id: "status", header: "Status", hideBelow: "xl", sortValue: (e) => HEALTH_RANK[entryHealth(e)], cell: (e) => <HealthBadge entry={e} /> },
-    { id: "labels", header: "Labels", hideBelow: "2xl", cell: (e: KeystoreEntry) => <LabelList labels={e.labels} /> },
+    { id: "expiry", header: "Expires", width: "160px", hideBelow: "sm", sortValue: (e) => daysUntilExpiry(e), cell: (e) => <ExpiryCell entry={e} /> },
+    { id: "status", header: "Status", width: "88px", align: "center", sortValue: (e) => HEALTH_RANK[entryHealth(e)], cell: (e) => <HealthIcon entry={e} /> },
     {
       id: "actions",
       header: <span className="sr-only">Actions</span>,
@@ -986,21 +1007,6 @@ export const KeystoresView: React.FC = () => {
             </Card>
           ) : (
             <>
-              <StatStrip
-                className="mb-4"
-                items={[
-                  { label: "Entries", value: sum.total, hint: entryMix(sum) },
-                  {
-                    label: "Expiring soon",
-                    value: sum.expiringWarning,
-                    hint: sum.expiringCritical ? `${sum.expiringCritical} within ${settings.criticalDays} days` : `None within ${settings.criticalDays} days`,
-                    hintTone: sum.expiringCritical ? "warning" : "neutral",
-                  },
-                  { label: "Needs action", value: sum.expired + sum.weak, hint: `${sum.expired} expired · ${sum.weak} weak`, hintTone: sum.expired + sum.weak ? "danger" : "success" },
-                  { label: "Median key age", value: formatDuration(sum.medianAgeDays), hint: `Oldest ${formatDuration(sum.oldestAgeDays)}` },
-                ]}
-              />
-
               {lockedKeyPairs.length + lockedOther.length > 0 && (
                 <Alert
                   tone="info"
@@ -1156,6 +1162,21 @@ export const KeystoresView: React.FC = () => {
                   }
                 />
               </Card>
+              <StatStrip
+                className="mt-4"
+                label="Keystore summary"
+                items={[
+                  { label: "Entries", value: sum.total, hint: entryMix(sum) },
+                  {
+                    label: "Expiring soon",
+                    value: sum.expiringWarning,
+                    hint: sum.expiringCritical ? `${sum.expiringCritical} within ${settings.criticalDays} days` : `None within ${settings.criticalDays} days`,
+                    hintTone: sum.expiringCritical ? "warning" : "neutral",
+                  },
+                  { label: "Needs action", value: sum.expired + sum.weak, hint: `${sum.expired} expired · ${sum.weak} weak`, hintTone: sum.expired + sum.weak ? "danger" : "success" },
+                  { label: "Median key age", value: formatDuration(sum.medianAgeDays), hint: `Oldest ${formatDuration(sum.oldestAgeDays)}` },
+                ]}
+              />
             </>
           )}
         </div>

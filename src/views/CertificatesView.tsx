@@ -1,14 +1,14 @@
 import React, { useMemo, useState } from "react";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
-import { ClipboardPaste, Copy, Download, Eye, FileBadge, FolderArchive, FolderOpen, Layers, MoreHorizontal, Search, ShieldCheck, X } from "lucide-react";
+import { ClipboardPaste, Copy, Download, Eye, FileBadge, FolderArchive, FolderOpen, Layers, Lock, MoreHorizontal, Search, Shapes, ShieldCheck, X } from "lucide-react";
 import type { OpenCertificate } from "../types/crypto";
 import { errorMessage } from "../lib/api";
 import { FILTERS, pickFiles } from "../lib/files";
 import { cnOf, entryMatches } from "../lib/keystore";
 import { daysUntilExpiry, entryHealth, summarize } from "../lib/metrics";
 import { useStore } from "../state/store";
-import { Button, Card, Column, DataTable, EmptyState, IconButton, Menu, MenuItem, Page, PageHeader, SearchInput, Segmented, StatStrip, useConfirm, useToast } from "../components/ui";
-import { AlgorithmCell, EntryNameCell, ExpiryCell, HealthBadge } from "../components/entry";
+import { Button, Card, Column, DataTable, EmptyState, IconButton, IconHeader, Menu, MenuItem, Page, PageHeader, SearchInput, Segmented, StatStrip, useConfirm, useToast } from "../components/ui";
+import { AlgorithmCell, EntryIcon, EntryNameCell, ExpiryCell, HealthIcon, LockIcon, NAME_COLUMN_CLASS } from "../components/entry";
 import { AssignWorkspaceDialog, ExportDialog } from "../components/EntryDialogs";
 import { CertificateInspector, PasteCertificatesDialog, useAddCertificateToKeystore } from "../components/CertificateDialogs";
 
@@ -32,15 +32,15 @@ const copyText = async (text: string) => {
   }
 };
 
-/** What a certificate is: a root or intermediate CA, or an end-entity certificate and its first name. */
-const KindCell: React.FC<{ c: OpenCertificate }> = ({ c }) => {
+/** What a certificate is, as one glyph: a shield for a root or intermediate CA, a badged document for an end entity. */
+const KindIcon: React.FC<{ c: OpenCertificate }> = ({ c }) => {
   const leaf = c.entry.certificate_chain[0];
-  if (!leaf) return <span className="text-faint">—</span>;
+  const ca = !!leaf?.is_ca;
+  const label = ca ? `CA certificate · ${leaf?.self_signed ? "root, self-signed" : "intermediate"}` : `End entity${leaf?.self_signed ? " · self-signed" : leaf?.sans[0] ? ` · ${leaf.sans[0]}` : ""}`;
   return (
-    <div className="min-w-0">
-      <div className="text-ink-2 font-medium">{leaf.is_ca ? "CA certificate" : "End entity"}</div>
-      <div className="text-[12px] text-faint truncate max-w-[200px]">{leaf.is_ca ? (leaf.self_signed ? "Root, self-signed" : "Intermediate") : leaf.self_signed ? "Self-signed" : leaf.sans[0] ?? "No subject alt. name"}</div>
-    </div>
+    <span data-cert-kind={ca ? "ca" : "end-entity"} className="inline-flex">
+      <EntryIcon type="TrustedCertificate" icon={ca ? ShieldCheck : FileBadge} label={label} />
+    </span>
   );
 };
 
@@ -118,39 +118,33 @@ export const CertificatesView: React.FC = () => {
     ];
   };
 
+  // Type and lock are glyphs alone, named in the tooltip and to screen readers. A certificate has no
+  // private key, so its lock is always a dash; the column lines the page up with the keystore table.
+  // As the table narrows the columns give way in the same order as there; status and actions stay.
   const columns: Column<OpenCertificate>[] = [
+    {
+      id: "kind",
+      header: <IconHeader icon={Shapes} label="Type" />,
+      width: "64px",
+      align: "center",
+      hideBelow: "md",
+      sortValue: (c) => `${c.entry.certificate_chain[0]?.is_ca ? 0 : 1}${c.entry.alias.toLowerCase()}`,
+      cell: (c) => <KindIcon c={c} />,
+    },
+    { id: "lock", header: <IconHeader icon={Lock} label="Lock status" />, width: "64px", align: "center", hideBelow: "md", cell: () => <LockIcon state="no-key" /> },
     {
       id: "name",
       header: "Certificate",
-      width: "32%",
+      className: NAME_COLUMN_CLASS,
       sortValue: (c) => c.entry.alias.toLowerCase(),
       cell: (c) => {
         const leaf = c.entry.certificate_chain[0];
-        return <EntryNameCell entry={c.entry} meta={leaf?.self_signed ? "Self-signed" : `Issued by ${cnOf(c.entry.issuer)}`} />;
+        return <EntryNameCell entry={c.entry} icon="narrow" tile={<KindIcon c={c} />} meta={leaf?.self_signed ? "Self-signed" : `Issued by ${cnOf(c.entry.issuer)}`} />;
       },
     },
-    { id: "kind", header: "Type", width: "170px", hideBelow: "sm", sortValue: (c) => (c.entry.certificate_chain[0]?.is_ca ? 0 : 1), cell: (c) => <KindCell c={c} /> },
     { id: "alg", header: "Algorithm", hideBelow: "lg", sortValue: (c) => c.entry.algorithm, cell: (c) => <AlgorithmCell entry={c.entry} /> },
-    { id: "expiry", header: "Expires", width: "180px", sortValue: (c) => daysUntilExpiry(c.entry), cell: (c) => <ExpiryCell entry={c.entry} /> },
-    { id: "status", header: "Status", hideBelow: "xl", sortValue: (c) => HEALTH_RANK[entryHealth(c.entry)], cell: (c) => <HealthBadge entry={c.entry} /> },
-    {
-      id: "source",
-      header: "Source",
-      // Gives way before the row actions do: at the smallest window the table is about 720px wide.
-      hideBelow: "lg",
-      sortValue: (c) => c.source.toLowerCase(),
-      cell: (c) => {
-        const inWs = workspacesOf(c).length;
-        return (
-          <div className="min-w-0">
-            <div className="text-ink-2 truncate max-w-[200px]" title={c.path || c.source}>
-              {c.source}
-            </div>
-            <div className="text-[12px] text-faint">{inWs ? `In ${inWs} workspace${inWs === 1 ? "" : "s"}` : new Date(c.opened_at).toLocaleDateString()}</div>
-          </div>
-        );
-      },
-    },
+    { id: "expiry", header: "Expires", width: "160px", hideBelow: "sm", sortValue: (c) => daysUntilExpiry(c.entry), cell: (c) => <ExpiryCell entry={c.entry} /> },
+    { id: "status", header: "Status", width: "88px", align: "center", sortValue: (c) => HEALTH_RANK[entryHealth(c.entry)], cell: (c) => <HealthIcon entry={c.entry} /> },
     {
       id: "actions",
       header: <span className="sr-only">Actions</span>,
@@ -205,15 +199,6 @@ export const CertificatesView: React.FC = () => {
         </Card>
       ) : (
         <>
-          <StatStrip
-            className="mb-4"
-            items={[
-              { label: "Certificates", value: sum.total, hint: `${cas} CA · ${sum.total - cas} end entity` },
-              { label: "Expiring soon", value: sum.expiringWarning, hint: sum.expiringCritical ? `${sum.expiringCritical} critical` : "None critical", hintTone: sum.expiringCritical ? "warning" : "neutral" },
-              { label: "Needs action", value: sum.expired + sum.weak, hint: `${sum.expired} expired · ${sum.weak} weak`, hintTone: sum.expired + sum.weak ? "danger" : "success" },
-              { label: "Files", value: files, hint: certificates.length - certificates.filter((c) => c.path).length ? `${certificates.length - certificates.filter((c) => c.path).length} pasted or kept` : "Opened from disk" },
-            ]}
-          />
           <Card padded={false} className="overflow-hidden flex flex-col">
             <div className="px-5 py-3 border-b border-line flex flex-wrap items-center gap-3">
               <Segmented<Kind>
@@ -263,6 +248,16 @@ export const CertificatesView: React.FC = () => {
               }
             />
           </Card>
+          <StatStrip
+            className="mt-4"
+            label="Certificates summary"
+            items={[
+              { label: "Certificates", value: sum.total, hint: `${cas} CA · ${sum.total - cas} end entity` },
+              { label: "Expiring soon", value: sum.expiringWarning, hint: sum.expiringCritical ? `${sum.expiringCritical} critical` : "None critical", hintTone: sum.expiringCritical ? "warning" : "neutral" },
+              { label: "Needs action", value: sum.expired + sum.weak, hint: `${sum.expired} expired · ${sum.weak} weak`, hintTone: sum.expired + sum.weak ? "danger" : "success" },
+              { label: "Files", value: files, hint: certificates.length - certificates.filter((c) => c.path).length ? `${certificates.length - certificates.filter((c) => c.path).length} pasted or kept` : "Opened from disk" },
+            ]}
+          />
         </>
       )}
 

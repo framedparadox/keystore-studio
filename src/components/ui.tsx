@@ -143,7 +143,8 @@ export const CardHeader: React.FC<{
 
 export type Tone = "neutral" | "brand" | "success" | "warning" | "danger";
 
-const badgeTones: Record<Tone, string> = {
+/** Tint, text and border of a Badge in each tone; status glyphs in narrow columns reuse them. */
+export const badgeTones: Record<Tone, string> = {
   neutral: "bg-surface-3 text-ink-2 border-line",
   brand: "bg-brand-tint text-brand-deep border-brand-soft",
   success: "bg-success-tint text-success border-success/15",
@@ -572,12 +573,14 @@ export function OptionList<T extends string>({
   );
 }
 
-/** A row of small figures in one card, for a page header. Lighter than a row of KpiCards. */
+/** A row of small figures in one card, e.g. the summary under a table. Lighter than a row of KpiCards. */
 export const StatStrip: React.FC<{
   items: { label: string; value: React.ReactNode; hint?: React.ReactNode; hintTone?: "neutral" | "success" | "warning" | "danger" }[];
   className?: string;
-}> = ({ items, className }) => (
-  <div className={clsx("bg-surface border border-line rounded-card shadow-card flex flex-wrap", className)}>
+  /** Names the group for screen readers, e.g. "Keystore summary". */
+  label?: string;
+}> = ({ items, className, label }) => (
+  <div role={label ? "group" : undefined} aria-label={label} className={clsx("bg-surface border border-line rounded-card shadow-card flex flex-wrap", className)}>
     {items.map((i, idx) => (
       <div key={i.label} className={clsx("flex-1 min-w-[150px] px-4 py-3", idx > 0 && "border-l border-line")}>
         <div className="text-[11.5px] font-medium text-faint">{i.label}</div>
@@ -618,6 +621,14 @@ export interface Column<T> {
   hideBelow?: "sm" | "md" | "lg" | "xl" | "2xl";
   className?: string;
 }
+
+/** A column header drawn as an icon alone. The label is its tooltip and its name for screen readers. */
+export const IconHeader: React.FC<{ icon: React.ElementType; label: string }> = ({ icon: Icon, label }) => (
+  <span className="inline-flex items-center" title={label} data-header={label}>
+    <Icon className="w-3.5 h-3.5" aria-hidden />
+    <span className="sr-only">{label}</span>
+  </span>
+);
 
 interface DataTableProps<T> {
   columns: Column<T>[];

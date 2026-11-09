@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { Header } from "./components/Header";
-import { Sidebar } from "./components/Sidebar";
+import { Sidebar, useSidebarCollapsed } from "./components/Sidebar";
 import { TerminalProvider, useTerminal } from "./components/Terminal";
 import { ConfirmProvider, Spinner, ToastProvider } from "./components/ui";
 import { CommandPalette } from "./components/CommandPalette";
@@ -55,6 +55,7 @@ const Shell: React.FC = () => {
   const store = useStore();
   const { toggle } = useTerminal();
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useSidebarCollapsed();
   const onDrop = useCallback((paths: string[]) => void store.openFiles(paths), [store.openFiles]); // eslint-disable-line react-hooks/exhaustive-deps
   const dragging = useWindowFileDrop(onDrop);
 
@@ -107,9 +108,9 @@ const Shell: React.FC = () => {
 
   return (
     <div className="h-screen w-screen flex bg-canvas select-none overflow-hidden font-sans">
-      <Sidebar />
+      <Sidebar collapsed={sidebarCollapsed} onCollapse={() => setSidebarCollapsed(true)} />
       <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
-        <Header onOpenPalette={() => setPaletteOpen(true)} />
+        <Header onOpenPalette={() => setPaletteOpen(true)} onExpandSidebar={sidebarCollapsed ? () => setSidebarCollapsed(false) : undefined} />
         <main className="flex-1 min-h-0 flex flex-col overflow-hidden relative">
           <PageBoundary resetKey={store.tab}>
             {store.tab === "home" && <HomeView />}
