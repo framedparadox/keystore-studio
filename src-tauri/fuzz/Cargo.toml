@@ -1,5 +1,5 @@
 [package]
-name = "xkeystore-fuzz"
+name = "keystore-studio-fuzz"
 version = "0.0.0"
 publish = false
 edition = "2024"
@@ -12,7 +12,7 @@ libfuzzer-sys = "0.4"
 
 # The engine only: linking the Tauri/WebKit stack into a sanitizer build fails, and
 # none of it is needed to parse a file.
-[dependencies.xkeystore]
+[dependencies.keystore-studio]
 path = ".."
 default-features = false
 

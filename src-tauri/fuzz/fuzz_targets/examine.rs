@@ -7,6 +7,6 @@ use libfuzzer_sys::fuzz_target;
 fuzz_target!(|data: &[u8]| {
     // A password is supplied so the encrypted paths are reachable too; it will almost never be
     // right, which is itself the interesting case (wrong-password handling must not panic).
-    let _ = xkeystore_lib::detect::examine(data, Some("fuzz"));
-    let _ = xkeystore_lib::detect::examine(data, None);
+    let _ = keystore_studio_lib::detect::examine(data, Some("fuzz"));
+    let _ = keystore_studio_lib::detect::examine(data, None);
 });

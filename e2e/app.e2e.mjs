@@ -1,9 +1,9 @@
-// End-to-end test of the real xkeystore desktop app (Rust engine + UI) via tauri-driver.
+// End-to-end test of the real Keystore Studio desktop app (Rust engine + UI) via tauri-driver.
 //
 //   pnpm tauri build --debug --no-bundle
 //   xvfb-run -a node e2e/app.e2e.mjs        (Linux; needs tauri-driver and WebKitWebDriver)
 //
-// Native file dialogs are the only thing scripted: with XKEYSTORE_E2E=1 the app takes dialog
+// Native file dialogs are the only thing scripted: with KEYSTORE_STUDIO_E2E=1 the app takes dialog
 // answers from window.__xksStub (paths in a temporary directory). Everything else is the real
 // application, and the files it writes are verified with keytool and openssl.
 
@@ -16,7 +16,7 @@ import { fileURLToPath } from "node:url";
 import { Builder, By, Capabilities, Key, until } from "selenium-webdriver";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const APP = process.env.XKS_APP ?? path.join(ROOT, "src-tauri/target/debug/xkeystore");
+const APP = process.env.XKS_APP ?? path.join(ROOT, "src-tauri/target/debug/keystore-studio");
 const WORK = fs.mkdtempSync(path.join(os.tmpdir(), "xks-e2e-"));
 const DATA = path.join(WORK, "data");
 const SHOTS = process.env.XKS_SHOTS ?? path.join(WORK, "shots");
@@ -49,7 +49,7 @@ const portOpen = (port) =>
 async function startDriver() {
   if (await portOpen(4444)) throw new Error("port 4444 is already in use (a stale tauri-driver?); stop it and retry");
   tauriDriver = spawn(process.env.TAURI_DRIVER ?? path.join(os.homedir(), ".cargo/bin/tauri-driver"), ["--port", "4444", "--native-port", "4445"], {
-    env: { ...process.env, XKEYSTORE_DATA_DIR: DATA, XKEYSTORE_E2E: "1" },
+    env: { ...process.env, KEYSTORE_STUDIO_DATA_DIR: DATA, KEYSTORE_STUDIO_E2E: "1" },
     stdio: ["ignore", "inherit", "inherit"],
   });
   for (let i = 0; i < 50; i++) {
@@ -65,7 +65,7 @@ async function launch() {
   caps.setBrowserName("wry");
   driver = await new Builder().withCapabilities(caps).usingServer("http://127.0.0.1:4444/").build();
   await driver.manage().setTimeouts({ implicit: 0 });
-  await waitText("xkeystore", 30000);
+  await waitText("Keystore Studio", 30000);
   await installDialogStub();
 }
 
@@ -75,7 +75,7 @@ async function quit() {
 }
 
 async function installDialogStub() {
-  // Answers for native file dialogs (honoured only because the app runs with XKEYSTORE_E2E=1).
+  // Answers for native file dialogs (honoured only because the app runs with KEYSTORE_STUDIO_E2E=1).
   await driver.executeScript("window.__xksStub = window.__xksStub || { open: [], save: [] }");
 }
 const queueOpen = (p) => driver.executeScript("window.__xksStub.open.push(arguments[0])", p);
@@ -150,7 +150,7 @@ async function run() {
   await launch();
 
   await step("first launch shows the welcome screen", async () => {
-    await waitText("Welcome to xkeystore");
+    await waitText("Welcome to Keystore Studio");
     await waitText("Recent files");
     await shot("01-welcome");
   });
@@ -412,7 +412,7 @@ async function run() {
     await sleep(800); // let the debounced session save land
     await quit();
     await launch();
-    await waitText("Welcome to xkeystore");
+    await waitText("Welcome to Keystore Studio");
     await shot("10-restored");
     await nav("vault");
     await type(tid("vault-key"), MASTER);

@@ -474,7 +474,7 @@ pub fn request_timestamp(url: &str, signature: &[u8], hash: HashAlg) -> Res<Time
     let nonce = random_bytes(16);
     let request = build_request(&digest, hash, &nonce, true);
 
-    let agent: ureq::Agent = ureq::Agent::config_builder().timeout_global(Some(Duration::from_secs(30))).user_agent(concat!("xkeystore/", env!("CARGO_PKG_VERSION"))).build().into();
+    let agent: ureq::Agent = ureq::Agent::config_builder().timeout_global(Some(Duration::from_secs(30))).user_agent(concat!("keystore-studio/", env!("CARGO_PKG_VERSION"))).build().into();
     let mut response =
         agent.post(trimmed).content_type(REQUEST_TYPE).send(&request[..]).map_err(|err| format!("cannot reach the timestamp authority at {trimmed}: {}", tidy_network_error(&err.to_string())))?;
 

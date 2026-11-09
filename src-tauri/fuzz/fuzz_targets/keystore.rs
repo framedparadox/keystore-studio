@@ -6,9 +6,9 @@ use std::collections::HashMap;
 
 fuzz_target!(|data: &[u8]| {
     let empty = HashMap::new();
-    let _ = xkeystore_lib::keystore::decode(data, "fuzz", &empty);
+    let _ = keystore_studio_lib::keystore::decode(data, "fuzz", &empty);
     // Reach the individual codecs directly as well: `decode` dispatches on content sniffing, so
     // a file that fails to sniff would never exercise them.
-    let _ = xkeystore_lib::pkcs12::decode(data, "fuzz");
-    let _ = xkeystore_lib::jks::decode(data, "fuzz", &empty);
+    let _ = keystore_studio_lib::pkcs12::decode(data, "fuzz");
+    let _ = keystore_studio_lib::jks::decode(data, "fuzz", &empty);
 });

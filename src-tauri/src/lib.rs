@@ -1,4 +1,4 @@
-//! xkeystore: native keystore and X.509 workbench.
+//! Keystore Studio: native keystore and X.509 workbench.
 //!
 //! The modules below are the engine: keystore codecs, X.509, CMS, keys and the operations built
 //! on them. They depend on no GUI toolkit and can be used on their own.

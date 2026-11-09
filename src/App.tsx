@@ -95,13 +95,13 @@ const Shell: React.FC = () => {
 
   useEffect(() => {
     const dirty = store.keystores.some((k) => k.dirty);
-    document.title = `${dirty ? "• " : ""}xkeystore${store.activeKeystore && store.tab === "keystores" ? ` — ${store.activeKeystore.name}` : ""}`;
+    document.title = `${dirty ? "• " : ""}Keystore Studio${store.activeKeystore && store.tab === "keystores" ? ` — ${store.activeKeystore.name}` : ""}`;
   }, [store.keystores, store.activeKeystore, store.tab]);
 
   if (!store.ready) {
     return (
       <div className="h-screen w-screen flex items-center justify-center bg-canvas text-muted gap-2 text-[13px]">
-        <Spinner /> Starting xkeystore…
+        <Spinner /> Starting Keystore Studio…
       </div>
     );
   }

@@ -59,7 +59,7 @@ fn main_section(existing: Option<&str>) -> String {
     }
     attrs.retain(|(k, _)| !k.eq_ignore_ascii_case("Manifest-Version") && !k.eq_ignore_ascii_case("Created-By"));
     let mut out = header("Manifest-Version", "1.0");
-    out.push_str(&header("Created-By", &format!("xkeystore {}", env!("CARGO_PKG_VERSION"))));
+    out.push_str(&header("Created-By", &format!("Keystore Studio {}", env!("CARGO_PKG_VERSION"))));
     for (k, v) in attrs {
         out.push_str(&header(&k, &v));
     }
@@ -143,7 +143,7 @@ pub fn sign_jar_with_trust(input: &str, output: &str, signer: &KeystoreEntry, ts
     let mut sf = header("Signature-Version", "1.0");
     sf.push_str(&header("SHA-256-Digest-Manifest-Main-Attributes", &B64.encode(sha256(main.as_bytes()))));
     sf.push_str(&header("SHA-256-Digest-Manifest", &B64.encode(sha256(manifest.as_bytes()))));
-    sf.push_str(&header("Created-By", &format!("xkeystore {}", env!("CARGO_PKG_VERSION"))));
+    sf.push_str(&header("Created-By", &format!("Keystore Studio {}", env!("CARGO_PKG_VERSION"))));
     sf.push_str("\r\n");
     for (name, section) in &sections {
         sf.push_str(&header("Name", name));

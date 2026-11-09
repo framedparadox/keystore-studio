@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "xkeystore",
+  "productName": "Keystore Studio",
   "version": "1.0.0",
-  "identifier": "io.xkeystore.desktop",
+  "identifier": "io.keystorestudio.desktop",
   "build": {
     "beforeDevCommand": "pnpm dev",
     "devUrl": "http://localhost:1420",
@@ -13,7 +13,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "xkeystore",
+        "title": "Keystore Studio",
         "dragDropEnabled": true,
         "width": 1320,
         "height": 860,
@@ -33,7 +33,7 @@
     "category": "DeveloperTool",
     "shortDescription": "Keystore and X.509 certificate workbench",
     "longDescription": "Create, open, edit and convert PKCS#12, JKS and JCEKS keystores; issue certificates, sign CSRs, CRLs, JARs, CMS payloads and JWTs; inspect live TLS servers and certificate files.",
-    "copyright": "© xkeystore contributors. MIT License.",
+    "copyright": "© Keystore Studio contributors. MIT License.",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

@@ -141,12 +141,12 @@ pub fn verify(token: &str, key: &KeystoreEntry) -> Res<JwtVerifyResult> {
         return Ok(JwtVerifyResult { valid: false, message: "Unsigned token (alg \"none\") — rejected.".into(), info });
     }
     // RFC 7515 §4.1.11: a verifier must reject a token whose "crit" lists extensions it does not
-    // implement. xkeystore implements none, so any "crit" (even an empty or malformed one) fails.
+    // implement. Keystore Studio implements none, so any "crit" (even an empty or malformed one) fails.
     if let Some(crit) = b64url_json(h, "header")?.get("crit") {
         let names = crit.as_array().map(|a| a.iter().filter_map(Value::as_str).collect::<Vec<_>>().join(", ")).unwrap_or_default();
         return Ok(JwtVerifyResult {
             valid: false,
-            message: format!("The token marks header parameters as critical ({}), which xkeystore does not implement — rejected.", if names.is_empty() { "crit" } else { &names }),
+            message: format!("The token marks header parameters as critical ({}), which Keystore Studio does not implement — rejected.", if names.is_empty() { "crit" } else { &names }),
             info,
         });
     }

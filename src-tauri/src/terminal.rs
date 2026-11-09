@@ -18,7 +18,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 const MARKER: &str = "__XKS_CWD__";
-/// Windows process flag: start without a console window. xkeystore is a GUI app, so without it
+/// Windows process flag: start without a console window. Keystore Studio is a GUI app, so without it
 /// every command (and the taskkill that stops one) flashed a console window on screen.
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
@@ -218,7 +218,7 @@ pub fn run(command: &str, cwd: Option<String>, timeout_secs: u64) -> Res<Termina
     let new_cwd = tail.cwd.unwrap_or(start_dir);
     let mut stderr = String::from_utf8_lossy(&stderr_bytes).to_string();
     if timed_out {
-        stderr.push_str(&format!("\n[xkeystore] command stopped after {timeout_secs}s (interactive or long-running commands are not supported)"));
+        stderr.push_str(&format!("\n[Keystore Studio] command stopped after {timeout_secs}s (interactive or long-running commands are not supported)"));
     }
     // On Windows the shell's own exit code is that of the final `cd`; the command's is in the tail.
     let code = tail.status.filter(|_| !timed_out).or_else(|| status.and_then(|s| s.code())).unwrap_or(-1);

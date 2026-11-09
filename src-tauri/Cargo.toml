@@ -1,8 +1,8 @@
 [package]
-name = "xkeystore"
+name = "keystore-studio"
 version = "1.0.0"
-description = "xkeystore — native keystore and X.509 certificate workbench"
-authors = ["xkeystore contributors"]
+description = "Keystore Studio — native keystore and X.509 certificate workbench"
+authors = ["Keystore Studio contributors"]
 license = "MIT"
 edition = "2024"
 
@@ -10,7 +10,7 @@ edition = "2024"
 # The `_lib` suffix may seem redundant but it is necessary
 # to make the lib name unique and wouldn't conflict with the bin name.
 # This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
-name = "xkeystore_lib"
+name = "keystore_studio_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 # The fuzz crate is built only by cargo-fuzz, on nightly, against the engine without default

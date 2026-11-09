@@ -62,7 +62,7 @@ pub fn detect(bytes: &[u8]) -> Option<Format> {
     None
 }
 
-/// A Bouncy Castle keystore format xkeystore cannot open, recognised well enough to tell the user
+/// A Bouncy Castle keystore format Keystore Studio cannot open, recognised well enough to tell the user
 /// exactly which one it is and how to convert it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Unsupported {
@@ -224,7 +224,7 @@ pub fn decode(bytes: &[u8], password: &str, key_passwords: &HashMap<String, Stri
                 return Ok((Format::Bks, entries));
             }
             if let Some(kind) = detect_unsupported(bytes) {
-                return Err(format!("unsupported: this is a Bouncy Castle {} keystore, which xkeystore cannot open.\n\n{}", kind.name(), kind.conversion_hint("your-keystore")));
+                return Err(format!("unsupported: this is a Bouncy Castle {} keystore, which Keystore Studio cannot open.\n\n{}", kind.name(), kind.conversion_hint("your-keystore")));
             }
             return Err("unrecognized: not a recognised keystore (expected PKCS#12, JKS or JCEKS)".into());
         }

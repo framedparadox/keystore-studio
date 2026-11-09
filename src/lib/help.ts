@@ -27,7 +27,7 @@ export const HELP_GROUPS: HelpGroup[] = [
     topics: [
       {
         id: "formats",
-        question: "Which files can xkeystore open?",
+        question: "Which files can Keystore Studio open?",
         answer: [
           "Keystores: PKCS#12 (.p12, .pfx), JKS and JCEKS, which you can edit and save. Bouncy Castle BKS v2 opens read-only; save it as PKCS#12 to keep the entries. UBER and BCFKS are not supported; convert them first with keytool -importkeystore.",
           "Certificates, private and public keys, CSRs, CRLs, PKCS#7 bundles and JWTs open in Examine or under Certificates. JAR files open for signing.",
@@ -46,15 +46,15 @@ export const HELP_GROUPS: HelpGroup[] = [
         id: "save",
         question: "What happens when I save?",
         answer: [
-          "Save writes the keystore back to its file in the same format. If the file was changed by another program since you opened it, xkeystore asks before replacing it.",
-          "Save as (Ctrl+Shift+S) can write another format. JKS cannot hold secret keys, and a key that is still locked by its own key password can only be saved back to its original format, so xkeystore lists anything that would be lost before writing.",
+          "Save writes the keystore back to its file in the same format. If the file was changed by another program since you opened it, Keystore Studio asks before replacing it.",
+          "Save as (Ctrl+Shift+S) can write another format. JKS cannot hold secret keys, and a key that is still locked by its own key password can only be saved back to its original format, so Keystore Studio lists anything that would be lost before writing.",
         ],
       },
       {
         id: "undo",
         question: "Can I undo a change?",
         answer: [
-          "Yes. Ctrl+Z undoes and Ctrl+Shift+Z redoes edits to open keystores, up to 30 steps. Labels and workspaces are xkeystore's own notes, not edits to the file, so they are not part of undo.",
+          "Yes. Ctrl+Z undoes and Ctrl+Shift+Z redoes edits to open keystores, up to 30 steps. Labels and workspaces are Keystore Studio's own notes, not edits to the file, so they are not part of undo.",
         ],
       },
     ],
@@ -67,7 +67,7 @@ export const HELP_GROUPS: HelpGroup[] = [
         id: "locked-after-restart",
         question: "Why are my keystores locked after a restart?",
         answer: [
-          "xkeystore reopens the keystores from your last session by file path but never keeps their passwords in plain form. Each one stays locked until you enter its password on the Keystores page.",
+          "Keystore Studio reopens the keystores from your last session by file path but never keeps their passwords in plain form. Each one stays locked until you enter its password on the Keystores page.",
           "If you saved the password in the vault, unlock the vault instead: every locked keystore with a remembered password opens at once.",
         ],
         link: { label: "Open the vault", tab: "vault" },
@@ -141,7 +141,7 @@ export const HELP_GROUPS: HelpGroup[] = [
         id: "examine",
         question: "How do I check a server's certificate?",
         answer: [
-          "In Examine, enter a host and port. xkeystore connects, shows the chain the server sends and checks it against your system's trusted roots. Test connection only checks that the port is reachable.",
+          "In Examine, enter a host and port. Keystore Studio connects, shows the chain the server sends and checks it against your system's trusted roots. Test connection only checks that the port is reachable.",
         ],
         link: { label: "Open Examine", tab: "examine" },
       },

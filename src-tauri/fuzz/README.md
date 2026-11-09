@@ -1,6 +1,6 @@
-# Fuzzing the xkeystore parsers
+# Fuzzing the Keystore Studio parsers
 
-Written for: developers working on xkeystore.
+Written for: developers working on Keystore Studio.
 
 Every parser here reads a file someone else produced. A user opens a keystore they were sent, or
 drops a certificate on the window, and the bytes go straight into a decoder that does arithmetic on

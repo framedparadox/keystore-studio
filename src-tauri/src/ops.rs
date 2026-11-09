@@ -67,7 +67,7 @@ fn issuer_from(ca: &KeystoreEntry) -> Res<Issuer> {
     }
     let key = entry::private_key(ca)?;
     if !key.is_usable() {
-        return Err(format!("'{}' uses {} which xkeystore cannot sign with", ca.alias, key.algorithm()));
+        return Err(format!("'{}' uses {} which Keystore Studio cannot sign with", ca.alias, key.algorithm()));
     }
     let chain = entry::chain_der(ca)?;
     let leaf = ca.certificate_chain.first().ok_or_else(|| format!("'{}' has no certificate", ca.alias))?;
@@ -239,7 +239,7 @@ pub fn generate_csr(e: &KeystoreEntry, options: &CsrOptions) -> Res<CsrResult> {
     }
     let key = entry::private_key(e)?;
     if !key.is_usable() {
-        return Err(format!("{} keys cannot sign a CSR in xkeystore", key.algorithm()));
+        return Err(format!("{} keys cannot sign a CSR in Keystore Studio", key.algorithm()));
     }
     let chain = entry::chain_der(e)?;
     let subject = match options.subject_dn.as_deref().map(str::trim).filter(|s| !s.is_empty()) {

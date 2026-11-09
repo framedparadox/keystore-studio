@@ -310,7 +310,7 @@ const SignCsrTool: React.FC = () => {
         ca.entry
       );
       setResult(res);
-      // Find the key pair this certificate belongs to (requested from xkeystore).
+      // Find the key pair this certificate belongs to (requested from Keystore Studio).
       let found: Candidate | null = null;
       for (const ks of keystores) {
         for (const e of ks.entries) {
@@ -933,7 +933,7 @@ const JarTool: React.FC = () => {
         </Button>
         <TerminalHint command={`jarsigner -verify -verbose -certs "${result?.output_path ?? "app-signed.jar"}"`} label="Verify" />
       </div>
-      <ResultPane empty="Choose a JAR and a signing key. xkeystore writes MANIFEST.MF digests, the .SF file and a CMS signature block compatible with jarsigner.">
+      <ResultPane empty="Choose a JAR and a signing key. Keystore Studio writes MANIFEST.MF digests, the .SF file and a CMS signature block compatible with jarsigner.">
         {result && (
           <div className="space-y-3">
             <Alert tone="success" title="Archive signed">

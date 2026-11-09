@@ -2295,6 +2295,54 @@ dependencies = [
 ]
 
 [[package]]
+name = "keystore-studio"
+version = "1.0.0"
+dependencies = [
+ "aes",
+ "aes-gcm",
+ "argon2",
+ "base64 0.22.1",
+ "byteorder",
+ "cbc",
+ "chrono",
+ "des",
+ "dirs 6.0.0",
+ "ed25519-dalek",
+ "hex",
+ "hmac",
+ "libc",
+ "md-5",
+ "num-bigint-dig",
+ "p256",
+ "p384",
+ "p521",
+ "pbkdf2",
+ "pem",
+ "rand",
+ "rand_core",
+ "rc2",
+ "rsa",
+ "rustls",
+ "rustls-native-certs",
+ "serde",
+ "serde_json",
+ "sha1",
+ "sha2",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-dialog",
+ "tauri-plugin-opener",
+ "tempfile",
+ "ureq",
+ "uuid",
+ "webpki-roots 0.26.11",
+ "x509-parser",
+ "yasna",
+ "zeroize",
+ "zip",
+]
+
+[[package]]
 name = "lazy_static"
 version = "1.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5706,54 +5754,6 @@ dependencies = [
  "rusticata-macros",
  "thiserror 1.0.69",
  "time",
-]
-
-[[package]]
-name = "xkeystore"
-version = "1.0.0"
-dependencies = [
- "aes",
- "aes-gcm",
- "argon2",
- "base64 0.22.1",
- "byteorder",
- "cbc",
- "chrono",
- "des",
- "dirs 6.0.0",
- "ed25519-dalek",
- "hex",
- "hmac",
- "libc",
- "md-5",
- "num-bigint-dig",
- "p256",
- "p384",
- "p521",
- "pbkdf2",
- "pem",
- "rand",
- "rand_core",
- "rc2",
- "rsa",
- "rustls",
- "rustls-native-certs",
- "serde",
- "serde_json",
- "sha1",
- "sha2",
- "tauri",
- "tauri-build",
- "tauri-plugin-dialog",
- "tauri-plugin-opener",
- "tempfile",
- "ureq",
- "uuid",
- "webpki-roots 0.26.11",
- "x509-parser",
- "yasna",
- "zeroize",
- "zip",
 ]
 
 [[package]]

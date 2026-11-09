@@ -1,5 +1,5 @@
 {
-  "name": "xkeystore",
+  "name": "keystore-studio",
   "private": true,
   "version": "1.0.0",
   "type": "module",
@@ -13,7 +13,8 @@
     "test:rust": "cargo test --manifest-path src-tauri/Cargo.toml",
     "test:e2e": "tauri build --debug --no-bundle && node e2e/app.e2e.mjs",
     "test:e2e:headless": "pnpm build && node e2e/headless-ui.mjs",
-    "test:e2e:mac": "pnpm build && cargo build --manifest-path src-tauri/Cargo.toml --bin xkeystore --features custom-protocol && node e2e/eval-drive.mjs",
+    "screenshots": "pnpm build && node e2e/readme-screenshots.mjs",
+    "test:e2e:mac": "pnpm build && cargo build --manifest-path src-tauri/Cargo.toml --bin keystore-studio --features custom-protocol && node e2e/eval-drive.mjs",
     "lint": "cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings",
     "fuzz": "./src-tauri/fuzz/run-all.sh",
     "test:all": "pnpm typecheck && pnpm test && pnpm lint && pnpm test:rust"

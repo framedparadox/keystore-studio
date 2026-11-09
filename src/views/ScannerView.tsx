@@ -216,7 +216,7 @@ export const ScannerView: React.FC = () => {
 
   const exportReport = async () => {
     try {
-      const path = await pickSavePath("Save security report", `xkeystore-security-report-${new Date().toISOString().slice(0, 10)}.csv`, [{ name: "CSV", extensions: ["csv"] }]);
+      const path = await pickSavePath("Save security report", `keystore-studio-security-report-${new Date().toISOString().slice(0, 10)}.csv`, [{ name: "CSV", extensions: ["csv"] }]);
       if (!path) return;
       const esc = (s: string) => csvField(s);
       const lines = ["Keystore,Alias,Type,Algorithm,Expires,Severity,Finding,Detail"];

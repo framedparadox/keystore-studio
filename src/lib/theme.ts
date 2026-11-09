@@ -7,7 +7,7 @@
 export type ThemePreference = "system" | "light" | "dark";
 export type Theme = "light" | "dark";
 
-const STORAGE_KEY = "xkeystore.theme";
+const STORAGE_KEY = "keystore-studio.theme";
 const DARK_QUERY = "(prefers-color-scheme: dark)";
 
 export const isThemePreference = (v: unknown): v is ThemePreference => v === "system" || v === "light" || v === "dark";

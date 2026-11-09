@@ -1,4 +1,4 @@
-# xkeystore design rules
+# Keystore Studio design rules
 
 One visual language, defined once. If a rule here and a view disagree, fix the view.
 

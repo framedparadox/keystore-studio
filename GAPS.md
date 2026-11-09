@@ -1,6 +1,6 @@
 # Certificate and keystore backlog
 
-Written for developers working on xkeystore. This is a code review of the engine
+Written for developers working on Keystore Studio. This is a code review of the engine
 (`src-tauri/src`) and the UI that drives it (`src/`), focused on certificate and keystore
 operations: what is wrong, what a `keytool` / `openssl` user will look for and not find, and the
 order to tackle it.
@@ -195,7 +195,7 @@ two key ids itself). Everything a private CA needs to be operable by someone els
 
 `build_crl` writes a v2 CRL with CRL number and AKI. Nothing writes a CRL distribution point or
 an authority info access (OCSP, caIssuers) onto the certificate. A verifier cannot find the CRL
-this app just produced. CRL numbers live in `localStorage` under `xkeystore.crlNumbers`, keyed by
+this app just produced. CRL numbers live in `localStorage` under `keystore-studio.crlNumbers`, keyed by
 CA alias, not by subject key id, and not in the keystore. Generating a CRL starts from the rows
 the user typed. There is no "open this CRL, add a serial, re-sign".
 
@@ -415,7 +415,7 @@ not from the older status table in IMPROVEMENT.md.
 | OS trust store, OCSP, CRL during validation | `x509::validate_chain` (including `NameConstraints`, wildcard/IP SAN checks, anchor self-signatures, and CA `pathLen`) is wired into `ScannerView.tsx`. Network revocation fetching is the step after that. |
 | rustfmt | Done (`src-tauri/rustfmt.toml`, `cargo fmt --check` clean). |
 | Frontend tests | 41 unit tests in `src/lib/lib.test.ts`. Store, dialog and view behaviour is covered end to end instead: 30 steps in `e2e/headless-ui.mjs` (CI job `e2e-headless`), 27 against the real macOS window in `e2e/eval-drive.mjs`, and the Linux WebDriver journey in `e2e/app.e2e.mjs`. |
-| `keytool_keystores_open_in_xkeystore` | Parallelized across formats in `tests/interop.rs`. |
+| `keytool_keystores_open_in_keystore_studio` | Parallelized across formats in `tests/interop.rs`. |
 | Accessibility | Reviewed 2026-11-08 (G11): text contrast meets WCAG AA on every audited screen; dialogs trap and restore focus and name themselves (`aria-labelledby`); menus and the command palette work from the keyboard; destructive confirmations default to Cancel. Still no pass with a real screen reader. |
 
 ---
@@ -467,7 +467,7 @@ while C1–C7 are open; those defects ship in files people will trust.
 - [ ] **E2. S5** Drop the `crypto-bigint` pin once the elliptic-curve crates allow it. Remove the `deny.toml` exception. Still blocked: p256/p384/p521 have not published a release on `elliptic-curve` 0.14, so the `deny.toml` exception stays.
 - [x] **E3. S7** Diagnostics bundle with no secrets. *(Verified: `SettingsView.tsx:127-142`.)*
 - [x] **E4.** rustfmt in one commit, then `cargo fmt --check` on CI. `src-tauri/rustfmt.toml` sets `max_width = 200` so the ASN.1 builders stay readable. The lint job runs `cargo fmt --check`.
-- [x] **E5.** Speed up the keytool interop test with shared fixtures. *(Verified: `tests/interop.rs` parallelizes `keytool_keystores_open_in_xkeystore` across formats with `std::thread::scope`.)*
+- [x] **E5.** Speed up the keytool interop test with shared fixtures. *(Verified: `tests/interop.rs` parallelizes `keytool_keystores_open_in_keystore_studio` across formats with `std::thread::scope`.)*
 - [x] **E6.** Frontend tests for rename, save-as format guards, profile key usage, and renew's CA selection. *(Verified: 18 tests in `src/lib/lib.test.ts`.)*
 - [ ] **E7.** Push the CI workflow and fix the first macOS and Windows breaks. The workflow now includes `cargo fmt --check`. It has not been pushed, so the macOS and Windows jobs are still unproven. Signing and notarization stay a release task.
 - [x] **E8. S6** Remove MD5 from the default certificate view. *(Verified: `CertificateView.tsx`, `x509.rs`.)*
@@ -659,7 +659,7 @@ Findings from the 2026-11-06 full-tree code audit and scenario harness verificat
 - **Symptom:**
   1. `SettingsView.tsx:177` states *"Nothing is sent over the network except the TLS handshakes you start from Examine"* and line 186 states *"Not supported: Bouncy Castle BKS/BCFKS/UBER keystores, hardware tokens (PKCS#11), TSA timestamping"* on the same Settings page that configures RFC 3161 TSA timestamping and after BKS v2 read support was added.
   2. `x509::parse_certificate` (`x509.rs:881`) still computes `md5_fingerprint: colon_hex(&md5(der))` and serializes it on `CertificateInfo` (`model.rs:39`, `src/types/crypto.ts:52`) even though `S6` / `E8` removed MD5 from the UI.
-- **Repro:** Open Settings → About xkeystore (`SettingsView.tsx:177, 186`).
+- **Repro:** Open Settings → About Keystore Studio (`SettingsView.tsx:177, 186`).
 - **Done when:** `SettingsView.tsx` accurately describes BKS v2 read-only support and optional RFC 3161 TSA requests, and `md5_fingerprint` is removed from `CertificateInfo` (or computed only on explicit demand).
 
 ---

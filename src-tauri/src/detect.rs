@@ -198,7 +198,7 @@ fn examine_der(bytes: &[u8], password: Option<&str>, format: &str) -> Res<Detect
     r.kind = "unknown".into();
     r.title = "Unrecognised data".into();
     r.format = "binary".into();
-    r.summary = "Not a certificate, CSR, CRL, PKCS#7, key or keystore that xkeystore recognises.".into();
+    r.summary = "Not a certificate, CSR, CRL, PKCS#7, key or keystore that Keystore Studio recognises.".into();
     Ok(r)
 }
 

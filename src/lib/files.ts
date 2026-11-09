@@ -18,12 +18,12 @@ export const FILTERS = {
 } satisfies Record<string, FileFilter>;
 
 function requireDesktop() {
-  if (!isDesktop()) throw new Error("File dialogs need the xkeystore desktop app.");
+  if (!isDesktop()) throw new Error("File dialogs need the Keystore Studio desktop app.");
 }
 
 /*
  * End-to-end tests cannot drive native file dialogs. When the app is started with
- * XKEYSTORE_E2E=1 the harness may queue answers in window.__xksStub = { open: [], save: [] }.
+ * KEYSTORE_STUDIO_E2E=1 the harness may queue answers in window.__xksStub = { open: [], save: [] }.
  */
 let stubAllowed = false;
 export const allowDialogStub = () => {

@@ -275,7 +275,7 @@ impl PrivateKey {
             PrivateKey::P521(k) => k.public_key().to_public_key_der().map_err(e)?.as_bytes().to_vec(),
             PrivateKey::Ed25519(k) => k.verifying_key().to_public_key_der().map_err(e)?.as_bytes().to_vec(),
             PrivateKey::Opaque { algorithm, .. } => {
-                return Err(format!("{algorithm} keys can be stored but not used for signing in xkeystore"));
+                return Err(format!("{algorithm} keys can be stored but not used for signing in Keystore Studio"));
             }
         })
     }
@@ -318,7 +318,7 @@ impl PrivateKey {
             PrivateKey::P384(_) => SigAlg::Ecdsa(HashAlg::Sha384),
             PrivateKey::P521(_) => SigAlg::Ecdsa(HashAlg::Sha512),
             PrivateKey::Ed25519(_) => SigAlg::Ed25519,
-            PrivateKey::Opaque { algorithm, .. } => return Err(format!("{algorithm} keys cannot be used for signing in xkeystore")),
+            PrivateKey::Opaque { algorithm, .. } => return Err(format!("{algorithm} keys cannot be used for signing in Keystore Studio")),
         })
     }
 

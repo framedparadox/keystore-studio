@@ -12,7 +12,7 @@ export type TabType =
   | "vault"
   | "settings";
 
-/** Formats xkeystore can open and save. */
+/** Formats Keystore Studio can open and save. */
 export type KeystoreFormat = "PKCS12" | "JKS" | "JCEKS" | "BKS";
 /** Formats the app can write. BKS is opened read-only. */
 export const KEYSTORE_FORMATS: KeystoreFormat[] = ["PKCS12", "JKS", "JCEKS"];

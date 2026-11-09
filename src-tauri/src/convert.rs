@@ -107,7 +107,7 @@ fn pkipath(der: &[u8]) -> Option<Vec<Vec<u8>>> {
     if certs.is_empty() || !certs.iter().all(|c| x509::cert_summary(c).is_ok()) {
         return None;
     }
-    // Everything else in xkeystore is leaf first.
+    // Everything else in Keystore Studio is leaf first.
     Some(certs.into_iter().rev().collect())
 }
 
@@ -443,7 +443,7 @@ fn is_encrypted_pkcs8(der: &[u8]) -> bool {
     .unwrap_or(false)
 }
 
-/// The PEM label matching a DER object, when it is one xkeystore recognises.
+/// The PEM label matching a DER object, when it is one Keystore Studio recognises.
 pub fn detect_der_label(der: &[u8]) -> Option<&'static str> {
     if x509::cert_summary(der).is_ok() {
         return Some("CERTIFICATE");

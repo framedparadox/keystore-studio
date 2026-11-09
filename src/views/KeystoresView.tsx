@@ -93,7 +93,7 @@ let clipboardMemory: Clip | null = null;
 const HEALTH_RANK = { "at-risk": 0, attention: 1, healthy: 2 } as const;
 // Keys that need their password first, then usable keys, then entries without a key.
 const LOCK_RANK: Record<LockState, number> = { locked: 0, "own-password": 0, unlocked: 1, "no-key": 2 };
-const NAV_HIDDEN_KEY = "xkeystore.keystoreNavHidden";
+const NAV_HIDDEN_KEY = "keystore-studio.keystoreNavHidden";
 /** Entries listed under one keystore before "Show more". */
 const TREE_PAGE = 100;
 
@@ -197,7 +197,7 @@ const BulkLabelDialog: React.FC<{ count: number; suggestions: string[]; onClose:
       icon={Tag}
       size="sm"
       title={`Label ${count} ${count === 1 ? "entry" : "entries"}`}
-      description="Labels are xkeystore metadata; they are not written into the keystore file."
+      description="Labels are Keystore Studio metadata; they are not written into the keystore file."
       testId="bulk-label-dialog"
       footer={
         <>

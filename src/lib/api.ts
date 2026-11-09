@@ -64,7 +64,7 @@ export function errorMessage(err: unknown): string {
 
 async function call<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
   if (!isDesktop()) {
-    throw new Error("This action needs the xkeystore desktop app (the browser preview has no native engine).");
+    throw new Error("This action needs the Keystore Studio desktop app (the browser preview has no native engine).");
   }
   return invoke<T>(cmd, args);
 }

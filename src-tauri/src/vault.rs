@@ -20,7 +20,12 @@ use std::path::PathBuf;
 use std::sync::Mutex;
 use zeroize::Zeroize;
 
+/// Part of the on-disk vault format, not branding: every existing `vault.json` holds this value
+/// encrypted, so changing it would make those vaults reject the correct master key. It keeps the
+/// app's former name (xkeystore) on purpose.
 const CHECK_VALUE: &[u8] = b"xkeystore-vault-check-v1";
+/// The data folder's name before the app was renamed to Keystore Studio.
+const LEGACY_DIR_NAME: &str = "xkeystore";
 pub const MIN_MASTER_KEY_LEN: usize = 8;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -86,11 +91,23 @@ impl VaultState {
         self.files.lock().map_err(|_| "vault state poisoned".to_string())
     }
 
-    /// The default location: `<data dir>/xkeystore`.
+    /// The default location: `<data dir>/keystore-studio`.
+    ///
+    /// A folder left by the app under its former name (`<data dir>/xkeystore`) is moved here the
+    /// first time, so the vault, session and settings carry over. If that move fails, the old
+    /// folder keeps being used rather than starting over empty.
     pub fn default_dir() -> PathBuf {
-        let mut d = dirs::data_dir().unwrap_or_else(std::env::temp_dir);
-        d.push("xkeystore");
-        d
+        let base = dirs::data_dir().unwrap_or_else(std::env::temp_dir);
+        Self::resolve_dir(&base)
+    }
+
+    fn resolve_dir(base: &std::path::Path) -> PathBuf {
+        let dir = base.join("keystore-studio");
+        let legacy = base.join(LEGACY_DIR_NAME);
+        if !dir.exists() && legacy.is_dir() && std::fs::rename(&legacy, &dir).is_err() {
+            return legacy;
+        }
+        dir
     }
 
     fn vault_path(&self) -> PathBuf {
@@ -366,6 +383,24 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let v = VaultState::new(dir.path().to_path_buf());
         (dir, v)
+    }
+
+    #[test]
+    fn data_folder_from_the_former_name_is_moved_once() {
+        let base = tempfile::tempdir().unwrap();
+        let legacy = base.path().join(LEGACY_DIR_NAME);
+        std::fs::create_dir(&legacy).unwrap();
+        std::fs::write(legacy.join("vault.json"), b"{}").unwrap();
+
+        let dir = VaultState::resolve_dir(base.path());
+        assert_eq!(dir, base.path().join("keystore-studio"));
+        assert_eq!(std::fs::read(dir.join("vault.json")).unwrap(), b"{}");
+        assert!(!legacy.exists(), "the old folder should have been moved, not copied");
+
+        // A new folder that already exists wins; a stray old one is left alone.
+        std::fs::create_dir(&legacy).unwrap();
+        assert_eq!(VaultState::resolve_dir(base.path()), dir);
+        assert!(legacy.exists());
     }
 
     #[test]

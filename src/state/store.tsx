@@ -402,7 +402,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       updateKeystore(working);
       // The user just created, imported or pasted these, so their keys are usable.
       markUnlocked(added.map((e) => e.id));
-      // Labels given when the entry was made (e.g. in "Generate key pair") are xkeystore metadata:
+      // Labels given when the entry was made (e.g. in "Generate key pair") are Keystore Studio metadata:
       // they live in the label map, which is what is persisted and survives a reopen.
       const labelled = added.filter((e) => e.labels.length);
       if (labelled.length) setLabels((l) => ({ ...l, ...Object.fromEntries(labelled.map((e) => [e.id, e.labels])) }));
@@ -441,7 +441,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   );
 
   const setEntryLabels = useCallback((keystoreId: string, entryId: string, list: string[]) => {
-    // Labels are xkeystore metadata (not stored in the keystore file): no dirty flag, no undo.
+    // Labels are Keystore Studio metadata (not stored in the keystore file): no dirty flag, no undo.
     // Every snapshot gets them too, or undoing an earlier edit would bring back the old labels.
     patchEverywhere(keystoreId, (k) => ({ ...k, entries: k.entries.map((e) => (e.id === entryId ? { ...e, labels: list } : e)) }));
     setLabels((l) => {
@@ -611,7 +611,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           setExamineRequest({ path, nonce: Date.now() });
           setTab("examine");
         } else {
-          toast.error(`${probe.name} is not a keystore, certificate, key, CSR, CRL or signature that xkeystore recognises.`);
+          toast.error(`${probe.name} is not a keystore, certificate, key, CSR, CRL or signature that Keystore Studio recognises.`);
         }
       } catch (err) {
         toast.error(errorMessage(err));

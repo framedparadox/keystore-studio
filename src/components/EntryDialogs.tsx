@@ -403,7 +403,7 @@ export const LabelsDialog: React.FC<{ keystore: OpenKeystore; entry: KeystoreEnt
       icon={Tag}
       size="sm"
       title={`Labels for ${entry.alias}`}
-      description="Labels are xkeystore metadata; they are not written into the keystore file."
+      description="Labels are Keystore Studio metadata; they are not written into the keystore file."
       footer={
         <>
           <Button onClick={onClose}>Cancel</Button>

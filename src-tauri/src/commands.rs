@@ -74,7 +74,7 @@ struct AppInfo {
     data_dir: String,
     platform: String,
     home_dir: String,
-    /// Set by the end-to-end test harness (XKEYSTORE_E2E=1) to script file dialogs.
+    /// Set by the end-to-end test harness (KEYSTORE_STUDIO_E2E=1) to script file dialogs.
     e2e: bool,
 }
 
@@ -85,7 +85,7 @@ fn app_info(paths: State<Arc<AppPaths>>) -> AppInfo {
         data_dir: paths.data_dir.to_string_lossy().into(),
         platform: std::env::consts::OS.into(),
         home_dir: dirs::home_dir().map(|h| h.to_string_lossy().to_string()).unwrap_or_default(),
-        e2e: std::env::var_os("XKEYSTORE_E2E").is_some(),
+        e2e: std::env::var_os("KEYSTORE_STUDIO_E2E").is_some(),
     }
 }
 
@@ -729,7 +729,7 @@ async fn run_terminal_command(command: String, cwd: Option<String>, timeout_secs
 
 /// Localhost JavaScript bridge used by `e2e/eval-drive.mjs`.
 ///
-/// Started only when `XKEYSTORE_E2E` is set (the same switch that lets the harness script file
+/// Started only when `KEYSTORE_STUDIO_E2E` is set (the same switch that lets the harness script file
 /// dialogs). It binds `127.0.0.1` and writes the port to `e2e.port` in the data directory.
 /// Each connection carries length-prefixed UTF-8 frames: a script in, a JSON value out.
 fn start_e2e_bridge(app: tauri::AppHandle, data_dir: std::path::PathBuf) {
@@ -857,14 +857,14 @@ fn e2e_eval_once(app: &tauri::AppHandle, script: String, timeout: std::time::Dur
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let data_dir = std::env::var_os("XKEYSTORE_DATA_DIR").map(std::path::PathBuf::from).unwrap_or_else(VaultState::default_dir);
+    let data_dir = std::env::var_os("KEYSTORE_STUDIO_DATA_DIR").map(std::path::PathBuf::from).unwrap_or_else(VaultState::default_dir);
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .manage(Arc::new(VaultState::new(data_dir.clone())))
         .manage(Arc::new(AppPaths { data_dir: data_dir.clone() }))
         .on_page_load(|_, payload| {
-            if std::env::var_os("XKEYSTORE_E2E").is_none() {
+            if std::env::var_os("KEYSTORE_STUDIO_E2E").is_none() {
                 return;
             }
             let url = payload.url().to_string();
@@ -876,7 +876,7 @@ pub fn run() {
             }
         })
         .setup(move |app| {
-            if std::env::var_os("XKEYSTORE_E2E").is_some() {
+            if std::env::var_os("KEYSTORE_STUDIO_E2E").is_some() {
                 start_e2e_bridge(app.handle().clone(), data_dir.clone());
             }
             Ok(())
@@ -937,5 +937,5 @@ pub fn run() {
             run_terminal_command,
         ])
         .run(tauri::generate_context!())
-        .expect("error while running xkeystore");
+        .expect("error while running Keystore Studio");
 }

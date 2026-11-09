@@ -283,7 +283,7 @@ export const VaultView: React.FC = () => {
           rowKey={(s) => s.id}
           initialSort={{ id: "label", dir: "asc" }}
           empty={<EmptyState icon={KeyRound} title="No passwords remembered yet" description="Tick “Remember the password in the vault” when opening or saving a keystore." />}
-          footer={<span>Stored in the xkeystore data folder; only ciphertext is written to disk.</span>}
+          footer={<span>Stored in the Keystore Studio data folder; only ciphertext is written to disk.</span>}
         />
       </Card>
       <ChangeMasterKeyDialog open={changeOpen} onClose={() => setChangeOpen(false)} />

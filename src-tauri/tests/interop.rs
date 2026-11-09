@@ -1,11 +1,11 @@
-//! Interoperability tests against the real tools users pair xkeystore with: Java `keytool` /
+//! Interoperability tests against the real tools users pair Keystore Studio with: Java `keytool` /
 //! `jarsigner` and `openssl`. Each test is skipped (with a message) if the tool is missing.
 
+use keystore_studio_lib::model::*;
+use keystore_studio_lib::{cms, dh, entry, export, jar, jwt, keystore, ops, tls};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use xkeystore_lib::model::*;
-use xkeystore_lib::{cms, dh, entry, export, jar, jwt, keystore, ops, tls};
 
 fn have(tool: &str) -> bool {
     Command::new("sh").arg("-c").arg(format!("command -v {tool}")).output().map(|o| o.status.success()).unwrap_or(false)
@@ -31,7 +31,7 @@ fn kp_input(alias: &str, alg: &str, curve: &str, is_ca: bool) -> GenerateKeyPair
         key_size: 2048,
         curve: Some(curve.into()),
         signature_hash: None,
-        subject_dn: format!("CN={alias}.example.test, OU=Interop, O=xkeystore, C=US"),
+        subject_dn: format!("CN={alias}.example.test, OU=Interop, O=Keystore Studio, C=US"),
         common_name: String::new(),
         organization: String::new(),
         organizational_unit: String::new(),
@@ -120,7 +120,7 @@ fn our_keystores_open_in_keytool() {
 }
 
 #[test]
-fn keytool_keystores_open_in_xkeystore() {
+fn keytool_keystores_open_in_keystore_studio() {
     if !have("keytool") {
         eprintln!("skipping: keytool not installed");
         return;
@@ -264,7 +264,7 @@ fn pbmac1_pkcs12_interop_with_openssl() {
     // Ours → theirs. Written with PBMAC1 and read back by OpenSSL, key and certificate intact.
     let p = pki();
     let ours = d.path().join("ours-pbmac1.p12");
-    let bytes = xkeystore_lib::pkcs12::encode_with_mac(std::slice::from_ref(&p.rsa), "macpass", xkeystore_lib::pkcs12::MacKind::Pbmac1).unwrap();
+    let bytes = keystore_studio_lib::pkcs12::encode_with_mac(std::slice::from_ref(&p.rsa), "macpass", keystore_studio_lib::pkcs12::MacKind::Pbmac1).unwrap();
     std::fs::write(&ours, &bytes).unwrap();
     let dump = o(&["pkcs12", "-in", "ours-pbmac1.p12", "-passin", "pass:macpass", "-nodes", "-info"]);
     assert!(dump.contains("PBMAC1"), "OpenSSL did not report PBMAC1 protection:\n{dump}");
@@ -354,7 +354,7 @@ fn certificates_csrs_and_crls_verify_with_openssl() {
 }
 
 #[test]
-fn keytool_ca_workflow_with_xkeystore_ca() {
+fn keytool_ca_workflow_with_keystore_studio_ca() {
     if !have("keytool") {
         eprintln!("skipping: keytool not installed");
         return;
@@ -409,7 +409,7 @@ fn cms_interop_with_openssl() {
         let key = entry::private_key(e).unwrap();
         let chain = entry::chain_der(e).unwrap();
         let attached = cms::sign(b"interop payload\n", &key, &chain, false).unwrap();
-        write(d.path(), "att.pem", xkeystore_lib::util::to_pem("CMS", &attached).as_bytes());
+        write(d.path(), "att.pem", keystore_studio_lib::util::to_pem("CMS", &attached).as_bytes());
         let out = must(d.path(), "openssl", &["cms", "-verify", "-in", "att.pem", "-inform", "PEM", "-noverify", "-binary"]);
         assert!(out.contains("interop payload") && out.contains("Verification successful"), "{} {out}", e.alias);
         let detached = cms::sign(b"interop payload\n", &key, &chain, true).unwrap();
@@ -421,7 +421,7 @@ fn cms_interop_with_openssl() {
         let (ok, _) = run(d.path(), "openssl", &["cms", "-verify", "-in", "det.der", "-inform", "DER", "-content", "bad.txt", "-noverify", "-binary", "-out", "/dev/null"]);
         assert!(!ok);
     }
-    // OpenSSL-produced signatures verify in xkeystore.
+    // OpenSSL-produced signatures verify in Keystore Studio.
     write(d.path(), "s.crt", p.rsa.certificate_chain[0].pem.as_bytes());
     write(d.path(), "s.key", p.rsa.private_key_pem.as_ref().unwrap().as_bytes());
     must(d.path(), "openssl", &["cms", "-sign", "-signer", "s.crt", "-inkey", "s.key", "-in", "data.txt", "-binary", "-nodetach", "-outform", "DER", "-out", "o.p7s"]);
@@ -478,7 +478,7 @@ fn built_pkcs12_opens_in_openssl_and_keytool() {
 
     for (name, src) in [("rsa", &p.rsa), ("ec", &p.ec)] {
         // Write out the inputs the way a user would have them on disk.
-        let chain: String = entry::chain_der(src).unwrap().iter().map(|c| xkeystore_lib::util::to_pem("CERTIFICATE", c)).collect();
+        let chain: String = entry::chain_der(src).unwrap().iter().map(|c| keystore_studio_lib::util::to_pem("CERTIFICATE", c)).collect();
         write(d.path(), "cert.pem", chain.as_bytes());
         write(d.path(), "key.pem", src.private_key_pem.as_ref().unwrap().as_bytes());
 
@@ -527,7 +527,7 @@ fn built_pkcs12_opens_in_openssl_and_keytool() {
             mac: None,
         })
         .unwrap();
-        xkeystore_lib::util::write_atomic(&out_path, &der).unwrap();
+        keystore_studio_lib::util::write_atomic(&out_path, &der).unwrap();
         assert_eq!(std::fs::read(&out_path).unwrap(), der, "the written file must match what we built");
         let back = keystore::open(&out_path.to_string_lossy(), "pathpw", &HashMap::new()).unwrap();
         assert_eq!(back.entries.iter().filter(|e| e.entry_type == "KeyPair").count(), 1);
@@ -636,7 +636,7 @@ fn start_test_tsa(dir: &Path) -> Option<TestTsa> {
         "-out",
         "tsacert.pem",
         "-subj",
-        "/CN=xkeystore Test TSA/O=Interop",
+        "/CN=Keystore Studio Test TSA/O=Interop",
         "-days",
         "30",
         "-addext",
@@ -738,7 +738,7 @@ fn timestamps_verify_with_openssl_ts() {
 
     let (signed, ts) = cms::sign_timestamped(b"timestamped payload", &key, &chain, true, Some(&tsa.url)).expect("timestamped signing");
     let ts = ts.expect("a timestamp should have been returned");
-    assert!(ts.authority.contains("xkeystore Test TSA"), "authority was {:?}", ts.authority);
+    assert!(ts.authority.contains("Keystore Studio Test TSA"), "authority was {:?}", ts.authority);
     assert_eq!(ts.hash_algorithm, "SHA-256");
     assert!(ts.time.ends_with("UTC"), "{:?}", ts.time);
 
@@ -764,7 +764,7 @@ fn timestamps_verify_with_openssl_ts() {
 
     // A token moved onto a different signature must be rejected, not accepted silently.
     let (other, _) = cms::sign_timestamped(b"different payload", &key, &chain, true, None).unwrap();
-    assert!(xkeystore_lib::tsa::verify_token(&ts.token, &other).is_err());
+    assert!(keystore_studio_lib::tsa::verify_token(&ts.token, &other).is_err());
 
     // An unreachable authority must fail the whole signing operation, not produce an unstamped file.
     let err = cms::sign_timestamped(b"x", &key, &chain, true, Some("http://127.0.0.1:1/tsa")).unwrap_err();

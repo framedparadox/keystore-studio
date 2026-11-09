@@ -15,8 +15,8 @@
 //! feedback but needs nightly; see IMPROVEMENT.md. Any crash found there should be added to
 //! `CORPUS_SEEDS` or the mutation set here so it stays fixed.
 
+use keystore_studio_lib::{cms, detect, jks, keys, keystore, pbe, pkcs12, tsa, x509};
 use std::collections::HashMap;
-use xkeystore_lib::{cms, detect, jks, keys, keystore, pbe, pkcs12, tsa, x509};
 
 /// Runs every parser over `data`. A panic in any of them fails the test with the input that caused
 /// it; returning an error is always acceptable.
@@ -136,7 +136,7 @@ fn mutations_of_real_files_are_rejected_not_fatal() {
         originals.push((name, keystore::encode(std::slice::from_ref(&entry), password, format).unwrap()));
     }
     originals.push(("p12-pbmac1", pkcs12::encode_with_mac(std::slice::from_ref(&entry), password, pkcs12::MacKind::Pbmac1).unwrap()));
-    originals.push(("cert-der", xkeystore_lib::entry::chain_der(&entry).unwrap()[0].clone()));
+    originals.push(("cert-der", keystore_studio_lib::entry::chain_der(&entry).unwrap()[0].clone()));
     originals.push(("cert-pem", entry.certificate_chain[0].pem.as_bytes().to_vec()));
 
     // Each mutation runs every parser, and the keystore decoders each do a 10 000-iteration PBKDF2
@@ -187,12 +187,12 @@ fn the_unmutated_files_still_open() {
     }
 }
 
-fn sample_entry() -> xkeystore_lib::model::KeystoreEntry {
+fn sample_entry() -> keystore_studio_lib::model::KeystoreEntry {
     sample_entry_named("corpus")
 }
 
-fn sample_entry_named(alias: &str) -> xkeystore_lib::model::KeystoreEntry {
-    let input = xkeystore_lib::model::GenerateKeyPairInput {
+fn sample_entry_named(alias: &str) -> keystore_studio_lib::model::KeystoreEntry {
+    let input = keystore_studio_lib::model::GenerateKeyPairInput {
         alias: alias.into(),
         algorithm: "ECDSA".into(),
         key_size: 2048,
@@ -219,7 +219,7 @@ fn sample_entry_named(alias: &str) -> xkeystore_lib::model::KeystoreEntry {
         ocsp_urls: vec![],
         ca_issuer_urls: vec![],
     };
-    xkeystore_lib::ops::generate_key_pair(&input, None).unwrap()
+    keystore_studio_lib::ops::generate_key_pair(&input, None).unwrap()
 }
 
 /// Regression: found by the `keys` fuzz target. A BER indefinite-length construction with a

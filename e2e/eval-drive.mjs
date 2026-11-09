@@ -1,7 +1,7 @@
-// Drives the real xkeystore window on macOS, where tauri-driver has no WKWebView backend.
+// Drives the real Keystore Studio window on macOS, where tauri-driver has no WKWebView backend.
 //
-// The app must be started with XKEYSTORE_E2E=1. It then listens on 127.0.0.1 and writes the
-// port to $XKEYSTORE_DATA_DIR/e2e.port. This script sends the same user journey as
+// The app must be started with KEYSTORE_STUDIO_E2E=1. It then listens on 127.0.0.1 and writes the
+// port to $KEYSTORE_STUDIO_DATA_DIR/e2e.port. This script sends the same user journey as
 // app.e2e.mjs and checks the files with keytool and openssl.
 //
 //   node e2e/eval-drive.mjs
@@ -14,7 +14,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const APP = process.env.XKS_APP ?? path.join(ROOT, "src-tauri/target/debug/xkeystore");
+const APP = process.env.XKS_APP ?? path.join(ROOT, "src-tauri/target/debug/keystore-studio");
 const WORK = fs.mkdtempSync(path.join(os.tmpdir(), "xks-e2e-"));
 const DATA = path.join(WORK, "data");
 fs.mkdirSync(DATA, { recursive: true });
@@ -41,7 +41,7 @@ function startApp() {
   if (fs.existsSync(PORT_FILE)) fs.rmSync(PORT_FILE);
   buf = Buffer.alloc(0);
   child = spawn(APP, [], {
-    env: { ...process.env, XKEYSTORE_DATA_DIR: DATA, XKEYSTORE_E2E: "1", JAVA_TOOL_OPTIONS: "" },
+    env: { ...process.env, KEYSTORE_STUDIO_DATA_DIR: DATA, KEYSTORE_STUDIO_E2E: "1", JAVA_TOOL_OPTIONS: "" },
     stdio: ["ignore", "pipe", "pipe"],
   });
   child.stdout.on("data", (d) => process.stdout.write(d));
@@ -288,7 +288,7 @@ async function run() {
   await connect();
 
   await step("first launch shows the welcome screen", async () => {
-    await waitText("Welcome to xkeystore");
+    await waitText("Welcome to Keystore Studio");
     await waitText("Recent files");
   });
 
@@ -600,7 +600,7 @@ async function run() {
   await step("restart restores the session; vault unlock reopens the keystore", async () => {
     await sleep(800);
     await restart();
-    await waitText("Welcome to xkeystore");
+    await waitText("Welcome to Keystore Studio");
     await nav("vault");
     await setField("vault-key", MASTER);
     await click("vault-submit");
@@ -623,7 +623,7 @@ async function run() {
       "req", "-x509", "-newkey", "rsa:2048",
       "-keyout", keyPem, "-out", certPem,
       "-days", "30", "-nodes",
-      "-subj", "/CN=standalone.e2e.test/O=xkeystore e2e",
+      "-subj", "/CN=standalone.e2e.test/O=Keystore Studio e2e",
     ]);
 
     await nav("home");
@@ -796,7 +796,7 @@ async function run() {
     // Labels are not in the keystore file: they must come back from the app's own state.
     await sleep(800);
     await restart();
-    await waitText("Welcome to xkeystore");
+    await waitText("Welcome to Keystore Studio");
     await nav("vault");
     await setField("vault-key", MASTER);
     await click("vault-submit");

@@ -82,8 +82,8 @@ export const CONVERTER_ICONS: Record<ConverterId, React.ElementType> = {
   encoding: Binary,
 };
 
-const COLLAPSED_KEY = "xkeystore.sidebarCollapsed";
-const CONVERT_OPEN_KEY = "xkeystore.convertExpanded";
+const COLLAPSED_KEY = "keystore-studio.sidebarCollapsed";
+const CONVERT_OPEN_KEY = "keystore-studio.convertExpanded";
 
 const readFlag = (key: string, fallback: boolean) => {
   try {
@@ -198,11 +198,11 @@ export const Sidebar: React.FC<{ collapsed: boolean; onCollapse: () => void }> =
   return (
     <aside className={clsx("shrink-0 h-full flex flex-col bg-chrome border-r border-line transition-all duration-200 overflow-hidden", collapsed ? "w-[64px]" : "w-[240px]")}>
       <div className={clsx("h-14 flex items-center shrink-0", collapsed ? "justify-center px-0" : "px-5 gap-2.5")}>
-        <button onClick={() => setTab("home")} className="flex items-center gap-2.5 cursor-pointer min-w-0" aria-label="xkeystore dashboard" title="xkeystore">
+        <button onClick={() => setTab("home")} className="flex items-center gap-2.5 cursor-pointer min-w-0" aria-label="Keystore Studio dashboard" title="Keystore Studio">
           <span className="w-7 h-7 rounded-control bg-brand flex items-center justify-center shadow-card shrink-0">
             <KeyRound className="w-4 h-4 text-on-accent" />
           </span>
-          {!collapsed && <span className="font-semibold text-[15px] tracking-[-0.01em] text-ink truncate">xkeystore</span>}
+          {!collapsed && <span className="font-semibold text-[15px] tracking-[-0.01em] text-ink truncate">Keystore Studio</span>}
         </button>
         {!collapsed && (
           <button

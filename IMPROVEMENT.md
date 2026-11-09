@@ -1,6 +1,6 @@
 # Improvement plan
 
-Written for: developers working on xkeystore.
+Written for: developers working on Keystore Studio.
 
 This document records why the gaps in the README's "Not supported" section exist, and what is
 planned to close them. It is the companion to [DESIGN.md](DESIGN.md), which describes what the app
@@ -156,7 +156,7 @@ To finish this item:
 ## Why the gaps exist
 
 One rule shaped the original scope: **ship no cryptography that cannot be checked against an
-independent implementation.** Every format xkeystore writes is verified by a second tool in the
+independent implementation.** Every format Keystore Studio writes is verified by a second tool in the
 test suite — `keytool`, `openssl`, `jarsigner` or `ssh-keygen` — because a keystore writer that
 produces files only it can read is worse than no writer at all. Each gap below traces back to a
 missing reference tool, missing hardware, or a deliberate decision, not to a limit of the design.
@@ -171,7 +171,7 @@ toolchain:
   later. OpenSSL 3.0 could not produce such a file, so there was nothing to test a reader against.
   Verified working on the current machine.
 - **The Ed25519 CMS note was wrong and has been removed.** It described a limit of OpenSSL 3.0, not
-  of xkeystore. The app has always signed correctly with Ed25519, and `jarsigner` confirmed those
+  of Keystore Studio. The app has always signed correctly with Ed25519, and `jarsigner` confirmed those
   signatures. OpenSSL 4.1 verifies them too, so the caveat is obsolete and the note misled readers
   into thinking the app was at fault.
 
@@ -255,7 +255,7 @@ Recorded here so the reasoning is not lost, roughly in order of value.
 
 **Quality**
 - More frontend tests. Ten unit tests is thin, and the end-to-end suite runs on Linux only.
-- Speed up `keytool_keystores_open_in_xkeystore`. It takes ~110 seconds on its own because it has
+- Speed up `keytool_keystores_open_in_keystore_studio`. It takes ~110 seconds on its own because it has
   `keytool` generate a keystore per algorithm and cipher variant, each spawning a JVM. Generating
   the fixtures once into a shared directory, or committing them, would cut most of it; today it is
   the single slowest test and most of the Rust suite's runtime.

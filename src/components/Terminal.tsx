@@ -78,8 +78,8 @@ const TerminalPanel: React.FC<{
     {
       kind: "info",
       text: isDesktop()
-        ? `xkeystore terminal — one command at a time, no interactive input (pass passwords as arguments, e.g. -storepass). Test-NetConnection works here on every platform. ${shortcutLabel("Ctrl+`")} toggles this panel.`
-        : "The terminal needs the xkeystore desktop app.",
+        ? `Keystore Studio terminal — one command at a time, no interactive input (pass passwords as arguments, e.g. -storepass). Test-NetConnection works here on every platform. ${shortcutLabel("Ctrl+`")} toggles this panel.`
+        : "The terminal needs the Keystore Studio desktop app.",
     },
   ]);
   const [input, setInput] = useState("");
@@ -138,7 +138,7 @@ const TerminalPanel: React.FC<{
           ...warnings.map((text) => ({ kind: "warn" as const, text })),
           ...(r.hint ? [{ kind: "info" as const, text: r.hint }] : []),
           { kind: "out", text: output },
-          ...(note ? [{ kind: "info" as const, text: "Built into xkeystore: a TCP connection test from this machine, the same on every platform (no ping or trace route)." }] : []),
+          ...(note ? [{ kind: "info" as const, text: "Built into Keystore Studio: a TCP connection test from this machine, the same on every platform (no ping or trace route)." }] : []),
         ]);
       } catch (e) {
         setLines((l) => [...l, { kind: "err", text: errorMessage(e) }]);

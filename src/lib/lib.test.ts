@@ -682,13 +682,13 @@ describe("platform", () => {
   it("uses each shell's null device and folder listing", () => {
     expect(nullInput("windows")).toBe("<NUL");
     expect(nullInput("linux")).toBe("</dev/null");
-    expect(listFolderCommand("C:\\Users\\me\\AppData\\Roaming\\xkeystore", "windows")).toBe("dir C:\\Users\\me\\AppData\\Roaming\\xkeystore");
-    expect(listFolderCommand("/home/me/.local/share/xkeystore", "linux")).toBe("ls -la /home/me/.local/share/xkeystore");
+    expect(listFolderCommand("C:\\Users\\me\\AppData\\Roaming\\keystore-studio", "windows")).toBe("dir C:\\Users\\me\\AppData\\Roaming\\keystore-studio");
+    expect(listFolderCommand("/home/me/.local/share/keystore-studio", "linux")).toBe("ls -la /home/me/.local/share/keystore-studio");
   });
 
   it("joins with the folder's own separator", () => {
-    expect(joinPath("C:\\Users\\me\\xkeystore", "state.json")).toBe("C:\\Users\\me\\xkeystore\\state.json");
-    expect(joinPath("/home/me/xkeystore/", "state.json")).toBe("/home/me/xkeystore/state.json");
+    expect(joinPath("C:\\Users\\me\\keystore-studio", "state.json")).toBe("C:\\Users\\me\\keystore-studio\\state.json");
+    expect(joinPath("/home/me/keystore-studio/", "state.json")).toBe("/home/me/keystore-studio/state.json");
   });
 
   it("writes shortcuts the macOS way only on macOS", () => {

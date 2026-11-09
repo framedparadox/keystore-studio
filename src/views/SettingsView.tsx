@@ -238,7 +238,7 @@ export const SettingsView: React.FC = () => {
               />
             </WideCard>
             <Card className="space-y-4">
-              <CardHeader title="Startup and defaults" subtitle="How xkeystore starts and what it pre-fills." icon={Settings2} />
+              <CardHeader title="Startup and defaults" subtitle="How Keystore Studio starts and what it pre-fills." icon={Settings2} />
               <Checkbox checked={settings.restoreSession} onChange={(v) => updateSettings({ restoreSession: v })} label="Reopen keystores from the last session" hint="They start locked until you enter the password or unlock the vault." />
               <Select label="Default format for new keystores" value={settings.defaultFormat} onChange={(e) => updateSettings({ defaultFormat: e.target.value as KeystoreFormat })}>
                 {KEYSTORE_FORMATS.map((f) => (
@@ -374,7 +374,7 @@ export const SettingsView: React.FC = () => {
         return (
           <CardGrid>
             <Card className="space-y-4">
-              <CardHeader title="Data" subtitle="Where xkeystore keeps its own state." icon={FolderOpen} />
+              <CardHeader title="Data" subtitle="Where Keystore Studio keeps its own state." icon={FolderOpen} />
               <p className="text-[13px] text-muted">Session state, workspaces, labels and the encrypted vault live in:</p>
               <div className="p-3 rounded-control bg-surface-2 border border-line font-mono text-[12px] text-ink break-all select-text">{appInfo?.data_dir ?? "—"}</div>
               <div className="flex flex-wrap gap-2">
@@ -386,7 +386,7 @@ export const SettingsView: React.FC = () => {
                 <Button
                   onClick={() => {
                     const lines = [
-                      `xkeystore ${appInfo?.version ?? "unknown"}`,
+                      `Keystore Studio ${appInfo?.version ?? "unknown"}`,
                       `platform ${appInfo?.platform ?? "unknown"}`,
                       `data_dir ${appInfo?.data_dir ?? ""}`,
                       ...keystores.map((k) => `${k.format} ${k.name} entries=${k.entries.length} locked=${k.entries.filter((e) => e.locked).length} aliases=${k.entries.map((e) => e.alias).join(",")}`),
@@ -421,7 +421,7 @@ export const SettingsView: React.FC = () => {
                   icon={RotateCcw}
                   onClick={async () => {
                     const ok = await confirm({
-                      title: "Reset xkeystore data?",
+                      title: "Reset Keystore Studio data?",
                       message: "Deletes workspaces, labels, the Certificates list, recent files and settings. Keystore and certificate files and the vault are not touched.",
                       confirmLabel: "Reset",
                       danger: true,
@@ -453,7 +453,7 @@ export const SettingsView: React.FC = () => {
         return (
           <CardGrid>
             <WideCard>
-              <CardHeader title="About xkeystore" subtitle={appInfo ? `Version ${appInfo.version} · ${appInfo.platform}` : undefined} icon={Info} />
+              <CardHeader title="About Keystore Studio" subtitle={appInfo ? `Version ${appInfo.version} · ${appInfo.platform}` : undefined} icon={Info} />
               <p className="text-[13px] text-muted">All cryptography runs locally in the bundled Rust engine. What the app stores and the few requests it makes are listed in the privacy policy below.</p>
               <ul className="grid grid-cols-1 @3xl:grid-cols-2 gap-x-8 gap-y-1.5 text-[13px]">
                 {ENGINE.map((p) => (
@@ -466,7 +466,7 @@ export const SettingsView: React.FC = () => {
               <p className="text-[12px] text-faint">Not supported: Bouncy Castle BCFKS/UBER keystores (BKS v2 is read-only), hardware tokens (PKCS#11).</p>
             </WideCard>
             <WideCard>
-              <CardHeader title="Privacy policy" subtitle="What xkeystore keeps, and what leaves your computer." icon={EyeOff} />
+              <CardHeader title="Privacy policy" subtitle="What Keystore Studio keeps, and what leaves your computer." icon={EyeOff} />
               <PrivacyPolicy dataDir={appInfo?.data_dir} />
             </WideCard>
           </CardGrid>

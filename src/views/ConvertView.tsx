@@ -395,7 +395,7 @@ const EncodingPanel: React.FC = () => {
               <p className="text-[13px] text-faint">Chosen from the input: PEM becomes DER, DER (or bare base64) becomes PEM.</p>
             )}
             {!toDer && (
-              <Select className="mt-3" label="PEM label" value={label} onChange={(e) => setLabel(e.target.value)} hint="Leave on automatic unless the content is something xkeystore does not recognise.">
+              <Select className="mt-3" label="PEM label" value={label} onChange={(e) => setLabel(e.target.value)} hint="Leave on automatic unless the content is something Keystore Studio does not recognise.">
                 <option value="">Detect from the content</option>
                 {PEM_LABELS.map((l) => (
                   <option key={l} value={l}>
@@ -486,7 +486,7 @@ function useKeystoreSource() {
         value={kind}
         onChange={setKind}
         options={[
-          { value: "open", label: "Open in xkeystore", count: openOnes.length },
+          { value: "open", label: "Open in Keystore Studio", count: openOnes.length },
           { value: "file", label: "File on disk" },
         ]}
       />

@@ -10,7 +10,7 @@ import { openUrl } from "@tauri-apps/plugin-opener";
  * reporting.
  */
 export const PRIVACY_UPDATED = "9 November 2026";
-export const ISSUES_URL = "https://github.com/framedparadox/xkeystore/issues";
+export const ISSUES_URL = "https://github.com/framedparadox/keystore-studio/issues";
 
 const Section: React.FC<{ title: string; children: React.ReactNode }> = ({ title, children }) => (
   <section className="space-y-1.5">
@@ -32,12 +32,12 @@ export const PrivacyPolicy: React.FC<{ dataDir?: string }> = ({ dataDir }) => {
   return (
     <div className="space-y-4 text-[13px] text-muted leading-relaxed" data-testid="privacy-policy">
       <p className="text-ink-2">
-        <strong className="font-semibold text-ink">xkeystore collects no personal data.</strong> It has no accounts, no analytics, no advertising, no crash reporting and no
+        <strong className="font-semibold text-ink">Keystore Studio collects no personal data.</strong> It has no accounts, no analytics, no advertising, no crash reporting and no
         automatic update checks. Your keystores, keys and passwords never leave your computer.
       </p>
 
       <Section title="What stays on your computer">
-        <p>xkeystore reads and writes only the files you open, save or export. It keeps its own state in {folder}:</p>
+        <p>Keystore Studio reads and writes only the files you open, save or export. It keeps its own state in {folder}:</p>
         <Bullets
           items={[
             "Settings, workspaces, labels, the paths of recent and open files, and the certificates listed under Certificates (public certificates only).",
@@ -65,12 +65,12 @@ export const PrivacyPolicy: React.FC<{ dataDir?: string }> = ({ dataDir }) => {
             </>,
           ]}
         />
-        <p>Those services handle the request under their own privacy policies. xkeystore makes no other network requests.</p>
+        <p>Those services handle the request under their own privacy policies. Keystore Studio makes no other network requests.</p>
       </Section>
 
       <Section title="Clipboard">
         <p>
-          xkeystore writes to the clipboard only when you copy something. Copy diagnostics includes the app version, platform, data folder, and the names and aliases of open
+          Keystore Studio writes to the clipboard only when you copy something. Copy diagnostics includes the app version, platform, data folder, and the names and aliases of open
           keystores, never passwords or key material.
         </p>
       </Section>
@@ -78,7 +78,7 @@ export const PrivacyPolicy: React.FC<{ dataDir?: string }> = ({ dataDir }) => {
       <Section title="Your control">
         <p>
           Settings → Data → Reset app data clears settings, workspaces, labels, recent files and the Certificates list. Records of issued certificates are deleted one by one in
-          CA &amp; Signing, and resetting the vault on the Vault page deletes the remembered passwords. Deleting the data folder removes everything xkeystore keeps.
+          CA &amp; Signing, and resetting the vault on the Vault page deletes the remembered passwords. Deleting the data folder removes everything Keystore Studio keeps.
         </p>
       </Section>
 

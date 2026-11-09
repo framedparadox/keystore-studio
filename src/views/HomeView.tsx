@@ -31,7 +31,7 @@ import { nullInput } from "../lib/platform";
  * Info boxes closed on the dashboard stay closed for the rest of the session (also across a reload,
  * through sessionStorage when the webview allows it).
  */
-const NOTICES_KEY = "xkeystore.dismissedNotices";
+const NOTICES_KEY = "keystore-studio.dismissedNotices";
 const dismissedNotices: Set<string> = (() => {
   try {
     return new Set<string>(JSON.parse(sessionStorage.getItem(NOTICES_KEY) ?? "[]"));
@@ -92,7 +92,7 @@ const TerminalSection: React.FC = () => {
       <CardHeader
         bordered
         title="Terminal"
-        subtitle="Run keytool, openssl and friends without leaving xkeystore"
+        subtitle="Run keytool, openssl and friends without leaving Keystore Studio"
         icon={TerminalSquare}
         actions={
           <Button size="sm" variant="ghost" icon={TerminalSquare} onClick={toggle}>
@@ -153,7 +153,7 @@ export const HomeView: React.FC = () => {
   if (!loaded.length) {
     return (
       <Page>
-        <PageHeader title="Welcome to xkeystore" description="A workbench for Java keystores, PKCS#12 files and X.509 certificates. Everything runs locally." />
+        <PageHeader title="Welcome to Keystore Studio" description="A workbench for Java keystores, PKCS#12 files and X.509 certificates. Everything runs locally." />
         {!desktop && !notices.dismissed("browser-preview") && (
           <Alert tone="warning" className="mb-4" title="Browser preview" testId="browser-preview" onDismiss={() => notices.dismiss(["browser-preview"])}>
             The native engine is only available in the desktop app (pnpm tauri dev). Buttons that touch files or keys will report an error here.

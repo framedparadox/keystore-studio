@@ -6,7 +6,7 @@
 // Headless Chrome needs no display surface, so the UI itself can still be exercised.
 //
 // What is real here: the production `dist/` bundle (the same React code the app ships), and the
-// engine behind every command (examples/ui_bridge.rs calls the same xkeystore_lib functions the
+// engine behind every command (examples/ui_bridge.rs calls the same keystore_studio_lib functions the
 // Tauri commands call). What is replaced: the webview and the Tauri IPC transport.
 //
 //   pnpm build && node e2e/headless-ui.mjs
@@ -159,7 +159,7 @@ async function run() {
   await driver.get(`http://127.0.0.1:${webPort}/`);
 
   await step("the real UI boots and renders the dashboard", async () => {
-    await waitText("xkeystore", 20000);
+    await waitText("Keystore Studio", 20000);
     const ran = await driver.executeScript("return typeof window.__TAURI_INTERNALS__ === 'object'");
     if (!ran) throw new Error("the Tauri shim is not present; the page did not run its scripts");
   });
@@ -182,7 +182,7 @@ async function run() {
     const key = path.join(WORK, "ui-key.pem");
     const out = path.join(WORK, "ui-out.pfx");
     const PW = "ui-pass-9";
-    sh("openssl", ["req", "-x509", "-newkey", "rsa:2048", "-keyout", key, "-out", cert, "-days", "30", "-nodes", "-subj", "/CN=headless.e2e.test/O=xkeystore UI"]);
+    sh("openssl", ["req", "-x509", "-newkey", "rsa:2048", "-keyout", key, "-out", cert, "-days", "30", "-nodes", "-subj", "/CN=headless.e2e.test/O=Keystore Studio UI"]);
 
     // Paste the certificate and key, set the passphrase, name the alias.
     await setField("build-p12-cert", fs.readFileSync(cert, "utf8"));
@@ -1145,7 +1145,7 @@ async function run() {
     await shotSizes("33-certificate-cn-rows");
     await keys(ESC);
     await gone("certificate-inspector");
-    // A keystore entry whose subject has other parts before the CN (O=xkeystore UI, CN=headless.e2e.test).
+    // A keystore entry whose subject has other parts before the CN (O=Keystore Studio UI, CN=headless.e2e.test).
     await click("nav-keystores");
     await click("ks-tab-cols.p12");
     await driver.wait(async () => (await aliases()).includes("cols-anchor"), 10000, "cols.p12 is not shown");
@@ -1223,7 +1223,7 @@ async function run() {
     await driver.wait(until.elementLocated(byTest("terminal")), 5000);
     await type(`Test-NetConnection -ComputerName 127.0.0.1 -Port ${OPEN_PORT} -DetailedInformation`, (t) => t.includes("TcpTestSucceeded"));
     let t = await termText();
-    for (const want of ["ComputerName          : 127.0.0.1", `RemotePort            : ${OPEN_PORT}`, "NameResolutionResults : 127.0.0.1", "SourceAddress         : 127.0.0.1", "TcpTestSucceeded      : True", "Built into xkeystore"])
+    for (const want of ["ComputerName          : 127.0.0.1", `RemotePort            : ${OPEN_PORT}`, "NameResolutionResults : 127.0.0.1", "SourceAddress         : 127.0.0.1", "TcpTestSucceeded      : True", "Built into Keystore Studio"])
       if (!t.includes(want)) throw new Error(`the output lacks "${want}":\n${t}`);
     if (t.includes("command not found")) throw new Error(`the shell ran it:\n${t}`);
     await type(`tnc 127.0.0.1 -Port ${CLOSED_PORT}`, (t) => t.includes(`(127.0.0.1 : ${CLOSED_PORT}) failed`));
@@ -1242,7 +1242,7 @@ async function run() {
     const before = (await certAliases()).sort();
     await sleep(900); // the state is saved 400 ms after the last change
     await driver.navigate().refresh();
-    await waitText("xkeystore", 20000);
+    await waitText("Keystore Studio", 20000);
     await click("nav-certificates");
     await driver.wait(async () => JSON.stringify((await certAliases()).sort()) === JSON.stringify(before), 15000, "the certificates did not come back");
     await click("nav-workspaces");
