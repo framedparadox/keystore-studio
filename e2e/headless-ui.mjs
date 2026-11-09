@@ -1133,6 +1133,80 @@ async function run() {
     await driver.wait(async () => (await tableText()).includes(LEAF_CN) && (await tableText()).includes(ROOT_CN), 10000, "the workspace lost its certificates");
     if ((await tableText()).includes("Certificate not open")) throw new Error("a restored certificate shows as not open");
   });
+
+  // After the restart the keystores come back locked, so Home is the welcome page, with recent files.
+  await step("dashboard: Get started titles sit beside their icons; Click to open is on the right above a half-height Recent files", async () => {
+    await click("nav-home");
+    await driver.wait(until.elementLocated(byTest("welcome-open")), 10000);
+    await shotSizes("26-dashboard-welcome");
+    try {
+      for (const [w, h] of [[1320, 860], [1024, 680]]) {
+        await setViewport(w, h);
+        const r = await driver.executeScript(`
+          const box = (el) => el.getBoundingClientRect();
+          const gs = document.querySelector('[data-testid="get-started"]') ?? [...document.querySelectorAll("h3")].find((x) => x.textContent.trim() === "Get started")?.closest(".rounded-card");
+          const recent = document.querySelector('[data-testid="recent-files"]') ?? [...document.querySelectorAll("h3")].find((x) => x.textContent.trim() === "Recent files")?.closest(".rounded-card");
+          const drop = document.querySelector('[data-testid="dropzone"]');
+          const tiles = [...document.querySelectorAll('button[data-testid^="welcome-"]')].map((b) => {
+            const icon = box(b.querySelector("svg"));
+            const title = [...b.querySelectorAll("*")].find((el) => el.children.length === 0 && el.textContent.trim() && !el.closest("svg"));
+            const t = box(title);
+            return { name: title.textContent.trim(), beside: t.left > icon.right && Math.abs((t.top + t.bottom) / 2 - (icon.top + icon.bottom) / 2) < 4 };
+          });
+          const g = box(gs), d = box(drop), rc = box(recent);
+          const list = recent.querySelector("ul")?.parentElement;
+          return { tiles, dropH: Math.round(d.height), dropInGetStarted: gs.contains(drop), dropRight: d.left >= g.right, dropAbove: d.bottom <= rc.top, recentH: Math.round(rc.height), gsH: Math.round(g.height),
+                   bottomGap: Math.round(rc.bottom - g.bottom), scrolls: list ? getComputedStyle(list).overflowY : null, files: recent.querySelectorAll("li").length }`);
+        const at = `${w}×${h}`;
+        const stacked = r.tiles.filter((t) => !t.beside).map((t) => t.name);
+        if (stacked.length) throw new Error(`at ${at} these titles are not beside their icon: ${stacked.join(", ")}`);
+        if (r.dropInGetStarted || !r.dropRight) throw new Error(`at ${at} Click to open is not in the right column`);
+        if (!r.dropAbove) throw new Error(`at ${at} Click to open is not above Recent files`);
+        // Recent files used to be as tall as Get started with the drop zone inside it (16px apart); now about half of that.
+        const before = r.dropInGetStarted ? r.gsH : r.gsH + r.dropH + 16;
+        if (r.recentH > before * 0.55) throw new Error(`at ${at} Recent files is ${r.recentH}px, about ${before}px before: not about half`);
+        if (Math.abs(r.bottomGap) > 1) throw new Error(`at ${at} the right column does not end with Get started (${r.bottomGap}px)`);
+        if (r.files < 2) throw new Error(`at ${at} expected recent files after this run, saw ${r.files}`);
+        if (r.scrolls !== "auto") throw new Error(`at ${at} the recent files list cannot scroll (${r.scrolls})`);
+      }
+    } finally {
+      await restoreWindow();
+    }
+  });
+
+  await step("dashboard: a terminal section with two commands side by side spans the page under Get started and Recent files; the locked notice closes for the session", async () => {
+    await click("nav-home");
+    await driver.wait(until.elementLocated(byTest("welcome-open")), 10000);
+    await shotSizes("27-dashboard-terminal");
+    const r = await driver.executeScript(`
+      const box = (el) => el.getBoundingClientRect();
+      const card = (title) => [...document.querySelectorAll("h3")].find((h) => h.textContent.trim() === title)?.closest(".rounded-card");
+      const term = card("Terminal"), gs = card("Get started"), rc = card("Recent files");
+      if (!term) return null;
+      const t = box(term), g = box(gs), c = box(rc);
+      const runs = [...term.querySelectorAll("button")].filter((b) => b.textContent.trim() === "Run").map((b) => box(b.closest("li")));
+      return { below: t.top >= Math.max(g.bottom, c.bottom), left: Math.round(t.left - g.left), right: Math.round(t.right - c.right), run: runs.length,
+               sideBySide: runs.length === 2 && Math.abs(runs[0].top - runs[1].top) < 1 && runs[1].left >= runs[0].right - 1 };`);
+    if (!r) throw new Error("the welcome page has no Terminal section");
+    if (!r.below) throw new Error("the Terminal section is not below Get started and Recent files");
+    if (Math.abs(r.left) > 1 || Math.abs(r.right) > 1) throw new Error(`the Terminal section does not span the page (${r.left}px, ${r.right}px from the edges)`);
+    if (r.run !== 2) throw new Error(`the Terminal section lists ${r.run} commands; it should list two`);
+    if (!r.sideBySide) throw new Error("the two Terminal commands are not side by side, one per column");
+    // The locked-keystores notice has a close button, and stays closed on other pages and after a reload.
+    if (!(await present("sealed-banner"))) throw new Error("no locked-keystores notice to close");
+    const label = await driver.findElement(byTest("sealed-banner-dismiss")).getAttribute("aria-label");
+    if (!label.startsWith("Dismiss")) throw new Error(`close button label: ${label}`);
+    await click("sealed-banner-dismiss");
+    await gone("sealed-banner", "the notice did not close");
+    await click("nav-certificates");
+    await click("nav-home");
+    await driver.wait(until.elementLocated(byTest("welcome-open")), 10000);
+    if (await present("sealed-banner")) throw new Error("the notice came back after visiting another page");
+    await driver.navigate().refresh();
+    await driver.wait(until.elementLocated(byTest("welcome-open")), 20000);
+    await sleep(500);
+    if (await present("sealed-banner")) throw new Error("the notice came back after a reload");
+  });
 }
 
 let failed = false;

@@ -1,4 +1,4 @@
-import React, { useMemo } from "react";
+import React, { useMemo, useState } from "react";
 import {
   AlertTriangle,
   ArrowLeftRight,
@@ -27,6 +27,35 @@ import { DropZone } from "../components/DropZone";
 import { FORMAT_INFO } from "../lib/keystore";
 import type { KeystoreFormat, OpenKeystore } from "../types/crypto";
 
+/*
+ * Info boxes closed on the dashboard stay closed for the rest of the session (also across a reload,
+ * through sessionStorage when the webview allows it). A locked-keystores notice is closed per
+ * keystore, so it comes back only when another keystore is locked, not when one is unlocked.
+ */
+const NOTICES_KEY = "xkeystore.dismissedNotices";
+const dismissedNotices: Set<string> = (() => {
+  try {
+    return new Set<string>(JSON.parse(sessionStorage.getItem(NOTICES_KEY) ?? "[]"));
+  } catch {
+    return new Set<string>();
+  }
+})();
+const useNotices = () => {
+  const [, rerender] = useState(0);
+  return {
+    dismissed: (id: string) => dismissedNotices.has(id),
+    dismiss: (ids: string[]) => {
+      ids.forEach((id) => dismissedNotices.add(id));
+      try {
+        sessionStorage.setItem(NOTICES_KEY, JSON.stringify([...dismissedNotices]));
+      } catch {
+        /* storage refused: closed until the app restarts */
+      }
+      rerender((n) => n + 1);
+    },
+  };
+};
+
 const RecentFiles: React.FC = () => {
   const { recentFiles, openFiles, keystores } = useStore();
   if (!recentFiles.length) return <p className="text-[13px] text-faint">Files you open appear here.</p>;
@@ -51,17 +80,16 @@ const RecentFiles: React.FC = () => {
   );
 };
 
+// Two ready-made commands, one per column; the terminal itself takes any other.
 const TERMINAL_SNIPPETS: { label: string; command: string }[] = [
   { label: "List keystore entries", command: "keytool -list -v -keystore keystore.p12 -storetype PKCS12 -storepass changeit" },
   { label: "Inspect a TLS server", command: "openssl s_client -connect example.com:443 -servername example.com -showcerts </dev/null" },
-  { label: "Decode a certificate", command: "openssl x509 -in cert.pem -noout -text" },
-  { label: "Convert PEM to DER", command: "openssl x509 -in cert.pem -outform der -out cert.der" },
 ];
 
 const TerminalSection: React.FC = () => {
   const { open, toggle } = useTerminal();
   return (
-    <Card padded={false} className="lg:col-span-12 overflow-hidden flex flex-col">
+    <Card padded={false} className="lg:col-span-12 overflow-hidden flex flex-col" data-testid="terminal-section">
       <CardHeader
         bordered
         title="Terminal"
@@ -73,9 +101,9 @@ const TerminalSection: React.FC = () => {
           </Button>
         }
       />
-      <ul className="divide-y divide-line">
+      <ul className="grid grid-cols-1 sm:grid-cols-2 divide-y sm:divide-y-0 sm:divide-x divide-line" data-testid="terminal-snippets">
         {TERMINAL_SNIPPETS.map((s) => (
-          <li key={s.label} className="px-5 py-3 flex items-center gap-3">
+          <li key={s.label} className="min-w-0 px-5 py-3 flex items-center gap-3">
             <div className="min-w-0 flex-1">
               <div className="text-[13px] font-medium text-ink">{s.label}</div>
               <code className="block text-[12px] text-faint font-mono truncate" title={s.command}>
@@ -115,6 +143,8 @@ export const HomeView: React.FC = () => {
         .slice(0, 6),
     [flat]
   );
+  const notices = useNotices();
+  const sealedIds = sealed.map((k) => `sealed:${k.path || k.name}`);
   const scoreTone = s.healthScore >= 85 ? "success" : s.healthScore >= 65 ? "warning" : "danger";
   const unsaved = keystores.filter((k) => k.dirty).length;
   const openKs = (k: OpenKeystore) => {
@@ -122,10 +152,12 @@ export const HomeView: React.FC = () => {
     setTab("keystores");
   };
 
-  const sealedBanner = sealed.length > 0 && (
+  const sealedBanner = sealedIds.some((id) => !notices.dismissed(id)) && (
     <Alert
       tone="info"
       className="mb-4"
+      testId="sealed-banner"
+      onDismiss={() => notices.dismiss(sealedIds)}
       title={`${sealed.length} keystore${sealed.length === 1 ? "" : "s"} from your last session ${sealed.length === 1 ? "is" : "are"} locked`}
       action={
         <div className="flex gap-2">
@@ -148,14 +180,14 @@ export const HomeView: React.FC = () => {
     return (
       <Page>
         <PageHeader title="Welcome to xkeystore" description="A workbench for Java keystores, PKCS#12 files and X.509 certificates. Everything runs locally." />
-        {!desktop && (
-          <Alert tone="warning" className="mb-4" title="Browser preview">
+        {!desktop && !notices.dismissed("browser-preview") && (
+          <Alert tone="warning" className="mb-4" title="Browser preview" testId="browser-preview" onDismiss={() => notices.dismiss(["browser-preview"])}>
             The native engine is only available in the desktop app (pnpm tauri dev). Buttons that touch files or keys will report an error here.
           </Alert>
         )}
         {sealedBanner}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
-          <Card className="lg:col-span-8">
+          <Card className="lg:col-span-8" data-testid="get-started">
             <CardHeader title="Get started" />
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {[
@@ -174,18 +206,30 @@ export const HomeView: React.FC = () => {
                 { icon: ShieldCheck, title: "Security audit", text: "Find expired, weak and expiring keys and certificates across every open keystore.", action: () => setTab("scanner"), testId: "welcome-audit" },
               ].map((a) => (
                 <button key={a.title} onClick={a.action} data-testid={a.testId} className="text-left rounded-card border border-line p-4 hover:border-brand hover:bg-brand-tint/50 transition cursor-pointer">
-                  <a.icon className="w-5 h-5 text-brand mb-2" />
-                  <div className="text-[14px] font-semibold text-ink">{a.title}</div>
-                  <div className="text-[13px] text-faint mt-1">{a.text}</div>
+                  <span className="flex items-center gap-2.5">
+                    <a.icon className="w-5 h-5 text-brand shrink-0" aria-hidden />
+                    <span className="text-[14px] font-semibold text-ink">{a.title}</span>
+                  </span>
+                  <span className="block text-[13px] text-faint mt-1.5">{a.text}</span>
                 </button>
               ))}
             </div>
-            <DropZone onClick={() => openFiles()} className="mt-4" />
           </Card>
-          <Card className="lg:col-span-4">
-            <CardHeader title="Recent files" icon={Clock} />
-            <RecentFiles />
-          </Card>
+          {/* Open first, recent files under it. On wide windows the column is exactly as tall as Get
+              started (it does not set the row height), and the recent files scroll inside their card. */}
+          <div className="lg:col-span-4 lg:relative">
+            <div className="flex flex-col gap-4 lg:absolute lg:inset-0">
+              {/* Compact, as under Quick actions, so Recent files keeps room for its list. */}
+              <DropZone onClick={() => openFiles()} className="shrink-0 !py-4" />
+              <Card className="lg:flex-1 lg:min-h-0 flex flex-col" data-testid="recent-files">
+                <CardHeader title="Recent files" icon={Clock} />
+                <div className="min-h-0 overflow-y-auto -mx-1 px-1">
+                  <RecentFiles />
+                </div>
+              </Card>
+            </div>
+          </div>
+          <TerminalSection />
         </div>
       </Page>
     );

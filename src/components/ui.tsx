@@ -1406,13 +1406,16 @@ export const Kbd: React.FC<{ children: React.ReactNode }> = ({ children }) => (
 /* Alerts, code, copy                                                           */
 /* -------------------------------------------------------------------------- */
 
-export const Alert: React.FC<{ tone?: "info" | "success" | "warning" | "danger"; title?: React.ReactNode; children?: React.ReactNode; action?: React.ReactNode; className?: string }> = ({
-  tone = "info",
-  title,
-  children,
-  action,
-  className,
-}) => {
+export const Alert: React.FC<{
+  tone?: "info" | "success" | "warning" | "danger";
+  title?: React.ReactNode;
+  children?: React.ReactNode;
+  action?: React.ReactNode;
+  className?: string;
+  /** Shows a close button at the end. The caller hides the alert, and decides how long it stays hidden. */
+  onDismiss?: () => void;
+  testId?: string;
+}> = ({ tone = "info", title, children, action, className, onDismiss, testId }) => {
   const styles = {
     info: "bg-brand-tint border-brand-soft text-brand-deeper",
     success: "bg-success-tint border-success/20 text-success",
@@ -1421,13 +1424,25 @@ export const Alert: React.FC<{ tone?: "info" | "success" | "warning" | "danger";
   }[tone];
   const Icon = { info: Info, success: CheckCircle2, warning: AlertTriangle, danger: AlertCircle }[tone];
   return (
-    <div role={tone === "danger" ? "alert" : undefined} className={clsx("flex items-start gap-2.5 rounded-control border px-3.5 py-3 text-[13px]", styles, className)}>
+    <div role={tone === "danger" ? "alert" : undefined} data-testid={testId} className={clsx("flex items-start gap-2.5 rounded-control border px-3.5 py-3 text-[13px]", styles, className)}>
       <Icon className="w-4 h-4 mt-0.5 shrink-0" />
       <div className="flex-1 min-w-0 select-text">
         {title && <div className="font-semibold">{title}</div>}
         {children && <div className={clsx(title && "mt-0.5", "text-ink-2 break-words")}>{children}</div>}
       </div>
       {action && <div className="shrink-0">{action}</div>}
+      {onDismiss && (
+        <button
+          type="button"
+          onClick={onDismiss}
+          aria-label={typeof title === "string" ? `Dismiss: ${title}` : "Dismiss"}
+          title="Dismiss"
+          data-testid={testId ? `${testId}-dismiss` : undefined}
+          className="shrink-0 -my-1 -mr-1.5 w-7 h-7 rounded-control flex items-center justify-center opacity-70 hover:opacity-100 hover:bg-surface/60 transition cursor-pointer"
+        >
+          <X className="w-4 h-4" aria-hidden />
+        </button>
+      )}
     </div>
   );
 };

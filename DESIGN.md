@@ -58,7 +58,8 @@ Build pages from `src/components/ui.tsx`:
 - Inputs: `TextInput`, `TextArea`, `Select`, `Checkbox`, `PasswordInput` (show/hide), `SearchInput`, `Segmented`,
   `OptionList` (radio rows with a hint and a tag, for choosing an output format), `Field`; the `.field` / `.label`
   classes for anything custom
-- Feedback: `Alert` (info / success / warning / danger), `Spinner`, `Kbd`
+- Feedback: `Alert` (info / success / warning / danger; `onDismiss` adds a close button and the caller decides how long
+  it stays closed: dashboard notices stay closed for the session, a locked-keystores notice per keystore), `Spinner`, `Kbd`
 - Overlays: `Modal` (pass `busy` while an operation runs so it cannot be dismissed; dialogs stack, and only the top one
   answers Escape; focus is trapped inside and returns to the opener on close; the title labels the dialog),
   `useToast()` (app-wide, optional action such as *Undo* or *Show in folder*; toasts sit below dialogs, so a dialog
