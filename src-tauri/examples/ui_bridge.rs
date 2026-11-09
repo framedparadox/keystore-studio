@@ -122,6 +122,11 @@ fn handle(cmd: &str, args: &serde_json::Value) -> Result<serde_json::Value, Stri
                 "mtime_ms": xkeystore_lib::keystore::mtime_ms(std::path::Path::new(&path)),
             }))
         }
+        "test_connection" => {
+            let port = args.get("port").and_then(|v| v.as_u64()).unwrap_or(443) as u16;
+            let timeout = args.get("timeoutSecs").and_then(|v| v.as_u64()).unwrap_or(5);
+            to_json(xkeystore_lib::netcheck::test(&s("target"), port, timeout)?)
+        }
         "examine_data" => {
             let pw = args.get("password").and_then(|v| v.as_str()).filter(|p| !p.is_empty());
             serde_json::to_value(xkeystore_lib::detect::examine(&source("data")?, pw)?).map_err(|e| e.to_string())

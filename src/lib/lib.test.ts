@@ -27,7 +27,7 @@ import { csvField } from "./csv";
 import { diffEntries } from "./diff";
 import { classifyError } from "./api";
 import { baseName, dirName, safeFileStem, withExtension } from "./files";
-import { connectTarget, parseTlsTarget } from "./net";
+import { connectTarget, formatTestNetConnection, parseTestNetConnection, parseTlsTarget } from "./net";
 import {
   aliasForCertificate,
   certificateId,
@@ -550,5 +550,73 @@ describe("certificates page", () => {
     const saved = persistCertificates(list);
     expect(saved).toEqual([{ path: "/certs/chain.pem", source: "chain.pem", opened_at: origin.openedAt, pem: list[0].entry.certificate_chain[0].pem }]);
     expect(Object.keys(saved[0]).sort()).toEqual(["opened_at", "path", "pem", "source"]);
+  });
+});
+
+describe("Test-NetConnection in the built-in terminal", () => {
+  it("reads the command as PowerShell does, including -DetailedInformation, aliases and prefixes", () => {
+    expect(parseTestNetConnection("Test-NetConnection -ComputerName example.com -Port 443 -DetailedInformation")).toEqual({ target: "example.com", port: 443, level: "detailed" });
+    expect(parseTestNetConnection("test-netconnection example.com -port 8443")).toEqual({ target: "example.com", port: 8443, level: "standard" });
+    expect(parseTestNetConnection("tnc -cn db.internal -RemotePort:5432 -InformationLevel Quiet")).toEqual({ target: "db.internal", port: 5432, level: "quiet" });
+    expect(parseTestNetConnection("TNC server -CommonTCPPort RDP -InformationLevel detailed")).toEqual({ target: "server", port: 3389, level: "detailed" });
+    expect(parseTestNetConnection('Test-NetConnection -Comp "example.com" -P 443 -Detailed')).toEqual({ target: "example.com", port: 443, level: "detailed" });
+  });
+
+  it("takes the port from a URL or host:port, which wins over -Port", () => {
+    expect(parseTestNetConnection("tnc https://example.com:8443/health -Port 443")).toEqual({ target: "example.com", port: 8443, level: "standard" });
+    expect(parseTestNetConnection("tnc [::1]:22")).toEqual({ target: "::1", port: 22, level: "standard" });
+  });
+
+  it("leaves every other command to the shell", () => {
+    expect(parseTestNetConnection("openssl s_client -connect example.com:443")).toBeNull();
+    expect(parseTestNetConnection("Test-Connection example.com")).toBeNull();
+    expect(parseTestNetConnection("")).toBeNull();
+  });
+
+  it("explains what it cannot do instead of guessing", () => {
+    const err = (c: string) => (parseTestNetConnection(c) as { error: string }).error;
+    expect(err("tnc example.com")).toMatch(/Add -Port/);
+    expect(err("tnc -Port 443")).toMatch(/Name the server/);
+    expect(err("tnc example.com -Port 70000")).toMatch(/1 to 65535/);
+    expect(err("tnc example.com -TraceRoute")).toMatch(/not built in/);
+    expect(err("tnc example.com -C 443")).toMatch(/ambiguous/);
+    expect(err("tnc example.com -Bogus 1")).toMatch(/no parameter -Bogus/);
+    expect(err("tnc example.com -CommonTCPPort FTP")).toMatch(/HTTP, RDP, SMB or WINRM/);
+  });
+
+  const ok = {
+    computer_name: "example.com",
+    remote_port: 443,
+    name_resolution: ["172.66.147.243", "104.20.23.154"],
+    resolve_ms: 29,
+    remote_address: "172.66.147.243",
+    source_address: "10.0.0.122",
+    interface_alias: "en0",
+    tcp_test_succeeded: true,
+    tcp_ms: 17,
+    attempts: [{ address: "172.66.147.243", succeeded: true, elapsed_ms: 17 }],
+    tested_at: "2026-11-09 03:22:21 UTC",
+  };
+
+  it("prints the object as a PowerShell list, with every resolved address in detailed mode", () => {
+    expect(formatTestNetConnection(ok, "standard")).toEqual({
+      warnings: [],
+      output: ["ComputerName     : example.com", "RemoteAddress    : 172.66.147.243", "RemotePort       : 443", "InterfaceAlias   : en0", "SourceAddress    : 10.0.0.122", "TcpTestSucceeded : True"].join("\n"),
+    });
+    const detailed = formatTestNetConnection(ok, "detailed").output.split("\n");
+    expect(detailed).toContain("NameResolutionResults : 172.66.147.243");
+    expect(detailed).toContain("                      : 104.20.23.154");
+    expect(detailed).toContain("TcpConnectTime        : 17 ms");
+    expect(detailed[detailed.length - 1]).toBe("TcpTestSucceeded      : True");
+    expect(formatTestNetConnection(ok, "quiet").output).toBe("True");
+  });
+
+  it("warns as PowerShell does when the connection or the name lookup fails", () => {
+    const refused = { ...ok, tcp_test_succeeded: false, tcp_ms: null, source_address: null, interface_alias: null, failure: "refused" as const };
+    const r = formatTestNetConnection(refused, "standard");
+    expect(r.warnings).toEqual(["WARNING: TCP connect to (172.66.147.243 : 443) failed"]);
+    expect(r.output).toMatch(/TcpTestSucceeded : False$/);
+    const unresolved = { ...refused, name_resolution: [], remote_address: null, failure: "name-resolution" as const };
+    expect(formatTestNetConnection(unresolved, "quiet")).toEqual({ warnings: ["WARNING: Name resolution of example.com failed"], output: "False" });
   });
 });

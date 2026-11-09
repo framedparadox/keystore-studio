@@ -29,6 +29,7 @@ import type {
   SignCsrInput,
   SignedCertificateResult,
   TerminalOutput,
+  ConnectionTest,
   TlsInspectionResult,
   VaultStatus,
 } from "../types/crypto";
@@ -154,6 +155,8 @@ export const api = {
     call<JarSignResult>("jar_sign", { inputPath, outputPath, signerEntry, tsaUrl: tsaUrl || null, tsaTrustPem: tsaTrustPem || null }),
 
   examineTls: (host: string, port: number) => call<TlsInspectionResult>("examine_tls", { host, port }),
+  /** Can this machine open a TCP connection to target:port? A port in `target` wins. */
+  testConnection: (target: string, port: number, timeoutSecs = 5) => call<ConnectionTest>("test_connection", { target, port, timeoutSecs }),
   examineData: (data: DataSource, password?: string | null) => call<DetectionResult>("examine_data", { data, password: password ?? null }),
 
   writeTextFile: (path: string, content: string) => call<void>("write_text_file", { path, content }),

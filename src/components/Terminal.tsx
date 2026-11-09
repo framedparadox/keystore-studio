@@ -1,6 +1,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { Maximize2, Minimize2, Play, TerminalSquare, X } from "lucide-react";
 import { api, errorMessage, isDesktop } from "../lib/api";
+import { formatTestNetConnection, parseTestNetConnection } from "../lib/net";
 import { useStore } from "../state/store";
 
 interface TerminalApi {
@@ -13,7 +14,7 @@ const TerminalContext = createContext<TerminalApi>({ open: () => {}, toggle: () 
 export const useTerminal = () => useContext(TerminalContext);
 
 interface Line {
-  kind: "cmd" | "out" | "err" | "info";
+  kind: "cmd" | "out" | "err" | "warn" | "info";
   text: string;
 }
 
@@ -76,7 +77,7 @@ const TerminalPanel: React.FC<{
     {
       kind: "info",
       text: isDesktop()
-        ? "xkeystore terminal — one command at a time, no interactive input (pass passwords as arguments, e.g. -storepass). Ctrl+` toggles this panel."
+        ? "xkeystore terminal — one command at a time, no interactive input (pass passwords as arguments, e.g. -storepass). Test-NetConnection works here on every platform. Ctrl+` toggles this panel."
         : "The terminal needs the xkeystore desktop app.",
     },
   ]);
@@ -88,6 +89,8 @@ const TerminalPanel: React.FC<{
   const [cursor, setCursor] = useState<number | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  // The note that Test-NetConnection is built in is shown with its first result only.
+  const builtinNoted = useRef(false);
 
   useEffect(() => {
     if (!prefill) return;
@@ -115,6 +118,35 @@ const TerminalPanel: React.FC<{
       return;
     }
     setLines((l) => [...l, { kind: "cmd", text: `${shortPath(cwd)} $ ${command}` }]);
+    // Test-NetConnection is a Windows PowerShell cmdlet that neither sh nor cmd.exe has. It is built
+    // in, so the same command tests a server port on every platform.
+    const tnc = parseTestNetConnection(command);
+    if (tnc) {
+      if ("error" in tnc) {
+        setLines((l) => [...l, { kind: "err", text: tnc.error }]);
+        return;
+      }
+      setBusy(true);
+      try {
+        const r = await api.testConnection(tnc.target, tnc.port);
+        const { warnings, output } = formatTestNetConnection(r, tnc.level);
+        const note = !builtinNoted.current;
+        builtinNoted.current = true;
+        setLines((l) => [
+          ...l,
+          ...warnings.map((text) => ({ kind: "warn" as const, text })),
+          ...(r.hint ? [{ kind: "info" as const, text: r.hint }] : []),
+          { kind: "out", text: output },
+          ...(note ? [{ kind: "info" as const, text: "Built into xkeystore: a TCP connection test from this machine, the same on every platform (no ping or trace route)." }] : []),
+        ]);
+      } catch (e) {
+        setLines((l) => [...l, { kind: "err", text: errorMessage(e) }]);
+      } finally {
+        setBusy(false);
+        inputRef.current?.focus();
+      }
+      return;
+    }
     setBusy(true);
     try {
       const res = await api.runTerminalCommand(command, cwd, settings.terminalTimeoutSecs);
@@ -202,7 +234,7 @@ const TerminalPanel: React.FC<{
           <pre
             key={i}
             className={`whitespace-pre-wrap break-words ${
-              l.kind === "cmd" ? "text-brand-soft" : l.kind === "err" ? "text-danger-fill" : l.kind === "info" ? "text-subtle" : "text-term-fg"
+              l.kind === "cmd" ? "text-brand-soft" : l.kind === "err" ? "text-danger-fill" : l.kind === "warn" ? "text-warning-fill" : l.kind === "info" ? "text-subtle" : "text-term-fg"
             }`}
           >
             {l.text}

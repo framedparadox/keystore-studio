@@ -2,7 +2,7 @@
 
 A native desktop workbench for Java keystores, PKCS#12 files and X.509 certificates, built with
 Rust, Tauri v2 and React. All cryptography runs locally in the bundled Rust engine; nothing leaves
-your machine except TLS handshakes you start from **Examine**.
+your machine except the TLS handshakes and connection tests you start from **Examine** or the terminal.
 
 ## Features
 
@@ -15,11 +15,11 @@ your machine except TLS handshakes you start from **Examine**.
 | **Build a PKCS#12** | Bundle an existing certificate (or chain) and its private key into a passphrase-protected **.p12 / .pfx** in one step, without opening a keystore first — from the dashboard or the command palette. The input key may be encrypted (its own password is asked for separately), and it is matched against the certificate before anything is written. Readable by OpenSSL and `keytool`. |
 | **Convert** | One place for format conversions, each listed under Convert in the sidebar: certificates (PEM, DER, PKCS#7, PkiPath), private keys (PKCS#8, encrypted PKCS#8, PKCS#1/SEC1, JWK), public keys from a certificate, CSR or key (PEM, DER, PKCS#1, OpenSSH, JWK), keystores (PKCS#12 ↔ JKS ↔ JCEKS, BKS in), key + certificate → PKCS#12, keystore → PEM bundle, and PEM ↔ DER for any object. Each shows the equivalent OpenSSL/keytool command. |
 | **CA & Signing** | Sign CSRs (with CSR inspection and one-click installation into the matching key pair), issue v2 CRLs, CMS/PKCS#7 sign & verify (attached/detached), JWT sign & verify (RS/ES/EdDSA/HS), JAR signing (jarsigner-verifiable), **RFC 3161 trusted timestamps** on CMS and JAR signatures, DH parameters (RFC 7919 groups or freshly generated safe primes). |
-| **Examine** | Live TLS inspection (protocol, cipher, ALPN, chain, trust and hostname verdict against the OS trust store), decode anything you paste or pick there (certificates, chains, CSRs, CRLs, keys, PKCS#7, JWTs, OpenSSH keys, keystores), compare two certificates. Opened key, CSR, CRL and signature files land here; certificate files go to Certificates. |
+| **Examine** | Live TLS inspection (protocol, cipher, ALPN, chain, trust and hostname verdict against the OS trust store), a connection test that says whether a server port can be reached from this machine (every resolved address, source address and interface, connect time, and why it failed: refused, timed out, unreachable or not resolved), decode anything you paste or pick there (certificates, chains, CSRs, CRLs, keys, PKCS#7, JWTs, OpenSSH keys, keystores), compare two certificates. Opened key, CSR, CRL and signature files land here; certificate files go to Certificates. |
 | **Security audit** | Health score and findings (expired/expiring, weak keys and digests, deprecated ciphers, incomplete chains, self-signed servers), key rotation that keeps subject/SANs/usages and is re-issued by the original CA when it is open, same-key renewal, CSV report. |
 | **Workspaces** | Group keystore entries and certificates from the Certificates page by project or audit scope; persisted across sessions. |
 | **Vault** | Remember keystore passwords under one master key (Argon2id → AES-256-GCM), auto-lock after inactivity, change master key (re-encrypts every secret), reset if forgotten. Keystores from the last session reopen automatically once the vault is unlocked. |
-| **Productivity** | Window-wide drag and drop, command palette (`Ctrl+K`), keyboard shortcuts, built-in terminal (`Ctrl+\``) with ready-made keytool/openssl commands, recent files, session restore. |
+| **Productivity** | Window-wide drag and drop, command palette (`Ctrl+K`), keyboard shortcuts, built-in terminal (`Ctrl+\``) with ready-made keytool/openssl commands and `Test-NetConnection` built in on every platform (`-ComputerName`, `-Port`, `-CommonTCPPort`, `-InformationLevel Detailed|Quiet`), recent files, session restore. |
 
 ### Keyboard shortcuts
 
@@ -118,7 +118,7 @@ src-tauri/src/            Rust engine
   keys.rs  x509.rs        keys, signing/verification, certificate/CSR/CRL building and parsing
   pkcs12.rs jks.rs        keystore codecs (javaser.rs: JCEKS sealed secret keys), pbe.rs: PBE schemes
   ops.rs entry.rs         entry operations and display models
-  cms.rs jwt.rs jar.rs dh.rs tls.rs detect.rs export.rs
+  cms.rs jwt.rs jar.rs dh.rs tls.rs detect.rs export.rs  netcheck.rs: TCP connection test
   vault.rs                master-key vault; terminal.rs: built-in shell
   lib.rs                  Tauri commands (all run off the UI thread)
 ```

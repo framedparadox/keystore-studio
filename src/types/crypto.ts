@@ -346,6 +346,31 @@ export interface TlsInspectionResult {
   inspected_at: string;
 }
 
+/** One TCP connect attempt to one resolved address. */
+export interface ConnectAttempt {
+  address: string;
+  succeeded: boolean;
+  error?: string | null;
+  elapsed_ms: number;
+}
+
+/** A TCP reachability test, the check `Test-NetConnection -Port` makes (src-tauri/src/netcheck.rs). */
+export interface ConnectionTest {
+  computer_name: string;
+  remote_port: number;
+  name_resolution: string[];
+  resolve_ms: number;
+  remote_address?: string | null;
+  source_address?: string | null;
+  interface_alias?: string | null;
+  tcp_test_succeeded: boolean;
+  tcp_ms?: number | null;
+  attempts: ConnectAttempt[];
+  failure?: "name-resolution" | "refused" | "timed-out" | "unreachable" | "error" | null;
+  hint?: string | null;
+  tested_at: string;
+}
+
 export interface KeyInfo {
   kind: "private" | "public" | "secret";
   algorithm: string;

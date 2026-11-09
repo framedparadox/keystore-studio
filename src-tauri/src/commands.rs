@@ -605,6 +605,12 @@ async fn examine_tls(host: String, port: u16) -> Res<TlsInspectionResult> {
     blocking(move || tls::inspect(&host, port, 10)).await
 }
 
+/// A TCP reachability test, as `Test-NetConnection -Port` (Examine, and the terminal's built-in).
+#[tauri::command]
+async fn test_connection(target: String, port: u16, timeout_secs: Option<u64>) -> Res<netcheck::ConnectionTest> {
+    blocking(move || netcheck::test(&target, port, timeout_secs.unwrap_or(5))).await
+}
+
 #[tauri::command]
 async fn examine_data(data: DataSource, password: Option<String>) -> Res<DetectionResult> {
     blocking(move || detect::examine(&data.bytes()?, password.as_deref())).await
@@ -914,6 +920,7 @@ pub fn run() {
             dh_params,
             jar_sign,
             examine_tls,
+            test_connection,
             examine_data,
             write_text_file,
             read_text_file,

@@ -21,6 +21,7 @@ pub mod jwt;
 pub mod keys;
 pub mod keystore;
 pub mod model;
+pub mod netcheck;
 pub mod oids;
 pub mod ops;
 pub mod pbe;

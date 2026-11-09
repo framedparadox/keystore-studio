@@ -1121,7 +1121,89 @@ async function run() {
     if (await present("sidebar-expand")) throw new Error("the chevron stays in the title bar while the sidebar is expanded");
   });
 
+  // A listening port and a closed one on this machine: the connection test needs no internet.
+  const listening = net.createServer((sock) => sock.end());
+  await new Promise((r) => listening.listen(0, "127.0.0.1", r));
+  const OPEN_PORT = listening.address().port;
+  const CLOSED_PORT = await new Promise((r) => {
+    const s = net.createServer();
+    s.listen(0, "127.0.0.1", () => {
+      const p = s.address().port;
+      s.close(() => r(p));
+    });
+  });
+
+  await step("connection: Examine tells an open port, a closed port and an unknown host apart", async () => {
+    await click("nav-examine");
+    const tab = await driver.executeScript(`const t = [...document.querySelectorAll('[role="tab"]')].find((t) => t.innerText.trim() === "Connection"); t?.click(); return !!t;`);
+    if (!tab) throw new Error("Examine has no Connection mode");
+    const result = async (want) => {
+      await driver.wait(async () => {
+        const els = await driver.findElements(byTest("conn-result"));
+        return els.length > 0 && (await els[0].getAttribute(want.attr)) === want.value;
+      }, 15000, `no ${want.attr}=${want.value} result`);
+      return (await driver.findElement(byTest("conn-result"))).getText();
+    };
+    await setField("conn-host", "127.0.0.1");
+    await setField("conn-port", String(OPEN_PORT));
+    await click("conn-run");
+    let text = await result({ attr: "data-succeeded", value: "true" });
+    for (const want of [`127.0.0.1:${OPEN_PORT} is reachable`, "Source address", "Interface", "Name resolution"]) if (!text.includes(want)) throw new Error(`the result lacks "${want}":\n${text}`);
+    if (!/\blo\d*\b/.test(text)) throw new Error(`the loopback interface is not named:\n${text}`);
+    await shotSizes("30-connection-reachable");
+    // Refused: the host answered, nothing listens.
+    await setField("conn-port", String(CLOSED_PORT));
+    await click("conn-run");
+    text = await result({ attr: "data-failure", value: "refused" });
+    if (!text.includes(`Cannot reach 127.0.0.1:${CLOSED_PORT}`) || !text.includes("nothing accepts connections")) throw new Error(`refused result:\n${text}`);
+    await shotSizes("31-connection-refused");
+    // A name that never resolves.
+    await setField("conn-host", "no-such-host.invalid");
+    await setField("conn-port", "443");
+    await click("conn-run");
+    text = await result({ attr: "data-failure", value: "name-resolution" });
+    if (!text.includes("Cannot resolve no-such-host.invalid")) throw new Error(`unresolved result:\n${text}`);
+    // From a reachable port, Inspect TLS opens the TLS tool on the same host and port.
+    await setField("conn-host", "127.0.0.1");
+    await setField("conn-port", String(OPEN_PORT));
+    await click("conn-run");
+    await result({ attr: "data-succeeded", value: "true" });
+    await click("conn-inspect-tls");
+    await driver.wait(until.elementLocated(byTest("tls-host")), 5000);
+    const [h, p] = await driver.executeScript(`return [document.querySelector('[data-testid="tls-host"]').value, document.querySelector('[data-testid="tls-port"]').value]`);
+    if (h !== "127.0.0.1" || p !== String(OPEN_PORT)) throw new Error(`the TLS tool got ${h}:${p}`);
+  });
+
+  await step("connection: Test-NetConnection runs in the built-in terminal, in PowerShell's format", async () => {
+    const termText = () => driver.executeScript(`return document.querySelector('[data-testid="terminal"]')?.innerText ?? ""`);
+    const type = async (command, until_) => {
+      const input = await driver.findElement(By.css('[aria-label="Terminal input"]'));
+      await driver.wait(async () => await input.isEnabled(), 15000, "the terminal is still busy");
+      await input.sendKeys(command, Key.ENTER);
+      await driver.wait(async () => until_(await termText()), 15000, `no output for: ${command}`).catch(async (err) => {
+        throw new Error(`${err.message}\n${await termText()}`);
+      });
+    };
+    if (!(await present("terminal"))) await driver.findElement(By.css('header [aria-label^="Terminal"]')).click();
+    await driver.wait(until.elementLocated(byTest("terminal")), 5000);
+    await type(`Test-NetConnection -ComputerName 127.0.0.1 -Port ${OPEN_PORT} -DetailedInformation`, (t) => t.includes("TcpTestSucceeded"));
+    let t = await termText();
+    for (const want of ["ComputerName          : 127.0.0.1", `RemotePort            : ${OPEN_PORT}`, "NameResolutionResults : 127.0.0.1", "SourceAddress         : 127.0.0.1", "TcpTestSucceeded      : True", "Built into xkeystore"])
+      if (!t.includes(want)) throw new Error(`the output lacks "${want}":\n${t}`);
+    if (t.includes("command not found")) throw new Error(`the shell ran it:\n${t}`);
+    await type(`tnc 127.0.0.1 -Port ${CLOSED_PORT}`, (t) => t.includes(`(127.0.0.1 : ${CLOSED_PORT}) failed`));
+    t = await termText();
+    if (!t.includes("TcpTestSucceeded : False")) throw new Error(`a closed port is not reported as failed:\n${t}`);
+    await type(`tnc 127.0.0.1 -Port ${OPEN_PORT} -InformationLevel Quiet`, (t) => /\nTrue\n/.test(`${t}\n`));
+    await type("tnc example.com", (t) => t.includes("Add -Port"));
+    await shotSizes("32-terminal-test-netconnection");
+    await driver.findElement(By.css('[aria-label="Close terminal"]')).click();
+    listening.close();
+  });
+
   await step("certificates: the list and workspace membership survive a restart", async () => {
+    await click("nav-certificates");
+    await driver.wait(async () => (await certAliases()).length > 0, 10000, "no certificates listed before the restart");
     const before = (await certAliases()).sort();
     await sleep(900); // the state is saved 400 ms after the last change
     await driver.navigate().refresh();

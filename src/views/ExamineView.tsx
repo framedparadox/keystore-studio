@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import clsx from "clsx";
-import { Clipboard, FileBadge, FileSearch, FolderOpen, GitCompare, Globe, Plus, Save, Sparkles } from "lucide-react";
-import type { CertificateInfo, DetectionResult, KeystoreEntry, TlsInspectionResult } from "../types/crypto";
+import { CheckCircle2, Clipboard, FileBadge, FileSearch, FolderOpen, GitCompare, Globe, Network, Plus, Save, Sparkles, XCircle } from "lucide-react";
+import type { CertificateInfo, ConnectionTest, DetectionResult, KeystoreEntry, TlsInspectionResult } from "../types/crypto";
 import { api, errorMessage } from "../lib/api";
 import { FILTERS, baseName, pickFile, safeFileStem } from "../lib/files";
 import { cnOf } from "../lib/keystore";
@@ -13,7 +13,9 @@ import { TerminalHint } from "../components/Terminal";
 import { useSaveText } from "../components/EntryDialogs";
 import { useAddCertificateToKeystore, useKeepCertificates } from "../components/CertificateDialogs";
 
-type Mode = "tls" | "decode" | "compare";
+type Mode = "tls" | "connection" | "decode" | "compare";
+/** A host and port handed to the TLS panel to inspect at once (from a connection test). */
+type TlsSeed = { host: string; port: number };
 
 /*
  * The last examine request (a dropped or opened file) each part acted on. A request is handled
@@ -33,12 +35,12 @@ function useImportCert() {
 
 // ====================================================================================== TLS
 
-const TlsPanel: React.FC = () => {
+const TlsPanel: React.FC<{ seed?: TlsSeed | null; onSeedUsed?: () => void }> = ({ seed, onSeedUsed }) => {
   const saveText = useSaveText();
   const keep = useKeepCertificates();
   const { target, importCert } = useImportCert();
-  const [host, setHost] = useState("");
-  const [port, setPort] = useState(443);
+  const [host, setHost] = useState(seed?.host ?? "");
+  const [port, setPort] = useState(seed?.port ?? 443);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<TlsInspectionResult | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -49,20 +51,29 @@ const TlsPanel: React.FC = () => {
   const sni = /^[\d.]+$/.test(shown.host) || shown.host.includes(":") ? "" : ` -servername ${shown.host}`;
   const sClientCommand = `openssl s_client -connect ${connectTarget(shown)}${sni} -showcerts </dev/null`;
   const portFromHost = !!endpoint && endpoint.port !== (Number(port) || 443);
-  const run = async (e?: React.FormEvent) => {
-    e?.preventDefault();
-    if (!host.trim()) return;
+  const inspect = async (h: string, p: number) => {
+    if (!h) return;
     setBusy(true);
     setError(null);
     setResult(null);
     try {
-      setResult(await api.examineTls(host.trim(), Number(port)));
+      setResult(await api.examineTls(h, p));
     } catch (err) {
       setError(errorMessage(err));
     } finally {
       setBusy(false);
     }
   };
+  const run = (e?: React.FormEvent) => {
+    e?.preventDefault();
+    void inspect(host.trim(), Number(port));
+  };
+  // Handed over from a connection test: inspect it straight away, once.
+  useEffect(() => {
+    if (!seed) return;
+    onSeedUsed?.();
+    void inspect(seed.host, seed.port);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
   return (
     <div className="space-y-5">
       <form onSubmit={run} className="flex flex-wrap items-end gap-3">
@@ -91,7 +102,7 @@ const TlsPanel: React.FC = () => {
             ].map(([k, v]) => (
               <div key={k} className="rounded-control border border-line bg-surface-2 px-3 py-2">
                 <div className="text-[11.5px] text-faint">{k}</div>
-                <div className="font-medium text-ink break-all">{v}</div>
+                <div className="font-medium text-ink break-words">{v}</div>
               </div>
             ))}
           </div>
@@ -119,6 +130,120 @@ const TlsPanel: React.FC = () => {
               Save full chain
             </Button>
           )}
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ============================================================================== connection
+
+const ms = (n: number | null | undefined) => (n == null ? "—" : n < 1 ? "<1 ms" : `${n} ms`);
+
+/** Whether this machine can reach host:port over TCP: what `Test-NetConnection -Port` answers. */
+const ConnectionPanel: React.FC<{ onInspectTls: (seed: TlsSeed) => void }> = ({ onInspectTls }) => {
+  const [host, setHost] = useState("");
+  const [port, setPort] = useState(443);
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<ConnectionTest | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const endpoint = host.trim() ? parseTlsTarget(host, Number(port) || 443) : null;
+  const shown = endpoint ?? { host: "example.com", port: Number(port) || 443 };
+  const portFromHost = !!endpoint && endpoint.port !== (Number(port) || 443);
+  const run = async (e?: React.FormEvent) => {
+    e?.preventDefault();
+    if (!host.trim()) return;
+    setBusy(true);
+    setError(null);
+    setResult(null);
+    try {
+      setResult(await api.testConnection(host.trim(), Number(port)));
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+  const r = result;
+  const where = r ? connectTarget({ host: r.computer_name, port: r.remote_port }) : "";
+  return (
+    <div className="space-y-5">
+      <form onSubmit={run} className="flex flex-wrap items-end gap-3">
+        <TextInput label="Host" value={host} onChange={(e) => setHost(e.target.value)} placeholder="example.com, 10.0.0.5 or https://example.com:8443" className="min-w-[320px]" autoFocus data-testid="conn-host" />
+        <TextInput label="Port" type="number" min={1} max={65535} value={port} onChange={(e) => setPort(Number(e.target.value))} className="!w-24" data-testid="conn-port" />
+        <Button variant="primary" type="submit" disabled={busy || !host.trim()} data-testid="conn-run">
+          {busy && <Spinner />} {busy ? "Testing…" : "Test connection"}
+        </Button>
+      </form>
+      {host.trim() && !endpoint && <p className="text-[12px] text-danger -mt-3">Enter a host name, an IP address, or a URL such as https://example.com:8443.</p>}
+      {portFromHost && endpoint && <p className="text-[12px] text-faint -mt-3">Testing port {endpoint.port}, taken from the address.</p>}
+      <TerminalHint command={`Test-NetConnection -ComputerName ${shown.host} -Port ${shown.port} -InformationLevel Detailed`} />
+      {error && <Alert tone="danger" title="Could not test the connection">{error}</Alert>}
+      {r && (
+        <div className="space-y-4" data-testid="conn-result" data-succeeded={String(r.tcp_test_succeeded)} data-failure={r.failure ?? ""}>
+          {r.tcp_test_succeeded ? (
+            <Alert
+              tone="success"
+              title={`${where} is reachable`}
+              action={
+                <Button size="sm" icon={Globe} onClick={() => onInspectTls({ host: r.computer_name, port: r.remote_port })} data-testid="conn-inspect-tls">
+                  Inspect TLS on this port
+                </Button>
+              }
+            >
+              A TCP connection to {r.remote_address} succeeded in {ms(r.tcp_ms)}{r.source_address ? `, from ${r.source_address}${r.interface_alias ? ` on ${r.interface_alias}` : ""}` : ""}.
+            </Alert>
+          ) : (
+            <Alert tone="danger" title={r.failure === "name-resolution" ? `Cannot resolve ${r.computer_name}` : `Cannot reach ${where}`}>
+              {r.hint}
+            </Alert>
+          )}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-[13px]">
+            {[
+              ["Computer name", r.computer_name],
+              ["Remote address", r.remote_address ?? "—"],
+              ["Remote port", String(r.remote_port)],
+              ["TCP test", r.tcp_test_succeeded ? `Succeeded in ${ms(r.tcp_ms)}` : "Failed"],
+              ["Source address", r.source_address ?? "—"],
+              ["Interface", r.interface_alias ?? "—"],
+              ["Name resolved in", ms(r.resolve_ms)],
+              ["Tested", r.tested_at],
+            ].map(([k, v]) => (
+              <div key={k} className="rounded-control border border-line bg-surface-2 px-3 py-2">
+                <div className="text-[11.5px] text-faint">{k}</div>
+                <div className="font-medium text-ink break-words">{v}</div>
+              </div>
+            ))}
+          </div>
+          <div>
+            <div className="text-[12px] font-semibold text-faint mb-2">Name resolution{r.name_resolution.length ? ` · ${r.name_resolution.length} address${r.name_resolution.length === 1 ? "" : "es"}` : ""}</div>
+            {r.name_resolution.length === 0 ? (
+              <p className="text-[13px] text-faint">The name did not resolve to any address.</p>
+            ) : (
+              <ul className="rounded-control border border-line divide-y divide-line text-[13px]" data-testid="conn-addresses">
+                {r.name_resolution.map((a) => {
+                  const attempt = r.attempts.find((t) => t.address === a);
+                  return (
+                    <li key={a} className="px-3 py-2 flex items-center gap-2.5">
+                      {attempt ? (
+                        attempt.succeeded ? (
+                          <CheckCircle2 className="w-4 h-4 text-success shrink-0" aria-label="Connected" />
+                        ) : (
+                          <XCircle className="w-4 h-4 text-danger shrink-0" aria-label="Failed" />
+                        )
+                      ) : (
+                        <span className="w-4 h-4 shrink-0" aria-hidden />
+                      )}
+                      <span className="font-mono text-ink">{a}</span>
+                      <span className="flex-1 min-w-0 truncate text-faint text-right" title={attempt?.error ?? undefined}>
+                        {attempt ? (attempt.succeeded ? `connected in ${ms(attempt.elapsed_ms)}` : `${attempt.error} · ${ms(attempt.elapsed_ms)}`) : "not tried"}
+                      </span>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </div>
         </div>
       )}
     </div>
@@ -457,6 +582,7 @@ const ComparePanel: React.FC = () => {
 export const ExamineView: React.FC = () => {
   const { examineRequest } = useStore();
   const [mode, setMode] = useState<Mode>(() => (examineRequest && examineRequest.nonce !== modeHandledNonce ? "decode" : "tls"));
+  const [tlsSeed, setTlsSeed] = useState<TlsSeed | null>(null);
   useEffect(() => {
     if (!examineRequest || examineRequest.nonce === modeHandledNonce) return;
     modeHandledNonce = examineRequest.nonce;
@@ -464,7 +590,7 @@ export const ExamineView: React.FC = () => {
   }, [examineRequest]);
   return (
     <Page>
-      <PageHeader title="Examine" description="Inspect a live TLS server, decode any certificate, key, CSR, CRL, PKCS#7 or JWT, or compare two certificates." />
+      <PageHeader title="Examine" description="Inspect a live TLS server, test whether a server port can be reached from this machine, decode any certificate, key, CSR, CRL, PKCS#7 or JWT, or compare two certificates." />
       <div className="mb-4">
         <Segmented
           label="Examine mode"
@@ -472,13 +598,22 @@ export const ExamineView: React.FC = () => {
           onChange={setMode}
           options={[
             { value: "tls", label: <><Globe className="w-3.5 h-3.5" /> TLS server</> },
+            { value: "connection", label: <><Network className="w-3.5 h-3.5" /> Connection</> },
             { value: "decode", label: <><FileSearch className="w-3.5 h-3.5" /> Decode</> },
             { value: "compare", label: <><GitCompare className="w-3.5 h-3.5" /> Compare</> },
           ]}
         />
       </div>
       <Card className="p-6">
-        {mode === "tls" && <TlsPanel />}
+        {mode === "tls" && <TlsPanel seed={tlsSeed} onSeedUsed={() => setTlsSeed(null)} />}
+        {mode === "connection" && (
+          <ConnectionPanel
+            onInspectTls={(seed) => {
+              setTlsSeed(seed);
+              setMode("tls");
+            }}
+          />
+        )}
         {mode === "decode" && <DecodePanel />}
         {mode === "compare" && <ComparePanel />}
       </Card>
