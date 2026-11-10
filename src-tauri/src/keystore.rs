@@ -175,6 +175,12 @@ pub fn looks_like_bks_v2(bytes: &[u8]) -> bool {
 }
 
 fn looks_like_bcfks(bytes: &[u8]) -> bool {
+    // Detection probes untrusted bytes with yasna. Without the length guard, a hostile indefinite
+    // length overflows yasna's `self.pos + length` and aborts the process (CI keystore fuzz crash
+    // 84d79cfc). Returning false here is correct: a file that fails the length check is not BCFKS.
+    if crate::util::check_der_lengths(bytes).is_err() {
+        return false;
+    }
     let unencrypted_store = yasna::parse_ber(bytes, |r| {
         r.read_sequence(|r| {
             let version = r.next().read_u64()?;
@@ -399,6 +405,18 @@ mod tests {
             assert_eq!(detect(data), None);
             assert_eq!(detect_unsupported(data), None, "{data:?} misdetected");
         }
+    }
+
+    #[test]
+    fn hostile_indefinite_ber_does_not_abort_detection() {
+        // CI keystore fuzz crash 84d79cfc: yasna overflowed while looks_like_bcfks probed the bytes.
+        let crash: &[u8] = &[
+            0x30, 0x80, 0x02, 0x01, 0x01, 0xff, 0x22, 0x80, 0x80, 0x88, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x01, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+            0xff, 0xff, 0xff, 0x17, 0x2e, 0x02, 0x02, 0x2a, 0x30, 0x86, 0x30, 0x06, 0x30, 0x7e, 0x00, 0x00, 0xff, 0x86, 0x30, 0x06, 0x30, 0x7e, 0x00, 0x00, 0xff, 0xff, 0xff, 0xff, 0xff,
+            0xff, 0xff, 0xff, 0xff, 0x17, 0x86, 0xd1, 0x00, 0xff, 0xff, 0xff,
+        ];
+        assert_eq!(detect_unsupported(crash), None);
+        assert!(decode(crash, "fuzz", &HashMap::new()).is_err());
     }
 
     #[test]

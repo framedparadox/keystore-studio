@@ -82,7 +82,7 @@ fn jks_protect(password: &str, pkcs8: &[u8]) -> Vec<u8> {
 
 fn jks_recover(password: &str, blob: &[u8]) -> Res<Vec<u8>> {
     if blob.len() < 40 {
-        return Err("protected key too short".into());
+        return Err("invalid: protected key too short".into());
     }
     let pw = utf16be(password);
     let (seed, rest) = blob.split_at(20);
@@ -264,7 +264,7 @@ pub fn decode(bytes: &[u8], password: &str, key_passwords: &std::collections::Ha
 fn write_utf(buf: &mut Vec<u8>, s: &str) -> Res<()> {
     let b = s.as_bytes();
     if b.len() > u16::MAX as usize {
-        return Err("alias too long".into());
+        return Err("invalid: alias too long".into());
     }
     buf.write_u16::<BigEndian>(b.len() as u16).map_err(e)?;
     buf.write_all(b).map_err(e)
