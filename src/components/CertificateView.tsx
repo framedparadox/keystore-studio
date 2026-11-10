@@ -1,9 +1,10 @@
 import React, { useState } from "react";
 import clsx from "clsx";
-import { AlertTriangle, ChevronDown, ChevronRight, ShieldCheck, ShieldAlert } from "lucide-react";
-import type { CertificateInfo } from "../types/crypto";
+import { AlertTriangle, ChevronDown, ChevronRight, RadioTower, ShieldCheck, ShieldAlert } from "lucide-react";
+import type { CertificateInfo, OcspInfo } from "../types/crypto";
+import { api, errorMessage } from "../lib/api";
 import { cnOf } from "../lib/keystore";
-import { Badge, CodeBlock, CopyButton } from "./ui";
+import { Alert, Badge, Button, CodeBlock, CopyButton, Spinner } from "./ui";
 
 export const ValidityBadge: React.FC<{ cert: CertificateInfo }> = ({ cert }) => {
   const now = Date.now() / 1000;
@@ -71,6 +72,7 @@ export const CertificateDetails: React.FC<{ cert: CertificateInfo; showPem?: boo
         <Row label="SHA-256" value={cert.sha256_fingerprint} copy={cert.sha256_fingerprint} mono />
         <Row label="SPKI SHA-256" value={cert.spki_sha256 || undefined} copy={cert.spki_sha256} mono />
         <Row label="SHA-1" value={cert.sha1_fingerprint} copy={cert.sha1_fingerprint} mono />
+        <Row label="MD5" value={cert.md5_fingerprint || undefined} copy={cert.md5_fingerprint} mono />
       </tbody>
     </table>
     {showPem && <CodeBlock label="PEM" value={cert.pem} maxHeight={200} />}
@@ -96,6 +98,51 @@ export const ExtensionsList: React.FC<{ cert: CertificateInfo }> = ({ cert }) =>
       ))}
     </div>
   );
+
+const ocspToneAndLabel = (r: OcspInfo): [React.ComponentProps<typeof Badge>["tone"], string] =>
+  r.status === "good" ? ["success", "Good"] : r.status === "revoked" ? ["danger", "Revoked"] : ["warning", "Unknown"];
+
+/**
+ * Live RFC 6960 revocation check for one certificate against its issuer. Needs the issuer's PEM
+ * (to hash its key/name into the request, and to check the responder's signature), so this only
+ * appears where a chain is available — it cannot check a self-signed or orphaned certificate.
+ */
+export const OcspPanel: React.FC<{ cert: CertificateInfo; issuer: CertificateInfo }> = ({ cert, issuer }) => {
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<OcspInfo | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  if ((cert.ocsp_urls ?? []).length === 0 && !result) {
+    return null;
+  }
+  const run = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      setResult(await api.checkOcsp(cert.pem, issuer.pem));
+    } catch (err) {
+      setResult(null);
+      setError(errorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="flex flex-wrap items-center gap-2.5">
+      <Button size="sm" icon={RadioTower} onClick={() => void run()} disabled={busy}>
+        {busy && <Spinner />} {busy ? "Checking…" : "Check revocation (OCSP)"}
+      </Button>
+      {error && <span className="text-[12px] text-danger">{error}</span>}
+      {result && (
+        <span className="inline-flex items-center gap-2 text-[12px] text-faint">
+          <Badge tone={ocspToneAndLabel(result)[0]}>{ocspToneAndLabel(result)[1]}</Badge>
+          {result.status === "revoked" && result.revocation_time && <span>since {result.revocation_time}</span>}
+          {!result.signature_valid && <span className="text-warning">(responder signature unverified{result.signature_warning ? `: ${result.signature_warning}` : ""})</span>}
+          <span>via {result.responder || result.url}</span>
+        </span>
+      )}
+    </div>
+  );
+};
 
 /** Collapsible certificate cards for a chain (leaf first). */
 export const ChainView: React.FC<{
@@ -128,6 +175,7 @@ export const ChainView: React.FC<{
             {expanded && (
               <div className="px-4 pb-4 space-y-3">
                 <CertificateDetails cert={c} />
+                {!c.self_signed && certs[i + 1] && <OcspPanel cert={c} issuer={certs[i + 1]} />}
                 <details>
                   <summary className="cursor-pointer text-[13px] font-medium text-brand">Extensions ({c.extensions.length})</summary>
                   <div className="mt-2">
@@ -157,6 +205,43 @@ export const TrustBanner: React.FC<{ trusted: boolean; error?: string | null }> 
       </span>
     </div>
   );
+
+/**
+ * Checks a decoded certificate chain against this computer's trust store on demand (the same
+ * roots `examineTls` trusts), for places that show a chain without having already run a live
+ * handshake. `certs` is leaf-first, as `ChainView` and the detection engine order them.
+ */
+export const ChainValidation: React.FC<{ certs: CertificateInfo[] }> = ({ certs }) => {
+  const [busy, setBusy] = useState(false);
+  const [problems, setProblems] = useState<string[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const leaf = certs[0];
+  if (!leaf || leaf.self_signed) {
+    return null;
+  }
+  const run = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      const anchors = await api.systemTrustAnchors();
+      setProblems(await api.validateChain(leaf.pem, certs.slice(1).map((c) => c.pem).join(""), anchors, null));
+    } catch (err) {
+      setProblems(null);
+      setError(errorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="space-y-2">
+      <Button size="sm" icon={ShieldCheck} onClick={() => void run()} disabled={busy}>
+        {busy && <Spinner />} {busy ? "Validating…" : "Validate against this computer's trust store"}
+      </Button>
+      {error && <Alert tone="danger">{error}</Alert>}
+      {problems && <TrustBanner trusted={problems.length === 0} error={problems[0]} />}
+    </div>
+  );
+};
 
 export const WarningList: React.FC<{ warnings: string[] }> = ({ warnings }) =>
   warnings.length ? (

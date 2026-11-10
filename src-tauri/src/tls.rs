@@ -94,6 +94,15 @@ fn root_store() -> RootCertStore {
     roots
 }
 
+/// The operating system's trust anchors as concatenated PEM, for checking a certificate chain
+/// found elsewhere (Examine's Decode panel) against the same roots a live TLS handshake trusts.
+/// Unlike `root_store`, this has no Mozilla-roots fallback: `webpki-roots` only carries bare
+/// `subject`/SPKI trust anchors, not whole certificates, so there is nothing to render as PEM when
+/// the OS store cannot be read.
+pub fn system_trust_anchors_pem() -> String {
+    rustls_native_certs::load_native_certs().certs.into_iter().map(|c| to_pem("CERTIFICATE", &c)).collect()
+}
+
 /// Splits "https://host:8443/path", "host:443", "[::1]:443" or "host" into (host, port).
 pub fn parse_target(input: &str, default_port: u16) -> Res<(String, u16)> {
     let mut s = input.trim();

@@ -136,6 +136,10 @@ pub const EKU_EMAIL_PROTECTION: &[u64] = &[1, 3, 6, 1, 5, 5, 7, 3, 4];
 pub const EKU_TIME_STAMPING: &[u64] = &[1, 3, 6, 1, 5, 5, 7, 3, 8];
 pub const EKU_OCSP_SIGNING: &[u64] = &[1, 3, 6, 1, 5, 5, 7, 3, 9];
 
+// RFC 6960 OCSP
+pub const PKIX_OCSP_BASIC: &[u64] = &[1, 3, 6, 1, 5, 5, 7, 48, 1, 1];
+pub const OCSP_NONCE: &[u64] = &[1, 3, 6, 1, 5, 5, 7, 48, 1, 2];
+
 // Distinguished name attributes
 pub const AT_CN: &[u64] = &[2, 5, 4, 3];
 pub const AT_SURNAME: &[u64] = &[2, 5, 4, 4];

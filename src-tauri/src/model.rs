@@ -347,6 +347,22 @@ pub struct TimestampInfo {
     pub chain_trusted: Option<bool>,
 }
 
+/// An RFC 6960 OCSP revocation check for one certificate.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OcspInfo {
+    /// "good", "revoked" or "unknown".
+    pub status: String,
+    pub responder: String,
+    pub produced_at: String,
+    pub this_update: String,
+    pub next_update: Option<String>,
+    pub revocation_time: Option<String>,
+    pub revocation_reason: Option<String>,
+    pub signature_valid: bool,
+    pub signature_warning: Option<String>,
+    pub url: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CmsVerifyResult {
     pub valid: bool,

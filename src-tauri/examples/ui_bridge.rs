@@ -223,6 +223,16 @@ fn handle(cmd: &str, args: &serde_json::Value) -> Result<serde_json::Value, Stri
             let hostname = args.get("hostname").and_then(|v| v.as_str());
             to_json(keystore_studio_lib::x509::validate_chain(&leaf, &pems("intermediatesPem")?, &pems("anchorsPem")?, hostname))
         }
+        "system_trust_anchors" => to_json(keystore_studio_lib::tls::system_trust_anchors_pem()),
+        "check_ocsp" => {
+            let subject = keystore_studio_lib::x509::certificates_from_bytes(s("subjectPem").as_bytes())?.into_iter().next().ok_or("no subject certificate")?;
+            let issuer = keystore_studio_lib::x509::certificates_from_bytes(s("issuerPem").as_bytes())?.into_iter().next().ok_or("no issuer certificate")?;
+            let url = match opt_arg::<String>(args, "url")?.filter(|u| !u.trim().is_empty()) {
+                Some(u) => u,
+                None => keystore_studio_lib::x509::parse_certificate(&subject)?.ocsp_urls.into_iter().next().ok_or("this certificate carries no OCSP responder URL")?,
+            };
+            to_json(keystore_studio_lib::ocsp::check(&url, &subject, &issuer)?.info())
+        }
         // State the UI reads on its pages; the bridge keeps none, so these answer "empty".
         "ledger_search" => Ok(serde_json::json!([])),
         "ca_next_crl_number" => Ok(serde_json::json!(1)),

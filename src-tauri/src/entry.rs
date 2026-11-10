@@ -220,19 +220,3 @@ pub fn secret_bytes(entry: &KeystoreEntry) -> Res<Vec<u8>> {
     hex::decode(hex_str.replace([':', ' '], "")).map_err(|_| format!("entry '{}': invalid secret key hex", entry.alias))
 }
 
-/// Re-derives all certificate-derived fields (e.g. after the frontend edited labels only, or to
-/// refresh `is_expired`). Keeps id, alias, labels and key material.
-pub fn refresh(entry: &KeystoreEntry) -> Res<KeystoreEntry> {
-    let mut fresh = match entry.entry_type.as_str() {
-        "SecretKey" if entry.locked => entry.clone(),
-        "SecretKey" => secret_key_entry(&entry.alias, &entry.algorithm, &secret_bytes(entry)?, None),
-        "TrustedCertificate" => trusted_cert_entry(&entry.alias, &chain_der(entry)?[0], None)?,
-        _ if entry.locked => entry.clone(),
-        _ => key_pair_entry(&entry.alias, &private_key_der(entry)?, &chain_der(entry)?, None)?,
-    };
-    fresh.id = entry.id.clone();
-    fresh.labels = entry.labels.clone();
-    fresh.creation_date = entry.creation_date.clone();
-    fresh.key_password = entry.key_password.clone();
-    Ok(fresh)
-}

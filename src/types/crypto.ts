@@ -256,6 +256,21 @@ export interface CrlInfo {
   signature_valid?: boolean | null;
 }
 
+/** An RFC 6960 OCSP revocation check for one certificate. */
+export interface OcspInfo {
+  /** "good", "revoked" or "unknown". */
+  status: "good" | "revoked" | "unknown";
+  responder: string;
+  produced_at: string;
+  this_update: string;
+  next_update?: string | null;
+  revocation_time?: string | null;
+  revocation_reason?: string | null;
+  signature_valid: boolean;
+  signature_warning?: string | null;
+  url: string;
+}
+
 /** An RFC 3161 trusted timestamp. */
 export interface TimestampInfo {
   time: string;

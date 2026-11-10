@@ -22,6 +22,7 @@ import type {
   KeystoreEntry,
   KeystoreFile,
   KeystoreFormat,
+  OcspInfo,
   PemBundleOptions,
   RevokedCertEntry,
   SaveResult,
@@ -141,6 +142,10 @@ export const api = {
   ledgerDelete: (serial: string) => call<void>("ledger_delete", { serial }),
   validateChain: (leafPem: string, intermediatesPem: string, anchorsPem: string, hostname?: string | null) =>
     call<string[]>("validate_chain", { leafPem, intermediatesPem, anchorsPem, hostname: hostname ?? null }),
+  /** The OS trust store as PEM, for validateChain against the same roots examineTls trusts. */
+  systemTrustAnchors: () => call<string>("system_trust_anchors"),
+  /** Live revocation check (RFC 6960). `url` defaults to the subject certificate's own OCSP URL when omitted. */
+  checkOcsp: (subjectPem: string, issuerPem: string, url?: string | null) => call<OcspInfo>("check_ocsp", { subjectPem, issuerPem, url: url ?? null }),
   cmsSign: (content: DataSource, signerEntry: KeystoreEntry, detached: boolean, tsaUrl?: string | null, tsaTrustPem?: string | null) =>
     call<CmsSignResult>("cms_sign", { content, signerEntry, detached, tsaUrl: tsaUrl || null, tsaTrustPem: tsaTrustPem || null }),
   cmsVerify: (signature: DataSource, content: DataSource | null, entry: KeystoreEntry | null, tsaTrustPem?: string | null) =>

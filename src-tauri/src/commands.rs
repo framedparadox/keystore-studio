@@ -295,11 +295,6 @@ async fn rotate_key(entry: KeystoreEntry, algorithm: String, key_size: u32, curv
 }
 
 #[tauri::command]
-async fn refresh_entry(entry: KeystoreEntry) -> Res<KeystoreEntry> {
-    blocking(move || entry::refresh(&entry)).await
-}
-
-#[tauri::command]
 async fn export_entry(entry: KeystoreEntry, target: String, path: String, password: Option<String>) -> Res<ExportResult> {
     blocking(move || export::export_entry(&entry, &target, &path, password.as_deref())).await
 }
@@ -568,6 +563,13 @@ async fn ledger_delete(paths: State<'_, Arc<AppPaths>>, serial: String) -> Res<(
     .await
 }
 
+/// The operating system's trust anchors as PEM, for `validate_chain` against the same roots a
+/// live TLS handshake (`examine_tls`) would trust.
+#[tauri::command]
+async fn system_trust_anchors() -> Res<String> {
+    blocking(|| Ok(tls::system_trust_anchors_pem())).await
+}
+
 #[tauri::command]
 async fn validate_chain(leaf_pem: String, intermediates_pem: String, anchors_pem: String, hostname: Option<String>) -> Res<Vec<String>> {
     blocking(move || {
@@ -596,6 +598,25 @@ async fn read_crl(data: DataSource) -> Res<CrlInfo> {
             bytes
         };
         x509::parse_crl(&der, None)
+    })
+    .await
+}
+
+/// Live revocation check for one certificate against an OCSP responder (RFC 6960).
+///
+/// `subject_pem` and `issuer_pem` are each a single PEM certificate. `url` defaults to the first
+/// of the subject certificate's `ocsp_urls` (its Authority Information Access extension) when
+/// empty.
+#[tauri::command]
+async fn check_ocsp(subject_pem: String, issuer_pem: String, url: Option<String>) -> Res<OcspInfo> {
+    blocking(move || {
+        let subject = x509::certificates_from_bytes(subject_pem.as_bytes())?.into_iter().next().ok_or("no subject certificate")?;
+        let issuer = x509::certificates_from_bytes(issuer_pem.as_bytes())?.into_iter().next().ok_or("no issuer certificate")?;
+        let url = match url.filter(|u| !u.trim().is_empty()) {
+            Some(u) => u,
+            None => x509::parse_certificate(&subject)?.ocsp_urls.into_iter().next().ok_or("this certificate carries no OCSP responder URL")?,
+        };
+        Ok(ocsp::check(&url, &subject, &issuer)?.info())
     })
     .await
 }
@@ -897,7 +918,6 @@ pub fn run() {
             generate_csr,
             import_ca_reply,
             rotate_key,
-            refresh_entry,
             export_entry,
             jwt_algorithms,
             convert_certificates,
@@ -913,6 +933,8 @@ pub fn run() {
             ledger_search,
             ledger_delete,
             validate_chain,
+            system_trust_anchors,
+            check_ocsp,
             cms_sign,
             cms_verify,
             jwt_sign,

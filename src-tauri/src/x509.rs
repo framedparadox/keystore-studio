@@ -582,7 +582,7 @@ fn reason_code(reason: &str) -> Res<Option<i64>> {
     })
 }
 
-fn reason_name(code: u8) -> &'static str {
+pub fn reason_name(code: u8) -> &'static str {
     match code {
         1 => "keyCompromise",
         2 => "cACompromise",
@@ -886,7 +886,7 @@ pub fn parse_certificate(der: &[u8]) -> Res<CertificateInfo> {
         curve: pk.curve,
         sha256_fingerprint: colon_hex(&sha256(der)),
         sha1_fingerprint: colon_hex(&sha1(der)),
-        md5_fingerprint: String::new(),
+        md5_fingerprint: colon_hex(&md5(der)),
         spki_sha256: colon_hex(&sha256(spki)),
         pem: to_pem("CERTIFICATE", der),
         ..Default::default()
@@ -950,11 +950,12 @@ pub struct CertSummary {
     pub subject_raw: Vec<u8>,
     pub issuer_raw: Vec<u8>,
     pub spki: Vec<u8>,
+    pub serial: Vec<u8>,
 }
 
 pub fn cert_summary(der: &[u8]) -> Res<CertSummary> {
     let (_, cert) = X509Certificate::from_der(der).map_err(|err| format!("not a valid X.509 certificate: {err}"))?;
-    Ok(CertSummary { subject_raw: cert.subject().as_raw().to_vec(), issuer_raw: cert.issuer().as_raw().to_vec(), spki: cert.public_key().raw.to_vec() })
+    Ok(CertSummary { subject_raw: cert.subject().as_raw().to_vec(), issuer_raw: cert.issuer().as_raw().to_vec(), spki: cert.public_key().raw.to_vec(), serial: cert.raw_serial().to_vec() })
 }
 
 /// Subject key identifier and authority key identifier (key id only) from a certificate.

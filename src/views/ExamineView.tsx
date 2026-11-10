@@ -8,7 +8,7 @@ import { cnOf } from "../lib/keystore";
 import { connectTarget, parseTlsTarget } from "../lib/net";
 import { useStore } from "../state/store";
 import { Alert, Badge, Button, Card, CodeBlock, EmptyState, Page, PageHeader, PasswordInput, Segmented, Select, Spinner, TextArea, TextInput, useToast } from "../components/ui";
-import { CertificateDetails, ChainView, TrustBanner, WarningList } from "../components/CertificateView";
+import { ChainValidation, CertificateDetails, ChainView, TrustBanner, WarningList } from "../components/CertificateView";
 import { TerminalHint } from "../components/Terminal";
 import { useSaveText } from "../components/EntryDialogs";
 import { useAddCertificateToKeystore, useKeepCertificates } from "../components/CertificateDialogs";
@@ -366,21 +366,24 @@ const DecodePanel: React.FC = () => {
               </Button>
             )}
             {result.certificates.length > 0 && (
-              <ChainView
-                certs={result.certificates}
-                actions={(c, i) => (
-                  <>
-                    <Button size="sm" icon={FileBadge} onClick={() => void keep([c], path ? baseName(path) : "Decoded")} data-testid={`decode-keep-${i}`}>
-                      Add to Certificates
-                    </Button>
-                    {target && (
-                      <Button size="sm" icon={Plus} onClick={() => importCert(c)}>
-                        Add to {target.name}
+              <div className="space-y-3">
+                <ChainValidation certs={result.certificates} />
+                <ChainView
+                  certs={result.certificates}
+                  actions={(c, i) => (
+                    <>
+                      <Button size="sm" icon={FileBadge} onClick={() => void keep([c], path ? baseName(path) : "Decoded")} data-testid={`decode-keep-${i}`}>
+                        Add to Certificates
                       </Button>
-                    )}
-                  </>
-                )}
-              />
+                      {target && (
+                        <Button size="sm" icon={Plus} onClick={() => importCert(c)}>
+                          Add to {target.name}
+                        </Button>
+                      )}
+                    </>
+                  )}
+                />
+              </div>
             )}
             {result.csr && (
               <div className="space-y-3">
