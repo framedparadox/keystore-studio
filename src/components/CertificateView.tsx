@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import clsx from "clsx";
-import { AlertTriangle, ChevronDown, ChevronRight, RadioTower, ShieldCheck, ShieldAlert } from "lucide-react";
+import { AlertTriangle, ChevronDown, ChevronRight, Network, ShieldCheck, ShieldAlert } from "lucide-react";
 import type { CertificateInfo, OcspInfo } from "../types/crypto";
 import { api, errorMessage } from "../lib/api";
 import { cnOf } from "../lib/keystore";
@@ -128,15 +128,19 @@ export const OcspPanel: React.FC<{ cert: CertificateInfo; issuer: CertificateInf
   };
   return (
     <div className="flex flex-wrap items-center gap-2.5">
-      <Button size="sm" icon={RadioTower} onClick={() => void run()} disabled={busy}>
+      <Button icon={Network} onClick={() => void run()} disabled={busy}>
         {busy && <Spinner />} {busy ? "Checking…" : "Check revocation (OCSP)"}
       </Button>
       {error && <span className="text-[12px] text-danger">{error}</span>}
       {result && (
         <span className="inline-flex items-center gap-2 text-[12px] text-faint">
           <Badge tone={ocspToneAndLabel(result)[0]}>{ocspToneAndLabel(result)[1]}</Badge>
+          {!result.signature_valid && (
+            <span title={result.signature_warning ?? undefined}>
+              <Badge tone="warning">Signature unverified</Badge>
+            </span>
+          )}
           {result.status === "revoked" && result.revocation_time && <span>since {result.revocation_time}</span>}
-          {!result.signature_valid && <span className="text-warning">(responder signature unverified{result.signature_warning ? `: ${result.signature_warning}` : ""})</span>}
           <span>via {result.responder || result.url}</span>
         </span>
       )}
@@ -233,12 +237,21 @@ export const ChainValidation: React.FC<{ certs: CertificateInfo[] }> = ({ certs 
     }
   };
   return (
-    <div className="space-y-2">
-      <Button size="sm" icon={ShieldCheck} onClick={() => void run()} disabled={busy}>
+    <div className="space-y-2.5">
+      <Button icon={ShieldCheck} onClick={() => void run()} disabled={busy}>
         {busy && <Spinner />} {busy ? "Validating…" : "Validate against this computer's trust store"}
       </Button>
       {error && <Alert tone="danger">{error}</Alert>}
-      {problems && <TrustBanner trusted={problems.length === 0} error={problems[0]} />}
+      {problems && problems.length === 0 && <TrustBanner trusted />}
+      {problems && problems.length > 0 && (
+        <Alert tone="danger" title="Not trusted">
+          <ul className="mt-1 space-y-0.5 list-disc pl-4">
+            {problems.map((p) => (
+              <li key={p}>{p}</li>
+            ))}
+          </ul>
+        </Alert>
+      )}
     </div>
   );
 };

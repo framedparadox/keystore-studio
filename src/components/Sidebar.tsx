@@ -199,9 +199,11 @@ export const Sidebar: React.FC<{ collapsed: boolean; onCollapse: () => void }> =
     <aside className={clsx("shrink-0 h-full flex flex-col bg-chrome border-r border-line transition-all duration-200 overflow-hidden", collapsed ? "w-[64px]" : "w-[240px]")}>
       <div className={clsx("h-14 flex items-center shrink-0", collapsed ? "justify-center px-0" : "px-5 gap-2.5")}>
         <button onClick={() => setTab("home")} className="flex items-center gap-2.5 cursor-pointer min-w-0" aria-label="Keystore Studio dashboard" title="Keystore Studio">
-          <span className="w-7 h-7 rounded-control bg-brand flex items-center justify-center shadow-card shrink-0">
-            <KeyRound className="w-4 h-4 text-on-accent" />
-          </span>
+          <img
+            src="/icon.png"
+            alt="Keystore Studio"
+            className="w-7 h-7 rounded-control object-cover shadow-card shrink-0"
+          />
           {!collapsed && <span className="font-semibold text-[15px] tracking-[-0.01em] text-ink truncate">Keystore Studio</span>}
         </button>
         {!collapsed && (
