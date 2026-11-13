@@ -162,6 +162,31 @@ async function run() {
     await waitText("Keystore Studio", 20000);
     const ran = await driver.executeScript("return typeof window.__TAURI_INTERNALS__ === 'object'");
     if (!ran) throw new Error("the Tauri shim is not present; the page did not run its scripts");
+    if ((await driver.findElements(byTest("undo"))).length || (await driver.findElements(byTest("redo"))).length) {
+      throw new Error("undo or redo is visible with no history");
+    }
+  });
+
+  await step("the header and sidebar use theme-aware monochrome accents", async () => {
+    const previous = await driver.executeScript("return document.documentElement.dataset.theme");
+    try {
+      for (const [theme, accent, foreground] of [
+        ["light", "rgb(0, 0, 0)", "rgb(255, 255, 255)"],
+        ["dark", "rgb(255, 255, 255)", "rgb(0, 0, 0)"],
+      ]) {
+        await driver.executeScript("document.documentElement.dataset.theme = arguments[0]", theme);
+        await sleep(500);
+        const colors = await driver.executeScript(`const button = document.querySelector('[data-testid="header-new"]');
+          const icon = document.querySelector('[data-testid="nav-home"] svg');
+          return { background: getComputedStyle(button).backgroundColor, foreground: getComputedStyle(button).color,
+            icon: getComputedStyle(icon).color, pageAccent: getComputedStyle(document.documentElement).getPropertyValue("--color-brand").trim() };`);
+        if (colors.background !== accent || colors.foreground !== foreground || colors.icon !== accent || colors.pageAccent === (theme === "light" ? "#000000" : "#ffffff")) {
+          throw new Error(`unexpected ${theme} shell colors: ${JSON.stringify(colors)}`);
+        }
+      }
+    } finally {
+      await driver.executeScript("document.documentElement.dataset.theme = arguments[0]", previous);
+    }
   });
 
   await step("the engine is reachable from the page", async () => {
@@ -563,6 +588,10 @@ async function run() {
     await setField("rename-input", "own-renamed");
     await click("rename-submit");
     await driver.wait(async () => (await aliases()).includes("own-renamed"), 5000, "the rename did not apply");
+    const undoIsLeftOfSearch = await driver.executeScript(`const undo = document.querySelector('[data-testid="undo"]');
+      const search = document.querySelector('[data-testid="open-palette"]');
+      return !!undo && undo.getBoundingClientRect().right <= search.getBoundingClientRect().left;`);
+    if (!undoIsLeftOfSearch || await present("redo")) throw new Error("undo/redo visibility or position after rename is incorrect");
     const later = path.join(R, "opened-later.p12");
     keytoolPair(later, "later");
     await openKeystore(later);
@@ -571,6 +600,12 @@ async function run() {
     if (!(await present("ks-tab-opened-later.p12"))) throw new Error("undo closed the keystore that was opened after the edit");
     await click("ks-tab-own-pw.jks");
     await driver.wait(async () => (await aliases()).includes("own"), 5000, "undo did not revert the rename");
+    if (!(await present("redo"))) throw new Error("redo is not visible after undo");
+    await click("redo");
+    await driver.wait(async () => (await aliases()).includes("own-renamed"), 5000, "redo did not restore the rename");
+    if (await present("redo")) throw new Error("redo remains visible when there is nothing to redo");
+    await click("undo");
+    await driver.wait(async () => (await aliases()).includes("own"), 5000, "undo did not revert the rename again");
   });
 
   await step("review: Save As can replace another existing keystore file", async () => {
@@ -1104,21 +1139,56 @@ async function run() {
     await shotSizes("24-certificates-table");
   });
 
-  await step("sidebar: collapsed, it expands from a chevron in the title bar, not from a button in the sidebar", async () => {
+  await step("sidebar: the logo follows the applied theme", async () => {
+    const logos = await driver.executeScript(`const root = document.documentElement;
+      const previous = root.dataset.theme;
+      const visibleLogo = (theme) => {
+        root.dataset.theme = theme;
+        return [...document.querySelectorAll('aside button[aria-label="Keystore Studio dashboard"] img')]
+          .filter((img) => getComputedStyle(img).display !== "none")
+          .map((img) => img.getAttribute("src"));
+      };
+      const light = visibleLogo("light"), dark = visibleLogo("dark");
+      if (previous === undefined) delete root.dataset.theme;
+      else root.dataset.theme = previous;
+      return { light, dark };`);
+    if (JSON.stringify(logos.light) !== JSON.stringify(["/icon.png"]) || JSON.stringify(logos.dark) !== JSON.stringify(["/icon-l.png"])) {
+      throw new Error(`incorrect sidebar logos: ${JSON.stringify(logos)}`);
+    }
+  });
+
+  await step("sidebar: collapsed, it expands from the bottom of the navigation", async () => {
     const asideWidth = () => driver.executeScript(`return Math.round(document.querySelector("aside").getBoundingClientRect().width)`);
     await driver.findElement(By.css('aside button[aria-label="Collapse sidebar"]')).click();
     await driver.wait(async () => (await asideWidth()) === 64, 5000, "the sidebar did not collapse");
-    const r = await driver.executeScript(`const b = document.querySelector('header [aria-label="Expand sidebar"]');
-       return { header: !!b, chevron: !!b?.querySelector('svg path[d="m9 18 6-6-6-6"]') /* lucide ChevronRight */, inSidebar: document.querySelectorAll('aside [aria-label="Expand sidebar"]').length,
-         left: b ? Math.round(b.getBoundingClientRect().left - document.querySelector("header").getBoundingClientRect().left) : null }`);
-    if (r.inSidebar) throw new Error("the collapsed sidebar still has its own expand button");
-    if (!r.header) throw new Error("the title bar has no Expand sidebar button");
-    if (!r.chevron) throw new Error("the title bar button is not a chevron-right");
-    if (r.left > 24) throw new Error(`the chevron is not at the start of the title bar (${r.left}px in)`);
+    const r = await driver.executeScript(`const nav = document.querySelector('nav[aria-label="Primary"]');
+       const b = nav.querySelector('[aria-label="Expand sidebar"]');
+       const search = document.querySelector('[data-testid="open-palette"]').getBoundingClientRect();
+       const terminal = document.querySelector('[data-testid="header-terminal"]').getBoundingClientRect();
+       return { chevron: !!b?.querySelector('svg path[d="m9 18 6-6-6-6"]'),
+         bottom: b ? nav.getBoundingClientRect().bottom - b.getBoundingClientRect().bottom : null,
+         gap: terminal.left - search.right };`);
+    if (!r.chevron) throw new Error("the collapsed navigation has no expand chevron");
+    if (r.bottom < 0 || r.bottom > 24) throw new Error(`the chevron is not at the bottom of the navigation (${r.bottom}px)`);
+    if (r.gap < 0 || r.gap > 12) throw new Error(`the terminal is not beside search (${r.gap}px gap)`);
     await shotSizes("25-sidebar-collapsed");
     await click("sidebar-expand");
     await driver.wait(async () => (await asideWidth()) === 240, 5000, "the sidebar did not expand");
-    if (await present("sidebar-expand")) throw new Error("the chevron stays in the title bar while the sidebar is expanded");
+    if (await present("sidebar-expand")) throw new Error("the expand chevron stays visible while the sidebar is expanded");
+  });
+
+  await step("settings: the panel fills the available content width", async () => {
+    try {
+      await click("nav-settings");
+      for (const width of [1024, 1600]) {
+        await setViewport(width, 900);
+        const gap = await driver.executeScript(`const panel = document.querySelector('[role="tabpanel"]');
+          return panel.parentElement.getBoundingClientRect().right - panel.getBoundingClientRect().right;`);
+        if (Math.abs(gap) > 1) throw new Error(`settings panel has a ${gap}px right gap at ${width}px`);
+      }
+    } finally {
+      await restoreWindow();
+    }
   });
 
   await step("details: the certificate table has a Subject CN row under Subject and an Issuer CN row under Issuer", async () => {

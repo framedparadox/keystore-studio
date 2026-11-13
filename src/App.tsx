@@ -108,9 +108,9 @@ const Shell: React.FC = () => {
 
   return (
     <div className="h-screen w-screen flex bg-canvas select-none overflow-hidden font-sans">
-      <Sidebar collapsed={sidebarCollapsed} onCollapse={() => setSidebarCollapsed(true)} />
+      <Sidebar collapsed={sidebarCollapsed} onCollapse={() => setSidebarCollapsed(true)} onExpand={() => setSidebarCollapsed(false)} />
       <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
-        <Header onOpenPalette={() => setPaletteOpen(true)} onExpandSidebar={sidebarCollapsed ? () => setSidebarCollapsed(false) : undefined} />
+        <Header onOpenPalette={() => setPaletteOpen(true)} />
         <main className="flex-1 min-h-0 flex flex-col overflow-hidden relative">
           <PageBoundary resetKey={store.tab}>
             {store.tab === "home" && <HomeView />}

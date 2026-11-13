@@ -480,7 +480,7 @@ export const SettingsView: React.FC = () => {
       {/* The container query measures the content column, which shrinks when the sidebar is open. */}
       <div className="@container">
         <SettingsNav active={section} onSelect={select} settings={settings} onRestore={() => restore(def.keys, def.label)} />
-        <div role="tabpanel" id={`settings-panel-${section}`} aria-label={def.label} className="max-w-5xl min-w-0">
+        <div role="tabpanel" id={`settings-panel-${section}`} aria-label={def.label} className="min-w-0">
           {body}
         </div>
       </div>

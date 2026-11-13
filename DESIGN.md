@@ -31,6 +31,8 @@ controls meet 3:1. With the tokens above that means: `faint` or darker for any t
 
 ## 2. One accent
 `brand` is the only accent hue. Cards are not individually color-coded; icons are `text-brand`.
+The header and primary sidebar navigation use a monochrome accent: black in light mode and white in
+dark mode, with a contrasting foreground on filled actions.
 
 ## 3. Shape and elevation
 `rounded-control` (6px) for buttons, inputs, badges and rows · `rounded-card` (10px) for cards and tiles ·
@@ -100,10 +102,10 @@ never draw a type icon by hand. Derived numbers
 Add a variant to a primitive rather than restyling one-off.
 
 ## 6. Page layout
-App shell: 240px `Sidebar` (grouped nav: Overview · Inventory (Keystores, Certificates, Workspaces) · Tools · Security,
-Settings in the footer; it collapses to a 64px icon rail from the button beside the logo, and while it is collapsed a
-chevron-right at the start of the `Header` expands it again) +
-`Header` (breadcrumb, undo/redo, command palette, vault lock, terminal, Open, New keystore). Under Tools, Convert
+App shell: 240px `Sidebar` (grouped nav: Overview · Inventory (Keystores, Certificates, Workspaces) · Tools · Security;
+it collapses to a 64px icon rail from the button beside the logo, and a chevron at the bottom of the
+collapsed navigation expands it again) +
+`Header` (breadcrumb, undo/redo, command palette, vault lock, terminal, Open, New keystore, Settings). Under Tools, Convert
 lists every conversion beneath it (collapsible) so each one is a click away. Every page:
 `Page` → `PageHeader` → content on a 12-column grid with `gap-4`. Lists of records are tables, not card grids.
 Every page has an empty state that offers the next useful action.

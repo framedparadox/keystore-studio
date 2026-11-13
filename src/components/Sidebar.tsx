@@ -19,7 +19,6 @@ import {
   PanelLeftClose,
   Repeat,
   SearchCode,
-  Settings,
   ShieldCheck,
 } from "lucide-react";
 import type { TabType } from "../types/crypto";
@@ -27,6 +26,7 @@ import { useStore } from "../state/store";
 import { entryHealth } from "../lib/metrics";
 import { CONVERTERS, type ConverterId } from "../lib/convert";
 import { shortcutLabel } from "../lib/platform";
+import { IconButton } from "./ui";
 
 type NavItem = { id: TabType; label: string; icon: React.ElementType; shortcut: string };
 
@@ -103,7 +103,7 @@ const writeFlag = (key: string, value: boolean) => {
 
 /**
  * Whether the sidebar is collapsed to its icon rail, remembered across launches. App owns it: the
- * sidebar collapses itself, and the title bar offers the way back while it is collapsed.
+ * sidebar provides controls to collapse and expand itself.
  */
 export const useSidebarCollapsed = () => {
   const [collapsed, setCollapsed] = useState(() => readFlag(COLLAPSED_KEY, false));
@@ -114,7 +114,7 @@ export const useSidebarCollapsed = () => {
   return [collapsed, setCollapsed] as const;
 };
 
-export const Sidebar: React.FC<{ collapsed: boolean; onCollapse: () => void }> = ({ collapsed, onCollapse }) => {
+export const Sidebar: React.FC<{ collapsed: boolean; onCollapse: () => void; onExpand: () => void }> = ({ collapsed, onCollapse, onExpand }) => {
   const { tab, setTab, keystores, certificates, workspaces, vault, convertMode, openConverter } = useStore();
   const [convertOpen, setConvertOpen] = useState(() => readFlag(CONVERT_OPEN_KEY, true));
   useEffect(() => writeFlag(CONVERT_OPEN_KEY, convertOpen), [convertOpen]);
@@ -202,7 +202,12 @@ export const Sidebar: React.FC<{ collapsed: boolean; onCollapse: () => void }> =
           <img
             src="/icon.png"
             alt="Keystore Studio"
-            className="w-7 h-7 rounded-control object-cover shadow-card shrink-0"
+            className="w-7 h-7 rounded-control object-cover shadow-card shrink-0 dark:hidden"
+          />
+          <img
+            src="/icon-l.png"
+            alt="Keystore Studio"
+            className="hidden w-7 h-7 rounded-control object-cover shadow-card shrink-0 dark:block"
           />
           {!collapsed && <span className="font-semibold text-[15px] tracking-[-0.01em] text-ink truncate">Keystore Studio</span>}
         </button>
@@ -218,11 +223,9 @@ export const Sidebar: React.FC<{ collapsed: boolean; onCollapse: () => void }> =
           </button>
         )}
       </div>
-      {/* Collapsed, the way back is the chevron at the start of the title bar (Header). */}
-
-      <nav className={clsx("flex-1 overflow-y-auto pt-1", collapsed ? "px-2" : "px-3")} aria-label="Primary">
+      <nav className={clsx("shell-accent flex-1 min-h-0 overflow-y-auto pt-1 flex flex-col", collapsed ? "px-2" : "px-3")} aria-label="Primary">
         {NAV_GROUPS.map((g, i) => (
-          <div key={i}>
+          <div key={i} className="shrink-0">
             {i > 0 && <div className={clsx("my-3 border-t border-line", collapsed ? "mx-1" : "mx-2.5")} role="separator" />}
             {g.label && !collapsed && <div className="px-2.5 mb-1.5 text-[11px] font-semibold uppercase tracking-[0.06em] text-faint">{g.label}</div>}
             <div className="space-y-0.5">
@@ -239,11 +242,12 @@ export const Sidebar: React.FC<{ collapsed: boolean; onCollapse: () => void }> =
             </div>
           </div>
         ))}
+        {collapsed && (
+          <div className="mt-auto py-3 flex justify-center">
+            <IconButton icon={ChevronRight} label="Expand sidebar" onClick={onExpand} className="!w-9 !h-9" data-testid="sidebar-expand" />
+          </div>
+        )}
       </nav>
-
-      <div className={clsx("py-3 border-t border-line", collapsed ? "px-2" : "px-3")}>
-        <NavButton item={{ id: "settings", label: "Settings", icon: Settings, shortcut: "8" }} />
-      </div>
     </aside>
   );
 };

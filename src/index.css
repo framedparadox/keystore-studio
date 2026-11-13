@@ -130,6 +130,15 @@
     --shadow-pop: 0 0 0 1px #2a2a2a, 0 16px 40px -8px rgba(0, 0, 0, 0.9);
   }
 
+  .shell-accent {
+    --color-brand: #000000;
+    --color-brand-deep: #333333;
+  }
+  :root[data-theme="dark"] .shell-accent {
+    --color-brand: #ffffff;
+    --color-brand-deep: #d4d4d4;
+  }
+
   * {
     box-sizing: border-box;
   }
