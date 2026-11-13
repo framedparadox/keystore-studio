@@ -1,0 +1,117 @@
+[package]
+name = "keystore-studio"
+version = "1.0.0"
+description = "Keystore Studio — native keystore and X.509 certificate workbench"
+authors = ["Keystore Studio contributors"]
+license = "MIT"
+edition = "2024"
+
+[lib]
+# The `_lib` suffix may seem redundant but it is necessary
+# to make the lib name unique and wouldn't conflict with the bin name.
+# This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
+name = "keystore_studio_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+# Without this, `cargo test --no-default-features` still builds the binary and fails looking for
+# `run`, which lives behind `tauri-app`. Fuzz and engine-only builds need the lib alone.
+[[bin]]
+name = "keystore-studio"
+path = "src/main.rs"
+required-features = ["tauri-app"]
+
+# The fuzz crate is built only by cargo-fuzz, on nightly, against the engine without default
+# features. Excluding it keeps `cargo build`, `cargo test` and `cargo clippy` here from trying to
+# compile libfuzzer-sys on stable.
+[workspace]
+exclude = ["fuzz"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[features]
+# The Tauri command layer. On by default so `cargo build` produces the app; turn it off to build
+# the engine alone, without the GUI toolchain (used by fuzz/).
+default = ["tauri-app"]
+tauri-app = ["dep:tauri", "dep:tauri-plugin-opener", "dep:tauri-plugin-dialog"]
+# `tauri build` enables this so the window serves the embedded frontend. Without it the binary
+# loads devUrl (the Vite server) and the window stays blank when that server is not running.
+custom-protocol = ["tauri/custom-protocol"]
+
+[dependencies]
+tauri = { version = "2", features = [], optional = true }
+tauri-plugin-opener = { version = "2", optional = true }
+tauri-plugin-dialog = { version = "2", optional = true }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Asymmetric keys and signatures
+rsa = "0.9"
+p256 = { version = "0.13", features = ["ecdsa", "pkcs8", "pem"] }
+p384 = { version = "0.13", features = ["ecdsa", "pkcs8", "pem"] }
+p521 = { version = "0.13", features = ["ecdsa", "pkcs8", "pem"] }
+ed25519-dalek = { version = "2.1", features = ["rand_core", "pkcs8", "pem"] }
+num-bigint-dig = { version = "0.8", features = ["prime", "rand"] }
+rand = "0.8"
+rand_core = { version = "0.6", features = ["std", "getrandom"] }
+
+# Hashes, MACs, KDFs, ciphers
+sha1 = { version = "0.10", features = ["oid"] }
+sha2 = { version = "0.10", features = ["oid"] }
+md-5 = "0.10"
+hmac = "0.12"
+pbkdf2 = { version = "0.12", features = ["hmac"] }
+argon2 = "0.5"
+aes = "0.8"
+aes-gcm = "0.10"
+cbc = { version = "0.1", features = ["std"] }
+des = "0.8"
+rc2 = "0.8"
+zeroize = { version = "1", features = ["derive"] }
+
+# ASN.1 / X.509 / encodings
+yasna = "0.5"
+x509-parser = "0.16"
+pem = "3.0"
+base64 = "0.22"
+hex = "0.4"
+byteorder = "1.5"
+
+# TLS inspection
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
+webpki-roots = "0.26"
+rustls-native-certs = "0.8"
+
+# RFC 3161 timestamping (a single blocking HTTP POST; reuses rustls above)
+ureq = { version = "3.5.1", default-features = false, features = ["rustls"] }
+
+# JAR signing
+zip = { version = "2", default-features = false, features = ["deflate"] }
+
+dirs = "6"
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1", features = ["v4"] }
+
+# The built-in terminal kills a timed-out command's whole process group (killpg). Already in the
+# dependency tree through Tauri and ring; listed so the engine can call it directly.
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[dev-dependencies]
+tempfile = "3"
+
+# Crypto (RSA key generation in particular) is unusably slow without optimisation, so optimise
+# dependencies even in dev/test builds. Our own crate stays at opt-level 0 for fast rebuilds.
+[profile.dev.package."*"]
+opt-level = 3
+
+[profile.test.package."*"]
+opt-level = 3
+
+# Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = 3
+panic = "abort"
+strip = true
