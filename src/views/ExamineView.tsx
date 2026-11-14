@@ -7,7 +7,7 @@ import { FILTERS, baseName, pickFile, safeFileStem } from "../lib/files";
 import { cnOf } from "../lib/keystore";
 import { connectTarget, parseTlsTarget } from "../lib/net";
 import { useStore } from "../state/store";
-import { Alert, Badge, Button, Card, CodeBlock, EmptyState, Page, PageHeader, PasswordInput, Segmented, Select, Spinner, TextArea, TextInput, useToast } from "../components/ui";
+import { Alert, Badge, Button, Card, CodeBlock, EmptyState, IconButton, Page, PageHeader, PasswordInput, Segmented, Select, Spinner, TextArea, TextInput, useToast } from "../components/ui";
 import { ChainValidation, CertificateDetails, ChainView, TrustBanner, WarningList } from "../components/CertificateView";
 import { TerminalHint } from "../components/Terminal";
 import { useSaveText } from "../components/EntryDialogs";
@@ -323,9 +323,7 @@ const DecodePanel: React.FC = () => {
           >
             Open file…
           </Button>
-          <Button icon={Clipboard} onClick={paste}>
-            Paste clipboard
-          </Button>
+          <IconButton icon={Clipboard} label="Paste clipboard" onClick={paste} className="!w-9 !h-9" />
         </div>
         {path ? (
           <div className="flex items-center gap-2 rounded-control border border-line bg-surface-2 px-3 h-9 text-[13px]">

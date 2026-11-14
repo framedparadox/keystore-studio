@@ -170,9 +170,7 @@ export const CertificatesView: React.FC = () => {
         description="Certificate files you open on their own (PEM, DER or PKCS#7) are listed here, one row per certificate. Add them to a keystore or a workspace. Removing one from the list never changes its file."
         actions={
           <>
-            <Button icon={ClipboardPaste} onClick={() => setPasteOpen(true)} data-testid="cert-paste">
-              Paste…
-            </Button>
+            <IconButton icon={ClipboardPaste} label="Paste certificates" onClick={() => setPasteOpen(true)} className="!w-9 !h-9" data-testid="cert-paste" />
             <Button variant="primary" icon={FolderOpen} onClick={() => void openCertificates()} data-testid="cert-open">
               Open certificates…
             </Button>
@@ -191,9 +189,7 @@ export const CertificatesView: React.FC = () => {
                 <Button variant="primary" icon={FolderOpen} onClick={() => void openCertificates()} data-testid="cert-empty-open">
                   Open certificates…
                 </Button>
-                <Button icon={ClipboardPaste} onClick={() => setPasteOpen(true)}>
-                  Paste…
-                </Button>
+                <IconButton icon={ClipboardPaste} label="Paste certificates" onClick={() => setPasteOpen(true)} className="!w-9 !h-9" />
               </>
             }
           />

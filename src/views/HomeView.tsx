@@ -111,9 +111,13 @@ const TerminalSection: React.FC = () => {
                 {s.command}
               </code>
             </div>
-            <Button size="sm" icon={Play} onClick={() => open(s.command)}>
-              Run
-            </Button>
+            <Button
+              size="sm"
+              icon={Play}
+              onClick={() => open(s.command)}
+              aria-label={`Run ${s.label.toLowerCase()}`}
+              title={`Run ${s.label.toLowerCase()}`}
+            />
           </li>
         ))}
       </ul>

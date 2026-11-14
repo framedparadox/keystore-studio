@@ -5,7 +5,7 @@ import { DEFAULT_SETTINGS, useStore, type Settings } from "../state/store";
 import { FORMAT_INFO } from "../lib/keystore";
 import { KEYSTORE_FORMATS, type KeystoreFormat, type ToolStatus } from "../types/crypto";
 import { api } from "../lib/api";
-import { Badge, Button, Card, CardHeader, Checkbox, CodeBlock, Kbd, Page, PageHeader, Segmented, Select, Spinner, TextArea, TextInput, useConfirm, useToast } from "../components/ui";
+import { Badge, Button, Card, CardHeader, Checkbox, CodeBlock, IconButton, Kbd, Page, PageHeader, Segmented, Select, Spinner, TextArea, TextInput, useConfirm, useToast } from "../components/ui";
 import type { ThemePreference } from "../lib/theme";
 import type { HelpLink } from "../lib/help";
 import { HelpTopics } from "../components/HelpTopics";
@@ -83,6 +83,7 @@ const SECTIONS: SectionDef[] = [
   { id: "help", label: "Help", icon: LifeBuoy, keys: [] },
   { id: "about", label: "About", icon: Info, keys: [] },
 ];
+const NAV_SECTIONS = SECTIONS.filter((section) => section.id !== "help" && section.id !== "about");
 
 /** Remembers the last section for the rest of the session, so returning to Settings lands where you left it. */
 let rememberedSection: SectionId = "general";
@@ -182,20 +183,22 @@ const DraftNumber: React.FC<Omit<React.InputHTMLAttributes<HTMLInputElement>, "v
 /** Top navigation: one button per section, arrow keys move between them, a dot marks sections changed from defaults. */
 const SettingsNav: React.FC<{ active: SectionId; onSelect: (id: SectionId) => void; settings: Settings }> = ({ active, onSelect, settings }) => {
   const refs = useRef<Record<string, HTMLButtonElement | null>>({});
+  const headerSection = active === "help" || active === "about";
 
   const move = (from: number, delta: number | "first" | "last") => {
-    const last = SECTIONS.length - 1;
-    const next = delta === "first" ? 0 : delta === "last" ? last : (from + delta + SECTIONS.length) % SECTIONS.length;
-    onSelect(SECTIONS[next].id);
-    refs.current[SECTIONS[next].id]?.focus();
+    const last = NAV_SECTIONS.length - 1;
+    const next = delta === "first" ? 0 : delta === "last" ? last : (from + delta + NAV_SECTIONS.length) % NAV_SECTIONS.length;
+    onSelect(NAV_SECTIONS[next].id);
+    refs.current[NAV_SECTIONS[next].id]?.focus();
   };
 
   return (
     <div className="sticky top-0 z-10 -mx-8 px-8 py-3 mb-5 bg-canvas/95 backdrop-blur border-b border-line flex items-center gap-3">
       {/* Narrow content: a dropdown, so the sections never need to scroll sideways. */}
       <div className="@md:hidden flex-1 min-w-0">
-        <Select aria-label="Settings section" value={active} onChange={(e) => onSelect(e.target.value as SectionId)}>
-          {SECTIONS.map((s) => (
+        <Select aria-label="Settings section" value={headerSection ? "" : active} onChange={(e) => onSelect(e.target.value as SectionId)}>
+          {headerSection && <option value="" disabled>Select a section</option>}
+          {NAV_SECTIONS.map((s) => (
             <option key={s.id} value={s.id}>
               {s.label}
               {isChanged(s.keys, settings) ? " (changed)" : ""}
@@ -206,7 +209,7 @@ const SettingsNav: React.FC<{ active: SectionId; onSelect: (id: SectionId) => vo
 
       {/* Medium content: icon tabs. Wide content: icon and label. */}
       <div role="tablist" aria-label="Settings sections" className="hidden @md:flex flex-1 min-w-0 items-center justify-between gap-1">
-        {SECTIONS.map((s, i) => {
+        {NAV_SECTIONS.map((s, i) => {
           const selected = s.id === active;
           const changed = isChanged(s.keys, settings);
           return (
@@ -222,7 +225,7 @@ const SettingsNav: React.FC<{ active: SectionId; onSelect: (id: SectionId) => vo
               title={s.label}
               aria-selected={selected}
               aria-controls={`settings-panel-${s.id}`}
-              tabIndex={selected ? 0 : -1}
+              tabIndex={selected || (headerSection && i === 0) ? 0 : -1}
               data-testid={`settings-tab-${s.id}`}
               onClick={() => onSelect(s.id)}
               onKeyDown={(e) => {
@@ -622,16 +625,41 @@ export const SettingsView: React.FC = () => {
         icon={SettingsIcon}
         title="Settings"
         description="Preferences are saved automatically on this computer."
-        actions={isChanged(def.keys, settings) && (
-          <Button size="sm" variant="ghost" icon={RotateCcw} onClick={() => restore(def.keys, def.label)} className="ml-auto" title="Restore this section's settings to their defaults" data-testid="settings-restore">
-            Restore defaults
-          </Button>
-        )}
+        actionsClassName="lg:self-center"
+        actions={
+          <>
+            {isChanged(def.keys, settings) && (
+              <Button size="sm" variant="ghost" icon={RotateCcw} onClick={() => restore(def.keys, def.label)} title="Restore this section's settings to their defaults" data-testid="settings-restore">
+                Restore defaults
+              </Button>
+            )}
+            <IconButton
+              icon={LifeBuoy}
+              label="Help"
+              id="settings-tab-help"
+              data-testid="settings-tab-help"
+              aria-controls="settings-panel-help"
+              aria-pressed={section === "help"}
+              onClick={() => select("help")}
+              className={`!w-9 !h-9 ml-auto border ${section === "help" ? "border-line bg-surface !text-brand shadow-card" : "border-transparent"}`}
+            />
+            <IconButton
+              icon={Info}
+              label="About"
+              id="settings-tab-about"
+              data-testid="settings-tab-about"
+              aria-controls="settings-panel-about"
+              aria-pressed={section === "about"}
+              onClick={() => select("about")}
+              className={`!w-9 !h-9 border ${section === "about" ? "border-line bg-surface !text-brand shadow-card" : "border-transparent"}`}
+            />
+          </>
+        }
       />
       {/* The container query measures the content column, which shrinks when the sidebar is open. */}
       <div className="@container">
         <SettingsNav active={section} onSelect={select} settings={settings} />
-        <div role="tabpanel" id={`settings-panel-${section}`} aria-label={def.label} className="min-w-0">
+        <div role={section === "help" || section === "about" ? "region" : "tabpanel"} id={`settings-panel-${section}`} aria-label={def.label} className="min-w-0">
           {body}
         </div>
       </div>

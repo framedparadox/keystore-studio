@@ -11,7 +11,7 @@ All color comes from the `@theme` block in `src/index.css`. Use semantic utiliti
 | Text | `ink` (headings) · `ink-2` (body) · `muted` · `faint` (helper text, the quietest text allowed) · `subtle` (decorative icons, disabled, placeholders: **never text**, it is 2.6:1 on white) |
 | Surfaces | `chrome` (sidebar) · `canvas` (page) · `surface` (cards, tables) · `surface-2` / `surface-3` (table headers, wells, hover) |
 | Borders | `line` (default) · `line-strong` (inputs, dashed drop targets) |
-| Brand | `brand` (links, icons, focus) · `brand-deep` (primary buttons) · `brand-soft` (selected) · `brand-tint` (hover wash) |
+| Brand (monochrome) | `brand` (links, icons, focus) · `brand-deep` (primary buttons) · `brand-soft` (selected) · `brand-tint` (hover wash) |
 | Status | `success` / `warning` / `danger` (text, and the background of anything with `on-accent` text or glyphs on it), their `-tint` (badge backgrounds) and `-fill` (meters, bars, dots: never behind text, white on them is under 4.5:1); `serious-fill` sits between warning and danger in charts. Status color is only for status and always ships with an icon or label. |
 | On accent | `on-accent` — text and glyphs on a solid `brand` or status background (white in light, black in dark). Never `text-white`. |
 | Scrim | `scrim` — dialog and palette backdrops, always with an opacity modifier |
@@ -30,7 +30,8 @@ controls meet 3:1. With the tokens above that means: `faint` or darker for any t
 `brand`, `brand-deep` or a status text tone. Disabled controls are exempt.
 
 ## 2. One accent
-`brand` is the only accent hue. Cards are not individually color-coded; icons are `text-brand`.
+`brand` is the only emphasis color and stays monochrome: charcoal in light mode, silver in dark mode.
+Cards are not individually color-coded; icons are `text-brand`.
 The header and primary sidebar navigation use a monochrome accent: black in light mode and white in
 dark mode, with a contrasting foreground on filled actions.
 

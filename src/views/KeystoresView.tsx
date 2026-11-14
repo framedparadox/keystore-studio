@@ -1116,11 +1116,7 @@ export const KeystoresView: React.FC = () => {
                             <Button icon={ShieldCheck} onClick={() => setDialog({ kind: "cert" })}>
                               Import certificate
                             </Button>
-                            {clip && (
-                              <Button icon={ClipboardPaste} onClick={paste}>
-                                Paste
-                              </Button>
-                            )}
+                            {clip && <IconButton icon={ClipboardPaste} label="Paste entries" onClick={paste} className="!w-9 !h-9" />}
                           </>
                         }
                       />
@@ -1152,9 +1148,7 @@ export const KeystoresView: React.FC = () => {
                       {clip ? (
                         <span className="inline-flex items-center gap-2">
                           Clipboard: <span className="font-medium text-ink">{clip.entries.map((e) => e.alias).join(", ")}</span>
-                          <Button size="sm" icon={ClipboardPaste} onClick={paste} data-testid="footer-paste">
-                            Paste here
-                          </Button>
+                          <IconButton icon={ClipboardPaste} label="Paste entries here" onClick={paste} data-testid="footer-paste" />
                         </span>
                       ) : (
                         <span>{workspaces.length ? `${workspaces.length} workspaces` : ""}</span>

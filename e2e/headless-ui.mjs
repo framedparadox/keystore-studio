@@ -292,10 +292,15 @@ async function run() {
   await step("settings: section defaults are restored from the page header", async () => {
     await click("nav-settings");
     const position = await driver.executeScript(`const button = document.querySelector('[data-testid="settings-restore"]');
+      const about = document.querySelector('[data-testid="settings-tab-about"]');
+      const help = document.querySelector('[data-testid="settings-tab-help"]');
       const header = [...document.querySelectorAll("h1")].find(el => el.textContent === "Settings")?.parentElement.parentElement.parentElement;
-      if (!button || !header) return null;
-      return { inside: header.contains(button), rightGap: header.getBoundingClientRect().right - button.getBoundingClientRect().right };`);
-    if (!position?.inside || Math.abs(position.rightGap) > 1) throw new Error(`restore action is not at the right of the page header: ${JSON.stringify(position)}`);
+      if (!button || !about || !help || !header) return null;
+      return { inside: header.contains(button) && header.contains(help) && header.contains(about),
+        beforeAbout: button.getBoundingClientRect().right <= help.getBoundingClientRect().left && help.getBoundingClientRect().right <= about.getBoundingClientRect().left,
+        centerGap: Math.abs((header.getBoundingClientRect().top + header.getBoundingClientRect().bottom - about.getBoundingClientRect().top - about.getBoundingClientRect().bottom) / 2),
+        rightGap: header.getBoundingClientRect().right - about.getBoundingClientRect().right };`);
+    if (!position?.inside || !position.beforeAbout || position.centerGap > 1 || Math.abs(position.rightGap) > 1) throw new Error(`settings actions are not centered at the right of the page header: ${JSON.stringify(position)}`);
     await click("settings-tab-security");
     if (await exists('[data-testid="settings-restore"]')) throw new Error("restore action is visible for an unchanged section");
     await click("settings-tab-general");
@@ -308,23 +313,31 @@ async function run() {
     await click("nav-settings");
     await click("settings-tab-help");
     const help = await driver.executeScript(`const input = document.querySelector('[data-testid="help-search"]');
+      const button = document.querySelector('[data-testid="settings-tab-help"]');
       const heading = document.querySelector('#settings-panel-help h3');
       const a = heading.getBoundingClientRect(), b = input.getBoundingClientRect();
-      return { sameRow: Math.abs(a.top - b.top) < 10, toRight: b.left > a.right, width: b.width };`);
-    if (!help.sameRow || !help.toRight || help.width < 319) throw new Error(`Help search has an unexpected layout: ${JSON.stringify(help)}`);
+      return { sameRow: Math.abs(a.top - b.top) < 10, toRight: b.left > a.right, width: b.width,
+        iconOnly: !button.textContent.trim(), pressed: button.getAttribute('aria-pressed'), inTabs: !!button.closest('[role="tablist"]'),
+        tabStop: document.querySelector('[role="tablist"] [role="tab"][tabindex="0"]')?.id };`);
+    if (!help.sameRow || !help.toRight || help.width < 319 || !help.iconOnly || help.pressed !== "true" || help.inTabs || help.tabStop !== "settings-tab-general") throw new Error(`Help search or navigation has an unexpected layout: ${JSON.stringify(help)}`);
     await setField("help-search", "master key");
     if (!(await exists('[data-testid="help-topic-vault"]'))) throw new Error("Help search did not return the vault topic");
     await setField("help-search", "zzzz-no-help-match");
     await waitText("No matching topics");
     await click("settings-tab-about");
     const about = await driver.executeScript(`const panel = document.querySelector('#settings-panel-about');
+      const button = document.querySelector('[data-testid="settings-tab-about"]');
       const heading = [...panel.querySelectorAll('h3')].find(el => el.textContent === 'Keystore Studio');
       const identity = heading.parentElement.parentElement;
       const image = [...identity.querySelectorAll('img')].find(el => getComputedStyle(el).display !== 'none');
       const row = heading.parentElement.getBoundingClientRect(), box = identity.getBoundingClientRect();
       return { logo: !!image, centered: Math.abs((row.left + row.right - box.left - box.right) / 2) < 1,
+        iconOnly: !button.textContent.trim(), pressed: button.getAttribute('aria-pressed'), inTabs: !!button.closest('[role="tablist"]'),
+        tabStop: document.querySelector('[role="tablist"] [role="tab"][tabindex="0"]')?.id,
         version: identity.lastElementChild.textContent.trim() };`);
-    if (!about.logo || !about.centered || !about.version.startsWith("Version ")) throw new Error(`unexpected About identity: ${JSON.stringify(about)}`);
+    if (!about.logo || !about.centered || !about.iconOnly || about.pressed !== "true" || about.inTabs || about.tabStop !== "settings-tab-general" || !about.version.startsWith("Version ")) {
+      throw new Error(`unexpected About identity or navigation: ${JSON.stringify(about)}`);
+    }
     await click("nav-home");
   });
 

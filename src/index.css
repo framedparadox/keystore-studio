@@ -28,13 +28,13 @@
   --color-line: #eaecf0;
   --color-line-strong: #d0d5dd;
 
-  /* Brand — the only accent hue */
-  --color-brand: #2563eb;
-  --color-brand-deep: #1d4ed8;
-  --color-brand-deeper: #1e40af;
-  --color-brand-soft: #dbeafe;
-  --color-brand-soft-hover: #bfdbfe;
-  --color-brand-tint: #eff6ff;
+  /* Brand — monochrome emphasis for links, selection and primary actions */
+  --color-brand: #18181b;
+  --color-brand-deep: #27272a;
+  --color-brand-deeper: #18181b;
+  --color-brand-soft: #e4e4e7;
+  --color-brand-soft-hover: #d4d4d8;
+  --color-brand-tint: #f4f4f5;
 
   /* Status — text-safe tones, tint backgrounds, and fills for meters/bars */
   --color-success: #067647;
@@ -103,12 +103,12 @@
     --color-line-strong: #333333;
 
     /* "deep" means stronger contrast, so on black it is lighter. */
-    --color-brand: #60a5fa;
-    --color-brand-deep: #93c5fd;
-    --color-brand-deeper: #bfdbfe;
-    --color-brand-soft: #172554;
-    --color-brand-soft-hover: #1e3a8a;
-    --color-brand-tint: #0b1530;
+    --color-brand: #d4d4d8;
+    --color-brand-deep: #e4e4e7;
+    --color-brand-deeper: #f4f4f5;
+    --color-brand-soft: #27272a;
+    --color-brand-soft-hover: #3f3f46;
+    --color-brand-tint: #18181b;
 
     --color-success: #4ade80;
     --color-success-tint: #052e16;

@@ -56,7 +56,7 @@ export const Button: React.FC<ButtonProps> = ({
     type={type}
     {...rest}
     className={clsx(
-      "inline-flex items-center justify-center gap-1.5 rounded-control font-semibold whitespace-nowrap transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed",
+      "inline-flex items-center justify-center gap-1.5 rounded-control font-semibold whitespace-nowrap transition cursor-pointer disabled:opacity-85 disabled:cursor-not-allowed",
       size === "sm" ? "h-7 px-2.5 text-[12px]" : "h-9 px-3.5 text-[13px]",
       buttonVariants[variant],
       className
@@ -187,9 +187,10 @@ export const PageHeader: React.FC<{
   description?: React.ReactNode;
   eyebrow?: React.ReactNode;
   actions?: React.ReactNode;
+  actionsClassName?: string;
   /** Shown on the same row as the title, before it (e.g. a panel toggle). */
   leading?: React.ReactNode;
-}> = ({ title, icon: Icon, description, eyebrow, actions, leading }) => (
+}> = ({ title, icon: Icon, description, eyebrow, actions, actionsClassName, leading }) => (
   <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-4 mb-6">
     <div className="min-w-0">
       {eyebrow && <div className="text-[12px] font-medium text-faint mb-1">{eyebrow}</div>}
@@ -200,7 +201,7 @@ export const PageHeader: React.FC<{
       </div>
       {description && <p className="text-[13px] text-faint mt-1 max-w-3xl">{description}</p>}
     </div>
-    {actions && <div className="flex flex-wrap items-center gap-2 shrink-0">{actions}</div>}
+    {actions && <div className={clsx("flex flex-wrap items-center gap-2 shrink-0", actionsClassName)}>{actions}</div>}
   </div>
 );
 
