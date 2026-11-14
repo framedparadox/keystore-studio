@@ -1,7 +1,6 @@
 import React, { useEffect, useState, useSyncExternalStore } from "react";
 import clsx from "clsx";
 import {
-  ArrowLeftRight,
   Binary,
   ChevronDown,
   ChevronRight,
@@ -35,6 +34,15 @@ import { useTerminal } from "./Terminal";
 
 type NavItem = { id: TabType; label: string; icon: React.ElementType; shortcut: string };
 
+export const ConvertIcon: React.FC<React.HTMLAttributes<HTMLSpanElement>> = ({ className, ...props }) => (
+  <span
+    {...props}
+    aria-hidden="true"
+    className={clsx("shrink-0 bg-current", className)}
+    style={{ mask: "url('/convert-icon.png') center / contain no-repeat", WebkitMask: "url('/convert-icon.png') center / contain no-repeat" }}
+  />
+);
+
 export const NAV_GROUPS: { label?: string; items: NavItem[] }[] = [
   { items: [
     { id: "home", label: "Dashboard", icon: LayoutDashboard, shortcut: "1" },
@@ -53,7 +61,7 @@ export const NAV_GROUPS: { label?: string; items: NavItem[] }[] = [
     items: [
       { id: "examine", label: "Examine", icon: SearchCode, shortcut: "4" },
       { id: "ca_signing", label: "CA & Signing", icon: FileSignature, shortcut: "5" },
-      { id: "convert", label: "Convert", icon: ArrowLeftRight, shortcut: "9" },
+      { id: "convert", label: "Convert", icon: ConvertIcon, shortcut: "9" },
     ],
   },
   {
@@ -165,15 +173,7 @@ export const Sidebar: React.FC<{ collapsed: boolean; onCollapse: () => void; onE
           active ? "bg-surface-3 text-ink font-semibold" : "text-muted font-medium hover:bg-surface-2 hover:text-ink"
         )}
       >
-        {isConvert ? (
-          <span
-            aria-hidden="true"
-            className={clsx("w-4 h-4 shrink-0", active ? "bg-brand" : "bg-subtle")}
-            style={{ mask: "url('/convert-icon.png') center / contain no-repeat", WebkitMask: "url('/convert-icon.png') center / contain no-repeat" }}
-          />
-        ) : (
-          <Icon className={clsx("w-4 h-4 shrink-0", active ? "text-brand" : "text-subtle")} />
-        )}
+        <Icon className={clsx("w-4 h-4 shrink-0", active ? "text-brand" : "text-subtle")} />
         {!collapsed && (
           <>
             <span className="flex-1 text-left truncate">{item.label}</span>

@@ -169,6 +169,18 @@ async function run() {
     }
   });
 
+  await step("dashboard: Convert uses the sidebar's convert icon", async () => {
+    const icons = await driver.executeScript(`return ['welcome-convert', 'nav-convert'].map(id => {
+      const icon = document.querySelector('[data-testid="' + id + '"] span[aria-hidden="true"]');
+      if (!icon) return null;
+      const style = getComputedStyle(icon), rect = icon.getBoundingClientRect();
+      return { mask: style.maskImage, color: style.backgroundColor, width: rect.width, height: rect.height };
+    });`);
+    if (!icons.every(icon => icon?.mask.includes("/convert-icon.png")) || icons[0].width !== 20 || icons[0].height !== 20) {
+      throw new Error(`dashboard and sidebar do not share the Convert icon: ${JSON.stringify(icons)}`);
+    }
+  });
+
   await step("the header and sidebar use theme-aware monochrome accents", async () => {
     const previous = await driver.executeScript("return document.documentElement.dataset.theme");
     try {
@@ -1235,6 +1247,72 @@ async function run() {
     if (await present("sidebar-expand")) throw new Error("the expand chevron stays visible while the sidebar is expanded");
   });
 
+  await step("convert: form sections are unnumbered and aligned at both window sizes", async () => {
+    try {
+      const convert = await driver.findElement(byTest("nav-convert"));
+      if (await convert.getAttribute("aria-expanded") !== "true") await click("nav-convert");
+      for (const width of [1024, 1600]) {
+        await setViewport(width, 900);
+        for (const id of ["certificate", "private_key", "public_key", "keystore", "extract", "encoding"]) {
+          await click(`nav-convert-${id}`);
+          const sections = await driver.executeScript(`const card = document.querySelector('[data-testid="convert-save"]').closest('[class*="xl:col-span-7"]');
+            return [...card.querySelectorAll(':scope > section')].map(section => {
+              const heading = section.firstElementChild;
+              return { title: heading.firstElementChild.tagName, headingLeft: heading.getBoundingClientRect().left,
+                bodyLeft: section.lastElementChild.getBoundingClientRect().left };
+            });`);
+          if (sections.length < 2 || sections.some(section => section.title !== "H3" || Math.abs(section.headingLeft - section.bodyLeft) > 1)) {
+            throw new Error(`${id} sections are numbered or indented at ${width}px: ${JSON.stringify(sections)}`);
+          }
+        }
+      }
+    } finally {
+      await restoreWindow();
+    }
+  });
+
+  await step("convert: terminal hints show complete commands and still open the terminal", async () => {
+    try {
+      for (const width of [1024, 1400]) {
+        await setViewport(width, 900);
+        for (const id of ["certificate", "private_key", "public_key", "keystore", "pkcs12", "extract", "encoding"]) {
+          await click(`nav-convert-${id}`);
+          const hint = await driver.executeScript(`const hint = document.querySelector('[data-testid="terminal-hint"]');
+            const code = hint.querySelector('code'), button = hint.querySelector('button');
+            const original = code.textContent, initialHeight = code.getBoundingClientRect().height;
+            const measure = () => ({ x: code.scrollWidth - code.clientWidth, y: code.scrollHeight - code.clientHeight });
+            const normal = measure();
+            code.textContent = 'openssl ' + 'x'.repeat(500);
+            const long = measure();
+            code.textContent = original;
+            const box = hint.getBoundingClientRect(), action = button.getBoundingClientRect();
+            return { original, title: code.title, normal, long, initialHeight,
+              buttonLabel: button.getAttribute('aria-label'), buttonTitle: button.title,
+              buttonText: button.textContent.trim(), hasIcon: !!button.querySelector('svg.lucide-play'),
+              lineHeight: parseFloat(getComputedStyle(code).lineHeight), buttonVisible: action.right <= box.right && action.bottom <= box.bottom };`);
+          if (!hint.original || hint.original !== hint.title || hint.normal.x > 1 || hint.normal.y > 1 ||
+              hint.long.x > 1 || hint.long.y > 1 || !hint.buttonVisible ||
+              hint.buttonLabel !== "Run in terminal" || hint.buttonTitle !== hint.buttonLabel || hint.buttonText || !hint.hasIcon ||
+              (width === 1400 && id === "certificate" && hint.initialHeight < hint.lineHeight * 1.5)) {
+            throw new Error(`${id} terminal hint or action is incorrect at ${width}px: ${JSON.stringify(hint)}`);
+          }
+        }
+      }
+      const command = await driver.executeScript(`const hint = document.querySelector('[data-testid="terminal-hint"]');
+        const command = hint.querySelector('code').textContent;
+        hint.querySelector('button').click();
+        return command;`);
+      await driver.wait(until.elementLocated(By.css('[data-testid="terminal"] input')), 5000);
+      await driver.wait(async () => (await driver.findElement(By.css('[data-testid="terminal"] input')).getAttribute("value")) === command, 5000, "terminal was not prefilled");
+      await driver.executeScript(`const input = document.querySelector('[data-testid="terminal"] input');
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, '');
+        input.dispatchEvent(new Event('input', { bubbles: true }));`);
+      await click("sidebar-terminal");
+    } finally {
+      await restoreWindow();
+    }
+  });
+
   await step("settings: the panel fills the available content width", async () => {
     try {
       await click("nav-settings");
@@ -1431,7 +1509,7 @@ async function run() {
           const recent = document.querySelector('[data-testid="recent-files"]') ?? [...document.querySelectorAll("h3")].find((x) => x.textContent.trim() === "Recent files")?.closest(".rounded-card");
           const drop = document.querySelector('[data-testid="dropzone"]');
           const tiles = [...document.querySelectorAll('button[data-testid^="welcome-"]')].map((b) => {
-            const icon = box(b.querySelector("svg"));
+            const icon = box(b.firstElementChild.firstElementChild);
             const title = [...b.querySelectorAll("*")].find((el) => el.children.length === 0 && el.textContent.trim() && !el.closest("svg"));
             const t = box(title);
             return { name: title.textContent.trim(), beside: t.left > icon.right && Math.abs((t.top + t.bottom) / 2 - (icon.top + icon.bottom) / 2) < 4 };

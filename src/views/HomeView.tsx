@@ -26,6 +26,7 @@ import { DropZone } from "../components/DropZone";
 import { FORMAT_INFO } from "../lib/keystore";
 import type { KeystoreFormat, OpenKeystore } from "../types/crypto";
 import { nullInput } from "../lib/platform";
+import { ConvertIcon } from "../components/Sidebar";
 
 /*
  * Info boxes closed on the dashboard stay closed for the rest of the session (also across a reload,
@@ -167,7 +168,7 @@ export const HomeView: React.FC = () => {
                 { icon: FolderOpen, title: "Open a keystore", text: "PKCS#12, JKS or JCEKS — enter its password to view and edit entries.", action: () => openFiles(), testId: "welcome-open" },
                 { icon: FilePlus2, title: "Create a keystore", text: "Start empty or with a fresh key pair and self-signed certificate.", action: () => setNewKeystoreOpen(true), testId: "welcome-new" },
                 { icon: SearchCode, title: "Examine", text: "Inspect a TLS server, test a connection, or decode a certificate, CSR, key or JWT.", action: () => setTab("examine"), testId: "welcome-examine" },
-                { icon: ArrowLeftRight, title: "Convert", text: "PEM ↔ DER, PKCS#7, PKCS#8, OpenSSH, JWK, and JKS ↔ PKCS#12.", action: () => openConverter(null), testId: "welcome-convert" },
+                { icon: ConvertIcon, title: "Convert", text: "PEM ↔ DER, PKCS#7, PKCS#8, OpenSSH, JWK, and JKS ↔ PKCS#12.", action: () => openConverter(null), testId: "welcome-convert" },
                 {
                   icon: FolderArchive,
                   title: "Create a PKCS#12",

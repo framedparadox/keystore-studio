@@ -17,14 +17,13 @@ import { CONVERTER_ICONS } from "../components/Sidebar";
 
 // ================================================================================ shared
 
-const Step: React.FC<{ n: number; title: string; hint?: React.ReactNode; children: React.ReactNode }> = ({ n, title, hint, children }) => (
+const Step: React.FC<{ title: string; hint?: React.ReactNode; children: React.ReactNode }> = ({ title, hint, children }) => (
   <section className="space-y-3">
-    <div className="flex items-baseline gap-2">
-      <span className="w-5 h-5 rounded-full bg-surface-3 text-[11px] font-semibold text-muted flex items-center justify-center shrink-0 tabular-nums">{n}</span>
+    <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
       <h3 className="text-[14px] font-semibold text-ink">{title}</h3>
       {hint && <span className="text-[12px] text-faint">{hint}</span>}
     </div>
-    <div className="pl-7">{children}</div>
+    <div>{children}</div>
   </section>
 );
 
@@ -206,7 +205,7 @@ const Layout: React.FC<{ form: React.ReactNode; side: React.ReactNode }> = ({ fo
   </div>
 );
 
-const Hint: React.FC<{ command: string | null }> = ({ command }) => (command ? <TerminalHint command={command} label="Run in terminal" /> : null);
+const Hint: React.FC<{ command: string | null }> = ({ command }) => (command ? <TerminalHint command={command} iconOnly /> : null);
 
 // =========================================================================== certificate
 
@@ -226,11 +225,11 @@ const CertificatePanel: React.FC = () => {
     <Layout
       form={
         <>
-          <Step n={1} title="Certificate or chain" hint="PEM, DER, PKCS#7 or PkiPath">
+          <Step title="Certificate or chain" hint="PEM, DER, PKCS#7 or PkiPath">
             <FileOrText label="Input" filters={[FILTERS.certificates]} path={path} setPath={setPath} text={text} setText={setText} placeholder="-----BEGIN CERTIFICATE-----" testId="convert-input" />
             <Detected {...detection} />
           </Step>
-          <Step n={2} title="Output format">
+          <Step title="Output format">
             <OptionList label="Certificate output format" value={target} onChange={setTarget} options={targetOptions(CERT_OUTPUTS)} columns={2} />
             {detection.result && detection.result.certificates.length > 1 && target === "der" && (
               <Alert tone="warning" className="mt-3">
@@ -280,14 +279,14 @@ const PrivateKeyPanel: React.FC = () => {
     <Layout
       form={
         <>
-          <Step n={1} title="Private key" hint="PKCS#8, encrypted PKCS#8, PKCS#1 or SEC1">
+          <Step title="Private key" hint="PKCS#8, encrypted PKCS#8, PKCS#1 or SEC1">
             <div className="space-y-3">
               <FileOrText label="Input" filters={[FILTERS.keys]} path={path} setPath={setPath} text={text} setText={setText} placeholder="-----BEGIN PRIVATE KEY-----" testId="convert-input" />
               <PasswordInput label="Password of the input key (only if it is encrypted)" value={inPw} onChange={setInPw} data-testid="convert-input-password" />
             </div>
             <Detected {...detection} />
           </Step>
-          <Step n={2} title="Output format">
+          <Step title="Output format">
             <OptionList label="Private key output format" value={target} onChange={setTarget} options={targetOptions(KEY_OUTPUTS)} columns={2} />
             {t.needsPassword ? (
               <div className="grid grid-cols-2 gap-3 mt-3">
@@ -331,14 +330,14 @@ const PublicKeyPanel: React.FC = () => {
     <Layout
       form={
         <>
-          <Step n={1} title="Anything with a public key" hint="Certificate, CSR, private key, public key, OpenSSH or JWK">
+          <Step title="Anything with a public key" hint="Certificate, CSR, private key, public key, OpenSSH or JWK">
             <div className="space-y-3">
               <FileOrText label="Input" filters={[FILTERS.certificates, FILTERS.keys, FILTERS.csr]} path={path} setPath={setPath} text={text} setText={setText} placeholder="-----BEGIN CERTIFICATE----- or ssh-ed25519 AAAA… or { &quot;kty&quot;: … }" testId="convert-input" />
               <PasswordInput label="Password (only for an encrypted private key)" value={inPw} onChange={setInPw} />
             </div>
             <Detected {...detection} />
           </Step>
-          <Step n={2} title="Output format">
+          <Step title="Output format">
             <OptionList label="Public key output format" value={target} onChange={setTarget} options={targetOptions(PUBLIC_OUTPUTS)} columns={2} />
             {target === "openssh" && (
               <TextInput className="mt-3" label="Comment" value={comment} onChange={(e) => setComment(e.target.value)} placeholder="user@host" hint="Appended to the authorized_keys line." />
@@ -379,11 +378,11 @@ const EncodingPanel: React.FC = () => {
     <Layout
       form={
         <>
-          <Step n={1} title="PEM or DER input" hint="Certificate, CSR, CRL, PKCS#7 or key">
+          <Step title="PEM or DER input" hint="Certificate, CSR, CRL, PKCS#7 or key">
             <FileOrText label="Input" filters={[FILTERS.certificates, FILTERS.keys, FILTERS.csr, FILTERS.crl]} path={path} setPath={setPath} text={text} setText={setText} placeholder="Paste PEM here, or choose a DER file" testId="convert-input" />
             <Detected {...detection} />
           </Step>
-          <Step n={2} title="Direction">
+          <Step title="Direction">
             {source ? (
               <div className="flex items-center gap-2 text-[13px]" data-testid="convert-direction">
                 <Badge tone="brand">{toDer ? "PEM" : "DER"}</Badge>
@@ -636,10 +635,10 @@ const KeystorePanel: React.FC = () => {
     <Layout
       form={
         <>
-          <Step n={1} title="Source keystore">
+          <Step title="Source keystore">
             {ui}
           </Step>
-          <Step n={2} title="Output format">
+          <Step title="Output format">
             <OptionList
               label="Keystore output format"
               value={target}
@@ -653,7 +652,7 @@ const KeystorePanel: React.FC = () => {
               </Select>
             )}
           </Step>
-          <Step n={3} title="Password">
+          <Step title="Password">
             <div className="space-y-3">
               <Checkbox checked={keepPw} onChange={setKeepPw} label="Use the source keystore's password" />
               {!keepPw && (
@@ -730,11 +729,11 @@ const ExtractPanel: React.FC = () => {
     <Layout
       form={
         <>
-          <Step n={1} title="Source keystore">
+          <Step title="Source keystore">
             {ui}
           </Step>
           {source && (
-            <Step n={2} title="Entries" hint={`${chosen.length} of ${entries.length} selected`}>
+            <Step title="Entries" hint={`${chosen.length} of ${entries.length} selected`}>
               <div className="flex gap-2 mb-2">
                 <Button size="sm" onClick={() => setPicked(null)}>
                   All
@@ -770,7 +769,7 @@ const ExtractPanel: React.FC = () => {
               </ul>
             </Step>
           )}
-          <Step n={source ? 3 : 2} title="What to write">
+          <Step title="What to write">
             <div className="space-y-3">
               <div className="flex flex-wrap items-center gap-3">
                 <span className="label !mb-0 w-28">Certificates</span>

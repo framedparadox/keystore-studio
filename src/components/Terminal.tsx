@@ -49,20 +49,25 @@ export const TerminalProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 };
 
 /** A suggested command with a one-click "open in terminal" action. Used wherever a task has a CLI equivalent. */
-export const TerminalHint: React.FC<{ command: string; label?: string }> = ({ command, label = "Run in terminal" }) => {
+export const TerminalHint: React.FC<{ command: string; label?: string; iconOnly?: boolean }> = ({ command, label = "Run in terminal", iconOnly = false }) => {
   const { open } = useTerminal();
   return (
-    <div className="flex items-center gap-2 rounded-control bg-term-bg px-3 py-2 text-[11.5px] font-mono text-term-fg">
+    <div className="flex items-start gap-2 rounded-control bg-term-bg px-3 py-2 text-[11.5px] font-mono text-term-fg" data-testid="terminal-hint">
       <span className="text-term-dim select-none">$</span>
-      <code className="flex-1 truncate select-text" title={command}>
+      <code className="flex-1 min-w-0 whitespace-pre-wrap break-words select-text" title={command}>
         {command}
       </code>
       <button
+        type="button"
+        aria-label={iconOnly ? label : undefined}
+        title={iconOnly ? label : undefined}
         onClick={() => open(command)}
-        className="inline-flex items-center gap-1 rounded-sm bg-white/10 px-2 py-0.5 font-sans text-[11px] font-semibold text-white hover:bg-white/20 cursor-pointer"
+        className={`inline-flex shrink-0 items-center justify-center rounded-sm bg-white/10 text-white hover:bg-white/20 cursor-pointer ${
+          iconOnly ? "w-7 h-7" : "gap-1 px-2 py-0.5 font-sans text-[11px] font-semibold whitespace-nowrap"
+        }`}
       >
-        <Play className="w-3 h-3" />
-        {label}
+        <Play className={iconOnly ? "w-4 h-4" : "w-3 h-3"} />
+        {!iconOnly && label}
       </button>
     </div>
   );
