@@ -34,9 +34,14 @@ export const Header: React.FC<{ onOpenPalette: () => void }> = ({ onOpenPalette 
 
       <div className="flex items-center gap-1.5 justify-self-end">
         {vault.unlocked && tab !== "vault" && (
-          <Button size="md" icon={LockOpen} onClick={() => lockVault()} title="Lock the password vault. Open keystores and their keys stay in this window.">
-            Lock password vault
-          </Button>
+          <IconButton
+            icon={LockOpen}
+            label="Lock password vault"
+            title="Lock the password vault. Open keystores and their keys stay in this window."
+            onClick={() => lockVault()}
+            className="!w-9 !h-9"
+            data-testid="header-lock-vault"
+          />
         )}
         <Button icon={FolderOpen} onClick={() => openFiles()} title={shortcutLabel("Open (Ctrl+O)")} aria-label={shortcutLabel("Open (Ctrl+O)")} className="!w-9 !px-0" data-testid="header-open" />
         <Button variant="primary" icon={FilePlus2} onClick={() => setNewKeystoreOpen(true)} title={shortcutLabel("New keystore (Ctrl+N)")} data-testid="header-new">

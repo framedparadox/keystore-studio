@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { CheckCircle2, Clock, EyeOff, FolderOpen, Info, Keyboard, LifeBuoy, Monitor, Moon, Palette, RotateCcw, Settings2, ShieldCheck, Sun, TerminalSquare, Trash2 } from "lucide-react";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import { DEFAULT_SETTINGS, useStore, type Settings } from "../state/store";
@@ -76,6 +76,41 @@ const isChanged = (keys: (keyof Settings)[], settings: Settings) => keys.some((k
  */
 const CardGrid: React.FC<{ children: React.ReactNode }> = ({ children }) => <div className="grid grid-cols-1 @3xl:grid-cols-2 gap-4 items-start">{children}</div>;
 
+const SigningCardGrid: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const gridRef = useRef<HTMLDivElement>(null);
+
+  useLayoutEffect(() => {
+    const grid = gridRef.current;
+    const first = grid?.children[0];
+    const second = grid?.children[1];
+    const textarea = second?.querySelector("textarea");
+    if (!(first instanceof HTMLElement) || !(second instanceof HTMLElement) || !textarea || !grid) return;
+
+    const matchDefaultHeights = () => {
+      // Measure the unresized textarea so resizing it never changes the other card's baseline.
+      const height = textarea.style.height;
+      first.style.minHeight = "";
+      second.style.minHeight = "";
+      textarea.style.height = "";
+      const sameRow = Math.abs(first.getBoundingClientRect().top - second.getBoundingClientRect().top) < 1;
+      const minHeight = sameRow ? `${Math.max(first.getBoundingClientRect().height, second.getBoundingClientRect().height)}px` : "";
+      textarea.style.height = height;
+      first.style.minHeight = minHeight;
+      second.style.minHeight = minHeight;
+    };
+
+    matchDefaultHeights();
+    const observer = new ResizeObserver(matchDefaultHeights);
+    observer.observe(grid);
+    observer.observe(first);
+    observer.observe(second);
+    observer.observe(textarea);
+    return () => observer.disconnect();
+  });
+
+  return <div ref={gridRef} className="grid grid-cols-1 @3xl:grid-cols-2 gap-4 items-start">{children}</div>;
+};
+
 /** A card that spans the full row on wide content. */
 const WideCard: React.FC<{ className?: string; children: React.ReactNode }> = ({ className, children }) => <Card className={`space-y-4 @3xl:col-span-2 ${className ?? ""}`}>{children}</Card>;
 
@@ -139,7 +174,7 @@ const SettingsNav: React.FC<{ active: SectionId; onSelect: (id: SectionId) => vo
       </div>
 
       {/* Medium content: icon tabs. Wide content: icon and label. */}
-      <div role="tablist" aria-label="Settings sections" className="hidden @md:flex flex-1 min-w-0 items-center gap-1">
+      <div role="tablist" aria-label="Settings sections" className="hidden @md:flex flex-1 min-w-0 items-center justify-between gap-1">
         {SECTIONS.map((s, i) => {
           const selected = s.id === active;
           const changed = isChanged(s.keys, settings);
@@ -262,7 +297,7 @@ export const SettingsView: React.FC = () => {
       case "security":
         return (
           <CardGrid>
-            <Card className="space-y-4">
+            <Card className="space-y-4 self-stretch">
               <CardHeader title="Key access" subtitle="When a key pair can be used." icon={ShieldCheck} />
               <Checkbox
                 checked={settings.requireKeyUnlock}
@@ -271,7 +306,7 @@ export const SettingsView: React.FC = () => {
                 hint="Key pairs open locked. Inspecting, exporting, copying or signing with one asks for its key password (the keystore password unless the key has its own) once per session."
               />
             </Card>
-            <Card className="space-y-4">
+            <Card className="space-y-4 self-stretch">
               <CardHeader title="Vault" subtitle="When the encrypted vault locks itself." icon={Clock} />
               <Select label="Lock the vault after inactivity" value={settings.autoLockMinutes} onChange={(e) => updateSettings({ autoLockMinutes: Number(e.target.value) })}>
                 {[5, 15, 30, 60, 240].map((m) => (
@@ -287,7 +322,7 @@ export const SettingsView: React.FC = () => {
 
       case "signing":
         return (
-          <CardGrid>
+          <SigningCardGrid>
             <Card className="space-y-4">
               <CardHeader title="Timestamp authority" subtitle="Trusted timestamps for CMS and JAR signatures." icon={Clock} />
               <p className="text-[13px] text-muted">
@@ -320,7 +355,7 @@ export const SettingsView: React.FC = () => {
                 hint="A timestamp is reported as trusted only when the token's certificates chain to this bundle. Leave it empty to record the time without a trust decision."
               />
             </Card>
-          </CardGrid>
+          </SigningCardGrid>
         );
 
       case "terminal":
@@ -364,7 +399,7 @@ export const SettingsView: React.FC = () => {
       case "data":
         return (
           <CardGrid>
-            <Card className="space-y-4">
+            <WideCard>
               <CardHeader title="Data" subtitle="Where Keystore Studio keeps its own state." icon={FolderOpen} />
               <p className="text-[13px] text-muted">Session state, workspaces, labels and the encrypted vault live in:</p>
               <div className="p-3 rounded-control bg-surface-2 border border-line font-mono text-[12px] text-ink break-all select-text">{appInfo?.data_dir ?? "—"}</div>
@@ -402,9 +437,9 @@ export const SettingsView: React.FC = () => {
                 </Button>
               </div>
               {appInfo && <TerminalHint command={listFolderCommand(appInfo.data_dir)} label="List" />}
-            </Card>
+            </WideCard>
 
-            <Card className="space-y-4 border-danger/30">
+            <WideCard className="border-danger/30">
               <CardHeader title="Reset app data" subtitle="Deletes workspaces, labels, the Certificates list, recent files and settings. Keystore and certificate files and the vault are not touched." icon={RotateCcw} />
               <div>
                 <Button
@@ -426,7 +461,7 @@ export const SettingsView: React.FC = () => {
                   Reset app data
                 </Button>
               </div>
-            </Card>
+            </WideCard>
           </CardGrid>
         );
 
@@ -447,7 +482,7 @@ export const SettingsView: React.FC = () => {
                 <div className="flex items-center justify-center gap-2.5">
                   <img src="/icon.png" alt="" className="w-7 h-7 rounded-control object-cover dark:hidden" />
                   <img src="/icon-l.png" alt="" className="hidden w-7 h-7 rounded-control object-cover dark:block" />
-                  <h3 className="text-[14px] font-semibold text-ink leading-5">About Keystore Studio</h3>
+                  <h3 className="text-[14px] font-semibold text-ink leading-5">Keystore Studio</h3>
                 </div>
                 <p className="text-[12px] text-faint leading-4 mt-1">Version {appInfo?.version ?? appVersion}{appInfo ? ` · ${appInfo.platform}` : ""}</p>
               </div>

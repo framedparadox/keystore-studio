@@ -50,7 +50,13 @@ describe("header history controls", () => {
       state.tab = tab;
       state.vault.unlocked = unlocked;
       const markup = renderToStaticMarkup(<Header onOpenPalette={() => {}} />);
-      expect(markup.includes("Lock password vault")).toBe(visible);
+      const button = markup.match(/<button[^>]*data-testid="header-lock-vault"[\s\S]*?<\/button>/)?.[0];
+      expect(Boolean(button)).toBe(visible);
+      if (button) {
+        expect(button).toContain('aria-label="Lock password vault"');
+        expect(button).not.toContain(">Lock password vault<");
+        expect(button).toContain("<svg");
+      }
     });
   });
 });

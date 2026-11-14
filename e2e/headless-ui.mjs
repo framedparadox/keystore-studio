@@ -232,15 +232,15 @@ async function run() {
     const help = await driver.executeScript(`const input = document.querySelector('[data-testid="help-search"]');
       const heading = document.querySelector('#settings-panel-help h3');
       const a = heading.getBoundingClientRect(), b = input.getBoundingClientRect();
-      return { sameRow: Math.abs(a.top - b.top) < 10, toRight: b.left > a.right };`);
-    if (!help.sameRow || !help.toRight) throw new Error(`Help search is not beside its heading: ${JSON.stringify(help)}`);
+      return { sameRow: Math.abs(a.top - b.top) < 10, toRight: b.left > a.right, width: b.width };`);
+    if (!help.sameRow || !help.toRight || help.width < 319) throw new Error(`Help search has an unexpected layout: ${JSON.stringify(help)}`);
     await setField("help-search", "master key");
     if (!(await exists('[data-testid="help-topic-vault"]'))) throw new Error("Help search did not return the vault topic");
     await setField("help-search", "zzzz-no-help-match");
     await waitText("No matching topics");
     await click("settings-tab-about");
     const about = await driver.executeScript(`const panel = document.querySelector('#settings-panel-about');
-      const heading = [...panel.querySelectorAll('h3')].find(el => el.textContent === 'About Keystore Studio');
+      const heading = [...panel.querySelectorAll('h3')].find(el => el.textContent === 'Keystore Studio');
       const identity = heading.parentElement.parentElement;
       const image = [...identity.querySelectorAll('img')].find(el => getComputedStyle(el).display !== 'none');
       const row = heading.parentElement.getBoundingClientRect(), box = identity.getBoundingClientRect();
@@ -1243,6 +1243,44 @@ async function run() {
         const gap = await driver.executeScript(`const panel = document.querySelector('[role="tabpanel"]');
           return panel.parentElement.getBoundingClientRect().right - panel.getBoundingClientRect().right;`);
         if (Math.abs(gap) > 1) throw new Error(`settings panel has a ${gap}px right gap at ${width}px`);
+        const nav = await driver.executeScript(`const tabs = [...document.querySelectorAll('[role="tablist"][aria-label="Settings sections"] [role="tab"]')];
+          const rects = tabs.map(tab => tab.getBoundingClientRect());
+          return { gaps: rects.slice(1).map((rect, i) => rect.left - rects[i].right),
+            overflow: rects.at(-1).right - tabs[0].parentElement.getBoundingClientRect().right };`);
+        if (nav.overflow > 1 || Math.max(...nav.gaps) - Math.min(...nav.gaps) > 1 || Math.min(...nav.gaps) < 0) {
+          throw new Error(`settings tabs are not evenly spaced at ${width}px: ${JSON.stringify(nav)}`);
+        }
+        await click("settings-tab-data");
+        const data = await driver.executeScript(`const cards = [...document.querySelector('#settings-panel-data > div').children];
+          return cards.map(card => { const r = card.getBoundingClientRect(); return { left: r.left, right: r.right, top: r.top, bottom: r.bottom }; });`);
+        if (data.length !== 2 || Math.abs(data[0].left - data[1].left) > 1 || Math.abs(data[0].right - data[1].right) > 1 || data[1].top < data[0].bottom) {
+          throw new Error(`Data cards are not full-width rows at ${width}px: ${JSON.stringify(data)}`);
+        }
+        for (const section of ["security", "signing"]) {
+          await click(`settings-tab-${section}`);
+          const cards = await driver.executeScript(`return [...document.querySelector('#settings-panel-${section} > div').children]
+            .map(card => { const r = card.getBoundingClientRect(); return { top: r.top, height: r.height }; });`);
+          const sameRow = cards.length === 2 && Math.abs(cards[0].top - cards[1].top) < 1;
+          if (cards.length !== 2 || (width === 1600 && !sameRow) || (width === 1024 && sameRow) || (sameRow && Math.abs(cards[0].height - cards[1].height) > 1)) {
+            throw new Error(`${section} cards have an unexpected layout at ${width}px: ${JSON.stringify(cards)}`);
+          }
+          if (section === "signing" && sameRow) {
+            const resized = await driver.executeAsyncScript(`const done = arguments[arguments.length - 1];
+              const cards = document.querySelector('#settings-panel-signing > div').children;
+              const textarea = cards[1].querySelector('textarea');
+              const before = [...cards].map(card => card.getBoundingClientRect().height);
+              const oldHeight = textarea.style.height;
+              textarea.style.height = (textarea.getBoundingClientRect().height + 300) + 'px';
+              requestAnimationFrame(() => requestAnimationFrame(() => {
+                const after = [...cards].map(card => card.getBoundingClientRect().height);
+                textarea.style.height = oldHeight;
+                done({ before, after });
+              }));`);
+            if (Math.abs(resized.after[0] - resized.before[0]) > 1 || resized.after[1] - resized.before[1] < 200) {
+              throw new Error(`resizing the trust anchors changed the wrong card: ${JSON.stringify(resized)}`);
+            }
+          }
+        }
       }
     } finally {
       await restoreWindow();
