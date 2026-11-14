@@ -11,6 +11,7 @@ import { HelpTopics } from "../components/HelpTopics";
 import { PrivacyPolicy } from "../components/PrivacyPolicy";
 import { TerminalHint, useTerminal } from "../components/Terminal";
 import { joinPath, listFolderCommand, OS } from "../lib/platform";
+import { version as appVersion } from "../../package.json";
 
 const ENGINE = [
   "PKCS#12 reader/writer (PBES2/AES, legacy 3DES/RC2, SHA-1/SHA-2/PBMAC1 MACs, Java secret keys)",
@@ -113,7 +114,7 @@ const DraftNumber: React.FC<Omit<React.InputHTMLAttributes<HTMLInputElement>, "v
 };
 
 /** Top navigation: one button per section, arrow keys move between them, a dot marks sections changed from defaults. */
-const SettingsNav: React.FC<{ active: SectionId; onSelect: (id: SectionId) => void; settings: Settings; onRestore: () => void }> = ({ active, onSelect, settings, onRestore }) => {
+const SettingsNav: React.FC<{ active: SectionId; onSelect: (id: SectionId) => void; settings: Settings }> = ({ active, onSelect, settings }) => {
   const refs = useRef<Record<string, HTMLButtonElement | null>>({});
 
   const move = (from: number, delta: number | "first" | "last") => {
@@ -178,16 +179,6 @@ const SettingsNav: React.FC<{ active: SectionId; onSelect: (id: SectionId) => vo
         })}
       </div>
 
-      {/*
-        Restores the open section only. It sits in the section bar, always in the same spot, and
-        appears only when something in the section differs from its default. (A band above the
-        cards pushed them down the moment a setting changed.)
-      */}
-      {isChanged(SECTIONS.find((s) => s.id === active)!.keys, settings) && (
-        <Button size="sm" variant="ghost" icon={RotateCcw} onClick={onRestore} className="shrink-0" title="Restore this section's settings to their defaults" data-testid="settings-restore">
-          Restore defaults
-        </Button>
-      )}
     </div>
   );
 };
@@ -443,7 +434,6 @@ export const SettingsView: React.FC = () => {
         return (
           <CardGrid>
             <WideCard>
-              <CardHeader title="Help" subtitle="Answers to common questions. Keyboard shortcuts have their own tab." icon={LifeBuoy} />
               <HelpTopics onNavigate={followHelpLink} />
             </WideCard>
           </CardGrid>
@@ -453,7 +443,14 @@ export const SettingsView: React.FC = () => {
         return (
           <CardGrid>
             <WideCard>
-              <CardHeader title="About Keystore Studio" subtitle={appInfo ? `Version ${appInfo.version} · ${appInfo.platform}` : undefined} icon={Info} />
+              <div className="text-center">
+                <div className="flex items-center justify-center gap-2.5">
+                  <img src="/icon.png" alt="" className="w-7 h-7 rounded-control object-cover dark:hidden" />
+                  <img src="/icon-l.png" alt="" className="hidden w-7 h-7 rounded-control object-cover dark:block" />
+                  <h3 className="text-[14px] font-semibold text-ink leading-5">About Keystore Studio</h3>
+                </div>
+                <p className="text-[12px] text-faint leading-4 mt-1">Version {appInfo?.version ?? appVersion}{appInfo ? ` · ${appInfo.platform}` : ""}</p>
+              </div>
               <p className="text-[13px] text-muted">All cryptography runs locally in the bundled Rust engine. What the app stores and the few requests it makes are listed in the privacy policy below.</p>
               <ul className="grid grid-cols-1 @3xl:grid-cols-2 gap-x-8 gap-y-1.5 text-[13px]">
                 {ENGINE.map((p) => (
@@ -476,10 +473,18 @@ export const SettingsView: React.FC = () => {
 
   return (
     <Page>
-      <PageHeader title="Settings" description="Preferences are saved automatically on this computer." />
+      <PageHeader
+        title="Settings"
+        description="Preferences are saved automatically on this computer."
+        actions={isChanged(def.keys, settings) && (
+          <Button size="sm" variant="ghost" icon={RotateCcw} onClick={() => restore(def.keys, def.label)} className="ml-auto" title="Restore this section's settings to their defaults" data-testid="settings-restore">
+            Restore defaults
+          </Button>
+        )}
+      />
       {/* The container query measures the content column, which shrinks when the sidebar is open. */}
       <div className="@container">
-        <SettingsNav active={section} onSelect={select} settings={settings} onRestore={() => restore(def.keys, def.label)} />
+        <SettingsNav active={section} onSelect={select} settings={settings} />
         <div role="tabpanel" id={`settings-panel-${section}`} aria-label={def.label} className="min-w-0">
           {body}
         </div>

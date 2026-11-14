@@ -144,6 +144,8 @@ const waitText = (text, timeout = 15000) =>
   driver.wait(async () => (await driver.findElement(By.tagName("body")).getText()).includes(text), timeout, `never saw "${text}"`);
 
 async function run() {
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const exists = async (css) => (await driver.findElements(By.css(css))).length > 0;
   bridgePort = await startEngine();
   log(`engine on ${bridgePort}`);
   const webPort = await startServer(bridgePort);
@@ -179,14 +181,73 @@ async function run() {
         const colors = await driver.executeScript(`const button = document.querySelector('[data-testid="header-new"]');
           const icon = document.querySelector('[data-testid="nav-home"] svg');
           return { background: getComputedStyle(button).backgroundColor, foreground: getComputedStyle(button).color,
-            icon: getComputedStyle(icon).color, pageAccent: getComputedStyle(document.documentElement).getPropertyValue("--color-brand").trim() };`);
-        if (colors.background !== accent || colors.foreground !== foreground || colors.icon !== accent || colors.pageAccent === (theme === "light" ? "#000000" : "#ffffff")) {
+            icon: getComputedStyle(icon).color, terminal: getComputedStyle(document.querySelector('[data-testid="header-terminal"] svg')).color,
+            pageAccent: getComputedStyle(document.documentElement).getPropertyValue("--color-brand").trim() };`);
+        if (colors.background !== accent || colors.foreground !== foreground || colors.icon !== accent || colors.terminal !== accent || colors.pageAccent === (theme === "light" ? "#000000" : "#ffffff")) {
           throw new Error(`unexpected ${theme} shell colors: ${JSON.stringify(colors)}`);
         }
       }
     } finally {
       await driver.executeScript("document.documentElement.dataset.theme = arguments[0]", previous);
     }
+  });
+
+  await step("sidebar: Workspaces follows Dashboard and footer controls toggle the theme", async () => {
+    const layout = await driver.executeScript(`const home = document.querySelector('[data-testid="nav-home"]');
+      const workspace = document.querySelector('[data-testid="nav-workspaces"]');
+      const controls = ["sidebar-collapse", "sidebar-theme", "sidebar-terminal"].map(id => document.querySelector('[data-testid="' + id + '"]'));
+      return { next: home.nextElementSibling === workspace,
+        sameRow: controls.every(el => Math.abs(el.getBoundingClientRect().top - controls[0].getBoundingClientRect().top) < 1),
+        divider: controls[0].parentElement.previousElementSibling.getBoundingClientRect().width / controls[0].parentElement.getBoundingClientRect().width };`);
+    if (!layout.next || !layout.sameRow || Math.abs(layout.divider - 0.5) > 0.01) throw new Error(`unexpected sidebar layout: ${JSON.stringify(layout)}`);
+    const previous = await driver.executeScript("return document.documentElement.dataset.theme");
+    await click("sidebar-theme");
+    await driver.wait(async () => (await driver.executeScript("return document.documentElement.dataset.theme")) !== previous, 5000, "theme did not change");
+    await click("sidebar-theme");
+    await driver.wait(async () => (await driver.executeScript("return document.documentElement.dataset.theme")) === previous, 5000, "theme did not change back");
+    await click("sidebar-terminal");
+    if (!(await exists('[data-testid="terminal"]'))) throw new Error("sidebar terminal button did not open the terminal");
+    await click("sidebar-terminal");
+    if (await exists('[data-testid="terminal"]')) throw new Error("sidebar terminal button did not close the terminal");
+  });
+
+  await step("settings: section defaults are restored from the page header", async () => {
+    await click("nav-settings");
+    const position = await driver.executeScript(`const button = document.querySelector('[data-testid="settings-restore"]');
+      const header = [...document.querySelectorAll("h1")].find(el => el.textContent === "Settings")?.parentElement.parentElement.parentElement;
+      if (!button || !header) return null;
+      return { inside: header.contains(button), rightGap: header.getBoundingClientRect().right - button.getBoundingClientRect().right };`);
+    if (!position?.inside || Math.abs(position.rightGap) > 1) throw new Error(`restore action is not at the right of the page header: ${JSON.stringify(position)}`);
+    await click("settings-tab-security");
+    if (await exists('[data-testid="settings-restore"]')) throw new Error("restore action is visible for an unchanged section");
+    await click("settings-tab-general");
+    await click("settings-restore");
+    if (await exists('[data-testid="settings-restore"]')) throw new Error("restoring the section did not clear its changes");
+    await click("nav-home");
+  });
+
+  await step("settings: Help search shares the heading row and About centers the app identity", async () => {
+    await click("nav-settings");
+    await click("settings-tab-help");
+    const help = await driver.executeScript(`const input = document.querySelector('[data-testid="help-search"]');
+      const heading = document.querySelector('#settings-panel-help h3');
+      const a = heading.getBoundingClientRect(), b = input.getBoundingClientRect();
+      return { sameRow: Math.abs(a.top - b.top) < 10, toRight: b.left > a.right };`);
+    if (!help.sameRow || !help.toRight) throw new Error(`Help search is not beside its heading: ${JSON.stringify(help)}`);
+    await setField("help-search", "master key");
+    if (!(await exists('[data-testid="help-topic-vault"]'))) throw new Error("Help search did not return the vault topic");
+    await setField("help-search", "zzzz-no-help-match");
+    await waitText("No matching topics");
+    await click("settings-tab-about");
+    const about = await driver.executeScript(`const panel = document.querySelector('#settings-panel-about');
+      const heading = [...panel.querySelectorAll('h3')].find(el => el.textContent === 'About Keystore Studio');
+      const identity = heading.parentElement.parentElement;
+      const image = [...identity.querySelectorAll('img')].find(el => getComputedStyle(el).display !== 'none');
+      const row = heading.parentElement.getBoundingClientRect(), box = identity.getBoundingClientRect();
+      return { logo: !!image, centered: Math.abs((row.left + row.right - box.left - box.right) / 2) < 1,
+        version: identity.lastElementChild.textContent.trim() };`);
+    if (!about.logo || !about.centered || !about.version.startsWith("Version ")) throw new Error(`unexpected About identity: ${JSON.stringify(about)}`);
+    await click("nav-home");
   });
 
   await step("the engine is reachable from the page", async () => {
@@ -317,7 +378,6 @@ async function run() {
     const el = await driver.wait(until.elementLocated(By.xpath(`//button[@role="tab"][contains(normalize-space(.), ${JSON.stringify(label)})]`)), 10000);
     await driver.executeScript("arguments[0].click()", el);
   };
-  const exists = async (css) => (await driver.findElements(By.css(css))).length > 0;
   const clickButton = (text) => driver.executeScript(
     `const el = [...document.querySelectorAll("button")].find((b) => !b.disabled && b.innerText.replace(/\\s+/g, " ").trim().includes(${JSON.stringify(text)}));
      if (!el) throw new Error("no button: " + ${JSON.stringify(text)});
@@ -361,15 +421,14 @@ async function run() {
 
   await step("the Convert row toggles its submenu and Open is icon-only", async () => {
     const expanded = async () => (await driver.findElement(byTest("nav-convert"))).getAttribute("aria-expanded");
-    if (await expanded() !== "true") throw new Error("conversions should start expanded");
-    await click("nav-convert");
-    if (await expanded() !== "false" || await exists('[data-testid="nav-convert-certificate"]')) {
-      throw new Error("clicking Convert did not collapse its submenu");
-    }
+    if (await expanded() !== "false" || await exists('[data-testid="nav-convert-certificate"]')) throw new Error("conversions should start collapsed");
     await click("nav-convert");
     if (await expanded() !== "true" || !(await exists('[data-testid="nav-convert-certificate"]'))) {
       throw new Error("clicking Convert did not expand its submenu");
     }
+    await click("nav-convert");
+    if (await expanded() !== "false" || await exists('[data-testid="nav-convert-certificate"]')) throw new Error("clicking Convert did not collapse its submenu");
+    await click("nav-convert");
     const open = await driver.findElement(byTest("header-open"));
     if (await open.getText() || !/^Open \((Ctrl\+|⌘)O\)$/.test(await open.getAttribute("aria-label"))) throw new Error("Open should be an accessible icon-only button");
     if ((await driver.findElement(By.tagName("body")).getText()).includes("Local Rust engine · offline")) throw new Error("offline status is still shown");
@@ -509,7 +568,6 @@ async function run() {
   fs.mkdirSync(R, { recursive: true });
   const REV_PW = "reviewpw1";
   const ESC = "\uE00C";
-  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const keys = (...k) => driver.actions().sendKeys(...k).perform();
   const present = async (id) => (await driver.findElements(byTest(id))).length > 0;
   const gone = (id, what) => driver.wait(async () => !(await present(id)), 10000, what ?? `${id} is still open`);
@@ -1161,12 +1219,12 @@ async function run() {
     const asideWidth = () => driver.executeScript(`return Math.round(document.querySelector("aside").getBoundingClientRect().width)`);
     await driver.findElement(By.css('aside button[aria-label="Collapse sidebar"]')).click();
     await driver.wait(async () => (await asideWidth()) === 64, 5000, "the sidebar did not collapse");
-    const r = await driver.executeScript(`const nav = document.querySelector('nav[aria-label="Primary"]');
-       const b = nav.querySelector('[aria-label="Expand sidebar"]');
+    const r = await driver.executeScript(`const aside = document.querySelector("aside");
+       const b = aside.querySelector('[aria-label="Expand sidebar"]');
        const search = document.querySelector('[data-testid="open-palette"]').getBoundingClientRect();
        const terminal = document.querySelector('[data-testid="header-terminal"]').getBoundingClientRect();
        return { chevron: !!b?.querySelector('svg path[d="m9 18 6-6-6-6"]'),
-         bottom: b ? nav.getBoundingClientRect().bottom - b.getBoundingClientRect().bottom : null,
+         bottom: b ? aside.getBoundingClientRect().bottom - b.getBoundingClientRect().bottom : null,
          gap: terminal.left - search.right };`);
     if (!r.chevron) throw new Error("the collapsed navigation has no expand chevron");
     if (r.bottom < 0 || r.bottom > 24) throw new Error(`the chevron is not at the bottom of the navigation (${r.bottom}px)`);

@@ -29,11 +29,11 @@ export const Header: React.FC<{ onOpenPalette: () => void }> = ({ onOpenPalette 
           <span className="flex-1 text-left">Search or run…</span>
           <Kbd>Ctrl K</Kbd>
         </button>
-        <IconButton icon={TerminalSquare} label={shortcutLabel("Terminal (Ctrl+`)")} onClick={toggleTerminal} data-testid="header-terminal" className="!w-9 !h-9 shrink-0" />
+        <IconButton icon={TerminalSquare} label={shortcutLabel("Terminal (Ctrl+`)")} onClick={toggleTerminal} data-testid="header-terminal" className="!w-9 !h-9 shrink-0 !text-brand" />
       </div>
 
       <div className="flex items-center gap-1.5 justify-self-end">
-        {vault.unlocked && (
+        {vault.unlocked && tab !== "vault" && (
           <Button size="md" icon={LockOpen} onClick={() => lockVault()} title="Lock the password vault. Open keystores and their keys stay in this window.">
             Lock password vault
           </Button>

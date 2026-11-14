@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useSyncExternalStore } from "react";
 import clsx from "clsx";
 import {
   ArrowLeftRight,
@@ -15,30 +15,37 @@ import {
   Layers,
   Lock,
   LockOpen,
+  Moon,
   Package,
   PanelLeftClose,
   Repeat,
   SearchCode,
   ShieldCheck,
+  Sun,
+  TerminalSquare,
 } from "lucide-react";
 import type { TabType } from "../types/crypto";
 import { useStore } from "../state/store";
 import { entryHealth } from "../lib/metrics";
 import { CONVERTERS, type ConverterId } from "../lib/convert";
 import { shortcutLabel } from "../lib/platform";
+import { resolveTheme, systemTheme, watchSystemTheme } from "../lib/theme";
 import { IconButton } from "./ui";
+import { useTerminal } from "./Terminal";
 
 type NavItem = { id: TabType; label: string; icon: React.ElementType; shortcut: string };
 
 export const NAV_GROUPS: { label?: string; items: NavItem[] }[] = [
-  { items: [{ id: "home", label: "Dashboard", icon: LayoutDashboard, shortcut: "1" }] },
+  { items: [
+    { id: "home", label: "Dashboard", icon: LayoutDashboard, shortcut: "1" },
+    { id: "workspaces", label: "Workspaces", icon: Layers, shortcut: "3" },
+  ] },
   {
     label: "Inventory",
     items: [
       { id: "keystores", label: "Keystores", icon: FolderArchive, shortcut: "2" },
       // Ctrl+0: the page came after 1–9 were taken, and the older shortcuts keep their numbers.
       { id: "certificates", label: "Certificates", icon: FileBadge, shortcut: "0" },
-      { id: "workspaces", label: "Workspaces", icon: Layers, shortcut: "3" },
     ],
   },
   {
@@ -115,8 +122,11 @@ export const useSidebarCollapsed = () => {
 };
 
 export const Sidebar: React.FC<{ collapsed: boolean; onCollapse: () => void; onExpand: () => void }> = ({ collapsed, onCollapse, onExpand }) => {
-  const { tab, setTab, keystores, certificates, workspaces, vault, convertMode, openConverter } = useStore();
-  const [convertOpen, setConvertOpen] = useState(() => readFlag(CONVERT_OPEN_KEY, true));
+  const { tab, setTab, keystores, certificates, workspaces, vault, convertMode, openConverter, settings, updateSettings } = useStore();
+  const { toggle: toggleTerminal } = useTerminal();
+  const system = useSyncExternalStore(watchSystemTheme, systemTheme, () => "light" as const);
+  const theme = resolveTheme(settings.theme, system);
+  const [convertOpen, setConvertOpen] = useState(() => readFlag(CONVERT_OPEN_KEY, false));
   useEffect(() => writeFlag(CONVERT_OPEN_KEY, convertOpen), [convertOpen]);
 
   const atRisk = keystores.flatMap((k) => k.entries).filter((e) => entryHealth(e) === "at-risk").length;
@@ -133,7 +143,9 @@ export const Sidebar: React.FC<{ collapsed: boolean; onCollapse: () => void; onE
     // With the conversions listed underneath, the open one is highlighted instead of the parent.
     const active = tab === item.id && !(isConvert && convertMode && convertOpen && !collapsed);
     const count = counts[item.id];
-    const Icon = item.id === "vault" ? (vault.unlocked ? LockOpen : Lock) : item.icon;
+    const vaultStatus = vault.unlocked ? "Vault unlocked" : "Vault locked";
+    const VaultStatusIcon = vault.unlocked ? LockOpen : Lock;
+    const Icon = item.id === "vault" && collapsed ? VaultStatusIcon : item.icon;
     return (
       <button
         onClick={() => {
@@ -144,7 +156,8 @@ export const Sidebar: React.FC<{ collapsed: boolean; onCollapse: () => void; onE
         }}
         aria-current={active ? "page" : undefined}
         aria-expanded={isConvert && !collapsed ? convertOpen : undefined}
-        title={shortcutLabel(`${item.label} (Ctrl+${item.shortcut})`)}
+        aria-label={item.id === "vault" && collapsed && vault.exists ? vaultStatus : undefined}
+        title={shortcutLabel(`${item.label} (Ctrl+${item.shortcut})${item.id === "vault" && vault.exists ? ` — ${vaultStatus}` : ""}`)}
         data-testid={`nav-${item.id}`}
         className={clsx(
           "w-full h-8 rounded-control flex items-center text-[13px] transition cursor-pointer",
@@ -152,13 +165,25 @@ export const Sidebar: React.FC<{ collapsed: boolean; onCollapse: () => void; onE
           active ? "bg-surface-3 text-ink font-semibold" : "text-muted font-medium hover:bg-surface-2 hover:text-ink"
         )}
       >
-        <Icon className={clsx("w-4 h-4 shrink-0", active ? "text-brand" : "text-subtle")} />
+        {isConvert ? (
+          <span
+            aria-hidden="true"
+            className={clsx("w-4 h-4 shrink-0", active ? "bg-brand" : "bg-subtle")}
+            style={{ mask: "url('/convert-icon.png') center / contain no-repeat", WebkitMask: "url('/convert-icon.png') center / contain no-repeat" }}
+          />
+        ) : (
+          <Icon className={clsx("w-4 h-4 shrink-0", active ? "text-brand" : "text-subtle")} />
+        )}
         {!collapsed && (
           <>
             <span className="flex-1 text-left truncate">{item.label}</span>
             {isConvert && (convertOpen ? <ChevronDown className="w-3.5 h-3.5 shrink-0 text-subtle" /> : <ChevronRight className="w-3.5 h-3.5 shrink-0 text-subtle" />)}
             {item.id === "keystores" && unsaved && <span className="w-1.5 h-1.5 rounded-full bg-warning-fill" title="Unsaved changes" />}
-            {item.id === "vault" && vault.exists && <span className={clsx("text-[11px]", vault.unlocked ? "text-success" : "text-faint")}>{vault.unlocked ? "Unlocked" : "Locked"}</span>}
+            {item.id === "vault" && vault.exists && (
+              <span role="img" aria-label={vaultStatus} title={vaultStatus} className={clsx("shrink-0", vault.unlocked ? "text-success" : "text-faint")}>
+                <VaultStatusIcon className="w-4 h-4" aria-hidden />
+              </span>
+            )}
             {count && count.value > 0 && (
               <span className={clsx("min-w-5 h-5 px-1.5 rounded-full text-[11px] font-semibold tabular-nums flex items-center justify-center", count.tone === "danger" ? "bg-danger-tint text-danger" : "bg-surface-3 text-faint")}>{count.value}</span>
             )}
@@ -211,17 +236,6 @@ export const Sidebar: React.FC<{ collapsed: boolean; onCollapse: () => void; onE
           />
           {!collapsed && <span className="font-semibold text-[15px] tracking-[-0.01em] text-ink truncate">Keystore Studio</span>}
         </button>
-        {!collapsed && (
-          <button
-            onClick={onCollapse}
-            title="Collapse sidebar"
-            aria-label="Collapse sidebar"
-            data-testid="sidebar-collapse"
-            className="ml-auto w-7 h-7 rounded-control flex items-center justify-center text-faint hover:bg-surface-2 hover:text-ink transition cursor-pointer shrink-0"
-          >
-            <PanelLeftClose className="w-4 h-4" />
-          </button>
-        )}
       </div>
       <nav className={clsx("shell-accent flex-1 min-h-0 overflow-y-auto pt-1 flex flex-col", collapsed ? "px-2" : "px-3")} aria-label="Primary">
         {NAV_GROUPS.map((g, i) => (
@@ -242,12 +256,27 @@ export const Sidebar: React.FC<{ collapsed: boolean; onCollapse: () => void; onE
             </div>
           </div>
         ))}
-        {collapsed && (
-          <div className="mt-auto py-3 flex justify-center">
-            <IconButton icon={ChevronRight} label="Expand sidebar" onClick={onExpand} className="!w-9 !h-9" data-testid="sidebar-expand" />
-          </div>
-        )}
       </nav>
+      <div className="shell-accent shrink-0 px-3 pb-3">
+        <div className="w-1/2 mx-auto border-t border-line" role="separator" />
+        <div className={clsx("flex items-center pt-2", collapsed ? "justify-center" : "justify-between")}>
+          {collapsed ? (
+            <IconButton icon={ChevronRight} label="Expand sidebar" onClick={onExpand} className="!w-9 !h-9" data-testid="sidebar-expand" />
+          ) : (
+            <>
+              <IconButton icon={PanelLeftClose} label="Collapse sidebar" onClick={onCollapse} className="!w-9 !h-9" data-testid="sidebar-collapse" />
+              <IconButton
+                icon={theme === "dark" ? Sun : Moon}
+                label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+                onClick={() => updateSettings({ theme: theme === "dark" ? "light" : "dark" })}
+                className="!w-9 !h-9"
+                data-testid="sidebar-theme"
+              />
+              <IconButton icon={TerminalSquare} label={shortcutLabel("Terminal (Ctrl+`)")} onClick={toggleTerminal} className="!w-9 !h-9" data-testid="sidebar-terminal" />
+            </>
+          )}
+        </div>
+      </div>
     </aside>
   );
 };

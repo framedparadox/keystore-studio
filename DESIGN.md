@@ -102,11 +102,10 @@ never draw a type icon by hand. Derived numbers
 Add a variant to a primitive rather than restyling one-off.
 
 ## 6. Page layout
-App shell: 240px `Sidebar` (grouped nav: Overview · Inventory (Keystores, Certificates, Workspaces) · Tools · Security;
-it collapses to a 64px icon rail from the button beside the logo, and a chevron at the bottom of the
-collapsed navigation expands it again) +
+App shell: 240px `Sidebar` (grouped nav: Dashboard and Workspaces · Inventory (Keystores, Certificates) · Tools · Security;
+its footer holds collapse, theme and terminal controls, and the 64px collapsed rail has an expand chevron) +
 `Header` (breadcrumb, undo/redo, command palette, vault lock, terminal, Open, New keystore, Settings). Under Tools, Convert
-lists every conversion beneath it (collapsible) so each one is a click away. Every page:
+lists every conversion beneath it (collapsed by default, with the choice remembered) so each one is a click away. Every page:
 `Page` → `PageHeader` → content on a 12-column grid with `gap-4`. Lists of records are tables, not card grids.
 Every page has an empty state that offers the next useful action.
 
