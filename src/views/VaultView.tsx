@@ -157,7 +157,7 @@ export const VaultView: React.FC = () => {
   if (!vault.exists || !vault.unlocked) {
     return (
       <Page>
-        <PageHeader title="Vault" description="Remember keystore passwords under one master key, so keystores open without retyping them." />
+        <PageHeader icon={KeyRound} title="Vault" description="Remember keystore passwords under one master key, so keystores open without retyping them." />
         <VaultGate setup={!vault.exists} />
       </Page>
     );
@@ -239,6 +239,7 @@ export const VaultView: React.FC = () => {
   return (
     <Page>
       <PageHeader
+        icon={KeyRound}
         title="Vault"
         description="Keystore passwords remembered on this computer, encrypted with your master key."
         actions={

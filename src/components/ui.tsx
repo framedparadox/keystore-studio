@@ -183,17 +183,19 @@ export const Badge: React.FC<{
 
 export const PageHeader: React.FC<{
   title: React.ReactNode;
+  icon?: React.ElementType;
   description?: React.ReactNode;
   eyebrow?: React.ReactNode;
   actions?: React.ReactNode;
   /** Shown on the same row as the title, before it (e.g. a panel toggle). */
   leading?: React.ReactNode;
-}> = ({ title, description, eyebrow, actions, leading }) => (
+}> = ({ title, icon: Icon, description, eyebrow, actions, leading }) => (
   <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-4 mb-6">
     <div className="min-w-0">
       {eyebrow && <div className="text-[12px] font-medium text-faint mb-1">{eyebrow}</div>}
       <div className="flex items-center gap-2.5 min-w-0">
         {leading}
+        {Icon && <Icon className="w-5 h-5 text-brand shrink-0" aria-hidden="true" />}
         <h1 className="text-[22px] font-semibold text-ink tracking-[-0.01em] leading-7 min-w-0">{title}</h1>
       </div>
       {description && <p className="text-[13px] text-faint mt-1 max-w-3xl">{description}</p>}

@@ -285,7 +285,7 @@ export const ScannerView: React.FC = () => {
   if (!rows.length) {
     return (
       <Page>
-        <PageHeader title="Security audit" description="Finds expired, expiring and weak keys and certificates across every open keystore." />
+        <PageHeader icon={ShieldCheck} title="Security audit" description="Finds expired, expiring and weak keys and certificates across every open keystore." />
         <Card className="py-14">
           <EmptyState
             icon={ShieldCheck}
@@ -301,6 +301,7 @@ export const ScannerView: React.FC = () => {
   return (
     <Page>
       <PageHeader
+        icon={ShieldCheck}
         title="Security audit"
         description="Finds expired, expiring and weak keys and certificates across every open keystore, with one-click remediation."
         actions={

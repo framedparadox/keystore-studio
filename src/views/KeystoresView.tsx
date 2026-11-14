@@ -684,7 +684,7 @@ export const KeystoresView: React.FC = () => {
         {navigator}
         <div className="flex-1 min-w-0 overflow-y-auto">
           <div className="max-w-[1320px] mx-auto px-8 py-7">
-            <PageHeader title="Keystores" leading={showNav} description="Open PKCS#12, JKS and JCEKS keystores, or create a new one." />
+            <PageHeader icon={FolderArchive} title="Keystores" leading={showNav} description="Open PKCS#12, JKS and JCEKS keystores, or create a new one." />
             <Card className="py-16">
               <EmptyState
                 icon={FolderArchive}
@@ -956,6 +956,7 @@ export const KeystoresView: React.FC = () => {
       <div className="flex-1 min-w-0 overflow-y-auto" data-testid="keystore-detail">
         <div className="max-w-[1320px] mx-auto px-8 py-7">
           <PageHeader
+            icon={FolderArchive}
             leading={showNav}
             eyebrow={
               <span className="inline-flex items-center gap-2">

@@ -1,5 +1,5 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { CheckCircle2, Clock, EyeOff, FolderOpen, Info, Keyboard, LifeBuoy, Monitor, Moon, Palette, RotateCcw, Settings2, ShieldCheck, Sun, TerminalSquare, Trash2 } from "lucide-react";
+import { CheckCircle2, Clock, EyeOff, FolderOpen, Info, Keyboard, LifeBuoy, Monitor, Moon, Palette, RotateCcw, Settings as SettingsIcon, Settings2, ShieldCheck, Sun, TerminalSquare, Trash2 } from "lucide-react";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import { DEFAULT_SETTINGS, useStore, type Settings } from "../state/store";
 import { FORMAT_INFO } from "../lib/keystore";
@@ -509,6 +509,7 @@ export const SettingsView: React.FC = () => {
   return (
     <Page>
       <PageHeader
+        icon={SettingsIcon}
         title="Settings"
         description="Preferences are saved automatically on this computer."
         actions={isChanged(def.keys, settings) && (

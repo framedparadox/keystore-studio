@@ -56,6 +56,8 @@ describe("header history controls", () => {
         expect(button).toContain('aria-label="Lock password vault"');
         expect(button).not.toContain(">Lock password vault<");
         expect(button).toContain("<svg");
+        expect(button).toContain("border-line-strong");
+        expect(button).toContain("!w-9 !px-0 !text-success");
       }
     });
   });

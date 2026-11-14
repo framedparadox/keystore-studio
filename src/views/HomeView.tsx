@@ -11,6 +11,7 @@ import {
   FolderOpen,
   KeyRound,
   Layers,
+  LayoutDashboard,
   Lock,
   Play,
   SearchCode,
@@ -154,7 +155,7 @@ export const HomeView: React.FC = () => {
   if (!loaded.length) {
     return (
       <Page>
-        <PageHeader title="Welcome to Keystore Studio" description="A workbench for Java keystores, PKCS#12 files and X.509 certificates. Everything runs locally." />
+        <PageHeader icon={LayoutDashboard} title="Welcome to Keystore Studio" description="A workbench for Java keystores, PKCS#12 files and X.509 certificates. Everything runs locally." />
         {!desktop && !notices.dismissed("browser-preview") && (
           <Alert tone="warning" className="mb-4" title="Browser preview" testId="browser-preview" onDismiss={() => notices.dismiss(["browser-preview"])}>
             The native engine is only available in the desktop app (pnpm tauri dev). Buttons that touch files or keys will report an error here.
@@ -212,6 +213,7 @@ export const HomeView: React.FC = () => {
   return (
     <Page>
       <PageHeader
+        icon={LayoutDashboard}
         title="Dashboard"
         description={`Certificate and key health across ${loaded.length} open keystore${loaded.length === 1 ? "" : "s"}${workspaces.length ? ` and ${workspaces.length} workspaces` : ""}.`}
         actions={

@@ -1022,7 +1022,7 @@ export const CaSigningView: React.FC = () => {
   const loaded = keystores.some((k) => !k.sealed && k.entries.length);
   return (
     <Page>
-      <PageHeader title="CA & Signing" description="Issue certificates and CRLs, and sign files, archives and tokens with keys from your open keystores." />
+      <PageHeader icon={FileSignature} title="CA & Signing" description="Issue certificates and CRLs, and sign files, archives and tokens with keys from your open keystores." />
       <div className="mb-4 overflow-x-auto">
         <Segmented
           label="Signing tool"

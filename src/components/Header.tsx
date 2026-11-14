@@ -34,12 +34,12 @@ export const Header: React.FC<{ onOpenPalette: () => void }> = ({ onOpenPalette 
 
       <div className="flex items-center gap-1.5 justify-self-end">
         {vault.unlocked && tab !== "vault" && (
-          <IconButton
+          <Button
             icon={LockOpen}
-            label="Lock password vault"
+            aria-label="Lock password vault"
             title="Lock the password vault. Open keystores and their keys stay in this window."
             onClick={() => lockVault()}
-            className="!w-9 !h-9"
+            className="!w-9 !px-0 !text-success"
             data-testid="header-lock-vault"
           />
         )}

@@ -223,6 +223,72 @@ async function run() {
     if (await exists('[data-testid="terminal"]')) throw new Error("sidebar terminal button did not close the terminal");
   });
 
+  await step("header: unlocked vault uses a green Open-style icon button", async () => {
+    await click("nav-vault");
+    await setField("vault-key", "test-vault-key");
+    await setField("vault-key-confirm", "test-vault-key");
+    await click("vault-submit");
+    await driver.wait(async () => (await driver.findElement(By.tagName("body")).getText()).includes("Change master key"), 15000, "vault did not unlock");
+    if (await exists('[data-testid="header-lock-vault"]')) throw new Error("the header lock is visible on the Vault page");
+    await click("nav-home");
+    const lockButton = await driver.wait(until.elementLocated(byTest("header-lock-vault")), 5000);
+    await driver.actions().move({ origin: lockButton }).perform();
+    const previous = await driver.executeScript("return document.documentElement.dataset.theme");
+    try {
+      for (const theme of ["light", "dark"]) {
+        await driver.executeScript("document.documentElement.dataset.theme = arguments[0]", theme);
+        await sleep(250);
+        const layout = await driver.executeScript(`const lock = document.querySelector('[data-testid="header-lock-vault"]');
+          const open = document.querySelector('[data-testid="header-open"]');
+          const sample = document.createElement('span');
+          sample.style.color = 'var(--color-success)';
+          lock.appendChild(sample);
+          const color = getComputedStyle(sample).color;
+          sample.remove();
+          const a = lock.getBoundingClientRect(), b = open.getBoundingClientRect();
+          return { width: a.width, height: a.height, openWidth: b.width, openHeight: b.height,
+            border: getComputedStyle(lock).borderColor, openBorder: getComputedStyle(open).borderColor,
+            color: getComputedStyle(lock.querySelector('svg')).color, success: color, label: lock.getAttribute('aria-label'),
+            text: lock.textContent.trim() };`);
+        if (Math.abs(layout.width - layout.openWidth) > 1 || Math.abs(layout.height - layout.openHeight) > 1 ||
+            layout.border !== layout.openBorder || layout.color !== layout.success || layout.label !== "Lock password vault" || layout.text) {
+          throw new Error(`unexpected ${theme} vault action: ${JSON.stringify(layout)}`);
+        }
+      }
+    } finally {
+      await driver.executeScript("document.documentElement.dataset.theme = arguments[0]", previous);
+    }
+    await click("header-lock-vault");
+    await driver.wait(async () => !(await exists('[data-testid="header-lock-vault"]')), 10000, "the vault did not lock");
+  });
+
+  await step("page headings use their navigation icons", async () => {
+    for (const [id, iconClass] of [
+      ["nav-home", "lucide-layout-dashboard"],
+      ["nav-workspaces", "lucide-layers"],
+      ["nav-keystores", "lucide-folder-archive"],
+      ["nav-certificates", "lucide-file-badge"],
+      ["nav-examine", "lucide-search-code"],
+      ["nav-ca_signing", "lucide-file-signature"],
+      ["nav-scanner", "lucide-shield-check"],
+      ["nav-vault", "lucide-key-round"],
+      ["nav-settings", "lucide-settings"],
+    ]) {
+      await click(id);
+      const heading = await driver.executeScript(`const title = document.querySelector('main h1'), icon = title?.previousElementSibling;
+        if (!icon) return null;
+        return { matches: icon.classList.contains(arguments[0]), hidden: icon.getAttribute('aria-hidden'),
+          before: icon.getBoundingClientRect().right <= title.getBoundingClientRect().left };`, iconClass);
+      if (!heading?.matches || heading.hidden !== "true" || !heading.before) throw new Error(`${id} has an incorrect heading icon: ${JSON.stringify(heading)}`);
+    }
+    await click("nav-home");
+    await click("welcome-convert");
+    const convert = await driver.executeScript(`const title = document.querySelector('main h1'), icon = title.previousElementSibling;
+      return { mask: getComputedStyle(icon).maskImage, hidden: icon.getAttribute('aria-hidden'), before: icon.getBoundingClientRect().right <= title.getBoundingClientRect().left };`);
+    if (!convert.mask.includes("/convert-icon.png") || convert.hidden !== "true" || !convert.before) throw new Error(`unexpected Convert heading: ${JSON.stringify(convert)}`);
+    await click("nav-home");
+  });
+
   await step("settings: section defaults are restored from the page header", async () => {
     await click("nav-settings");
     const position = await driver.executeScript(`const button = document.querySelector('[data-testid="settings-restore"]');
@@ -1277,6 +1343,15 @@ async function run() {
         await setViewport(width, 900);
         for (const id of ["certificate", "private_key", "public_key", "keystore", "pkcs12", "extract", "encoding"]) {
           await click(`nav-convert-${id}`);
+          if (await exists('[data-testid="convert-switch"]') || !(await exists(`[data-testid="converter-${id}"]`)) ||
+              (await driver.findElement(byTest(`nav-convert-${id}`)).getAttribute("aria-current")) !== "page") {
+            throw new Error(`${id} is not accessible solely through the conversion navigation`);
+          }
+          const heading = await driver.executeScript(`const title = document.querySelector('main h1');
+            const icon = title.previousElementSibling, navIcon = document.querySelector(arguments[0] + ' svg');
+            return { matches: [...navIcon.classList].filter(c => c.startsWith('lucide-')).every(c => icon.classList.contains(c)),
+              hidden: icon.getAttribute('aria-hidden'), chevron: !!document.querySelector('[data-testid="convert-back"] .lucide-chevron-left') };`, `[data-testid="nav-convert-${id}"]`);
+          if (!heading.matches || heading.hidden !== "true" || !heading.chevron) throw new Error(`${id} has an incorrect heading or back icon: ${JSON.stringify(heading)}`);
           const hint = await driver.executeScript(`const hint = document.querySelector('[data-testid="terminal-hint"]');
             const code = hint.querySelector('code'), button = hint.querySelector('button');
             const original = code.textContent, initialHeight = code.getBoundingClientRect().height;
@@ -1308,6 +1383,10 @@ async function run() {
         Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, '');
         input.dispatchEvent(new Event('input', { bubbles: true }));`);
       await click("sidebar-terminal");
+      await click("sidebar-collapse");
+      await click("convert-back");
+      if (!(await exists('[data-testid="convert-tile-certificate"]'))) throw new Error("conversion overview is unavailable with the sidebar collapsed");
+      await click("sidebar-expand");
     } finally {
       await restoreWindow();
     }

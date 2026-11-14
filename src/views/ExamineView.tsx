@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import clsx from "clsx";
-import { CheckCircle2, Clipboard, FileBadge, FileSearch, FolderOpen, GitCompare, Globe, Network, Plus, Save, Sparkles, XCircle } from "lucide-react";
+import { CheckCircle2, Clipboard, FileBadge, FileSearch, FolderOpen, GitCompare, Globe, Network, Plus, Save, SearchCode, Sparkles, XCircle } from "lucide-react";
 import type { CertificateInfo, ConnectionTest, DetectionResult, KeystoreEntry, TlsInspectionResult } from "../types/crypto";
 import { api, errorMessage } from "../lib/api";
 import { FILTERS, baseName, pickFile, safeFileStem } from "../lib/files";
@@ -595,7 +595,7 @@ export const ExamineView: React.FC = () => {
   }, [examineRequest]);
   return (
     <Page>
-      <PageHeader title="Examine" description="Inspect a live TLS server, test whether a server port can be reached from this machine, decode any certificate, key, CSR, CRL, PKCS#7 or JWT, or compare two certificates." />
+      <PageHeader icon={SearchCode} title="Examine" description="Inspect a live TLS server, test whether a server port can be reached from this machine, decode any certificate, key, CSR, CRL, PKCS#7 or JWT, or compare two certificates." />
       <div className="mb-4">
         <Segmented
           label="Examine mode"

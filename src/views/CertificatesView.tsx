@@ -165,6 +165,7 @@ export const CertificatesView: React.FC = () => {
   return (
     <Page data-testid="certificates-page">
       <PageHeader
+        icon={FileBadge}
         title="Certificates"
         description="Certificate files you open on their own (PEM, DER or PKCS#7) are listed here, one row per certificate. Add them to a keystore or a workspace. Removing one from the list never changes its file."
         actions={

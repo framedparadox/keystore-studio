@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import clsx from "clsx";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
-import { ArrowLeft, ArrowRight, CheckCircle2, FileOutput, FolderOpen, Lock, Repeat, Sparkles, Unlock } from "lucide-react";
+import { ArrowRight, CheckCircle2, ChevronLeft, FileOutput, FolderOpen, Lock, Repeat, Sparkles, Unlock } from "lucide-react";
 import type { ConvertResult, DataSource, DetectionResult, KeystoreEntry, KeystoreFile, KeystoreFormat, OpenKeystore, PemBundleOptions } from "../types/crypto";
 import { KEYSTORE_FORMATS } from "../types/crypto";
 import { api, errorMessage } from "../lib/api";
@@ -13,7 +13,7 @@ import { Alert, Badge, Button, Card, Checkbox, CodeBlock, OptionList, Page, Page
 import { FileOrText, usePkcs12Builder } from "../components/AddEntryDialogs";
 import { EntryIcon } from "../components/entry";
 import { TerminalHint } from "../components/Terminal";
-import { CONVERTER_ICONS } from "../components/Sidebar";
+import { CONVERTER_ICONS, ConvertIcon } from "../components/Sidebar";
 
 // ================================================================================ shared
 
@@ -872,7 +872,7 @@ const Overview: React.FC = () => {
   const { openConverter } = useStore();
   return (
     <Page>
-      <PageHeader title="Convert" description="Change the format of certificates, keys and keystores. Everything runs locally; nothing leaves this computer." />
+      <PageHeader icon={ConvertIcon} title="Convert" description="Change the format of certificates, keys and keystores. Everything runs locally; nothing leaves this computer." />
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
         {CONVERTERS.map((c, i) => {
           const Icon = CONVERTER_ICONS[c.id];
@@ -920,24 +920,12 @@ export const ConvertView: React.FC = () => {
       <PageHeader
         eyebrow={
           <button type="button" onClick={() => openConverter(null)} className="inline-flex items-center gap-1 text-brand font-medium hover:underline cursor-pointer" data-testid="convert-back">
-            <ArrowLeft className="w-3.5 h-3.5" /> All conversions
+            <ChevronLeft className="w-3.5 h-3.5" /> All conversions
           </button>
         }
-        title={
-          <span className="inline-flex items-center gap-2.5">
-            <Icon className="w-5 h-5 text-brand" /> {info.title}
-          </span>
-        }
+        icon={Icon}
+        title={info.title}
         description={info.description}
-        actions={
-          <Select aria-label="Switch conversion" value={convertMode} onChange={(e) => openConverter(e.target.value as ConverterId)} className="!w-60" data-testid="convert-switch">
-            {CONVERTERS.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.title}
-              </option>
-            ))}
-          </Select>
-        }
       />
       <div className={clsx("pb-8")} data-testid={`converter-${convertMode}`}>
         {/* Keyed so switching converters starts from a clean form. */}
