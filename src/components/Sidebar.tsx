@@ -22,6 +22,7 @@ import {
   ShieldCheck,
   Sun,
   TerminalSquare,
+  Wrench,
 } from "lucide-react";
 import type { TabType } from "../types/crypto";
 import { useStore } from "../state/store";
@@ -31,6 +32,7 @@ import { shortcutLabel } from "../lib/platform";
 import { resolveTheme, systemTheme, watchSystemTheme } from "../lib/theme";
 import { IconButton } from "./ui";
 import { useTerminal } from "./Terminal";
+import { showSettingsSection } from "../views/SettingsView";
 
 type NavItem = { id: TabType; label: string; icon: React.ElementType; shortcut: string };
 
@@ -271,6 +273,16 @@ export const Sidebar: React.FC<{ collapsed: boolean; onCollapse: () => void; onE
                 onClick={() => updateSettings({ theme: theme === "dark" ? "light" : "dark" })}
                 className="!w-9 !h-9"
                 data-testid="sidebar-theme"
+              />
+              <IconButton
+                icon={Wrench}
+                label="Tools"
+                onClick={() => {
+                  showSettingsSection("tools");
+                  setTab("settings");
+                }}
+                className="!w-9 !h-9"
+                data-testid="sidebar-tools"
               />
               <IconButton icon={TerminalSquare} label={shortcutLabel("Terminal (Ctrl+`)")} onClick={toggleTerminal} className="!w-9 !h-9" data-testid="sidebar-terminal" />
             </>

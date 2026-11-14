@@ -748,6 +748,15 @@ async fn run_terminal_command(command: String, cwd: Option<String>, timeout_secs
     blocking(move || terminal::run(&command, cwd, timeout_secs.unwrap_or(120))).await
 }
 
+// ------------------------------------------------------------------------------------------------
+// Tools
+// ------------------------------------------------------------------------------------------------
+
+#[tauri::command]
+async fn tool_status() -> Vec<tools::ToolStatus> {
+    tauri::async_runtime::spawn_blocking(tools::status).await.unwrap_or_default()
+}
+
 /// Localhost JavaScript bridge used by `e2e/eval-drive.mjs`.
 ///
 /// Started only when `KEYSTORE_STUDIO_E2E` is set (the same switch that lets the harness script file
@@ -957,6 +966,7 @@ pub fn run() {
             vault_delete_secret,
             vault_list_secrets,
             run_terminal_command,
+            tool_status,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Keystore Studio");

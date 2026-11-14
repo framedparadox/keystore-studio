@@ -29,6 +29,7 @@ pub mod pbe;
 pub mod pkcs12;
 pub mod terminal;
 pub mod tls;
+pub mod tools;
 pub mod tsa;
 pub mod util;
 pub mod vault;

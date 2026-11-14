@@ -30,6 +30,7 @@ import type {
   SignCsrInput,
   SignedCertificateResult,
   TerminalOutput,
+  ToolStatus,
   ConnectionTest,
   TlsInspectionResult,
   VaultStatus,
@@ -180,6 +181,8 @@ export const api = {
 
   runTerminalCommand: (command: string, cwd: string | undefined, timeoutSecs: number) =>
     call<TerminalOutput>("run_terminal_command", { command, cwd: cwd ?? null, timeoutSecs }),
+
+  toolStatus: () => call<ToolStatus[]>("tool_status"),
 };
 
 /** Vault id under which a keystore's password is remembered. */

@@ -514,6 +514,16 @@ export interface TerminalOutput {
   truncated: boolean;
 }
 
+/** An external CLI tool Keystore Studio's workflows refer to (java, keytool, openssl), and whether it's on PATH. */
+export interface ToolStatus {
+  id: string;
+  name: string;
+  description: string;
+  available: boolean;
+  version: string | null;
+  path: string | null;
+}
+
 /** Input from a file path, pasted text or base64 bytes. */
 export interface DataSource {
   path?: string;
