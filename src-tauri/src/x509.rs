@@ -886,7 +886,7 @@ pub fn parse_certificate(der: &[u8]) -> Res<CertificateInfo> {
         curve: pk.curve,
         sha256_fingerprint: colon_hex(&sha256(der)),
         sha1_fingerprint: colon_hex(&sha1(der)),
-        md5_fingerprint: colon_hex(&md5(der)),
+        md5_fingerprint: String::new(),
         spki_sha256: colon_hex(&sha256(spki)),
         pem: to_pem("CERTIFICATE", der),
         ..Default::default()

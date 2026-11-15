@@ -219,4 +219,3 @@ pub fn secret_bytes(entry: &KeystoreEntry) -> Res<Vec<u8>> {
     let hex_str = entry.secret_key_hex.as_deref().ok_or_else(|| format!("'{}' has no secret key material", entry.alias))?;
     hex::decode(hex_str.replace([':', ' '], "")).map_err(|_| format!("entry '{}': invalid secret key hex", entry.alias))
 }
-
