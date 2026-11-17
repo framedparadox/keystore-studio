@@ -1,47 +1,24 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { CheckCircle2, Clock, EyeOff, FolderOpen, Info, Keyboard, LifeBuoy, Monitor, Moon, Palette, RotateCcw, Settings as SettingsIcon, Settings2, ShieldCheck, Sun, TerminalSquare, Trash2, Wrench, XCircle } from "lucide-react";
+import { CheckCircle2, Clock, EyeOff, FolderOpen, Info, Keyboard, LifeBuoy, Monitor, Moon, Palette, RotateCcw, Settings as SettingsIcon, Settings2, ShieldCheck, Sun, TerminalSquare, Trash2, Wrench } from "lucide-react";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import { DEFAULT_SETTINGS, useStore, type Settings } from "../state/store";
 import { FORMAT_INFO } from "../lib/keystore";
-import { KEYSTORE_FORMATS, type KeystoreFormat, type ToolStatus } from "../types/crypto";
-import { api } from "../lib/api";
-import { Badge, Button, Card, CardHeader, Checkbox, CodeBlock, IconButton, Kbd, Page, PageHeader, Segmented, Select, Spinner, TextArea, TextInput, useConfirm, useToast } from "../components/ui";
+import { KEYSTORE_FORMATS, type KeystoreFormat } from "../types/crypto";
+import { Button, Card, CardHeader, Checkbox, IconButton, Kbd, Page, PageHeader, Segmented, Select, TextArea, TextInput, useConfirm, useToast } from "../components/ui";
 import type { ThemePreference } from "../lib/theme";
 import type { HelpLink } from "../lib/help";
 import { HelpTopics } from "../components/HelpTopics";
 import { PrivacyPolicy } from "../components/PrivacyPolicy";
+import { ToolsPanel } from "../components/ToolsPanel";
 import { TerminalHint, useTerminal } from "../components/Terminal";
 import { joinPath, listFolderCommand, OS } from "../lib/platform";
 import { version as appVersion } from "../../package.json";
 
-/** Per-OS install command for each tool, shown when it's missing. */
-const INSTALL_HINTS: Record<string, Partial<Record<typeof OS, string>> & { fallback: string; url: string }> = {
-  java: {
-    macos: "brew install openjdk",
-    windows: "winget install EclipseAdoptium.Temurin.21.JDK",
-    linux: "sudo apt install default-jdk   # or: sudo dnf install java-21-openjdk",
-    fallback: "Install a JDK for your platform.",
-    url: "https://adoptium.net",
-  },
-  keytool: {
-    macos: "brew install openjdk",
-    windows: "winget install EclipseAdoptium.Temurin.21.JDK",
-    linux: "sudo apt install default-jdk   # or: sudo dnf install java-21-openjdk",
-    fallback: "keytool ships with the Java Runtime — install a JDK.",
-    url: "https://adoptium.net",
-  },
-  openssl: {
-    macos: "brew install openssl",
-    windows: "winget install ShiningLight.OpenSSL",
-    linux: "sudo apt install openssl   # or: sudo dnf install openssl",
-    fallback: "Install OpenSSL for your platform.",
-    url: "https://www.openssl.org/source/",
-  },
-};
-
 const ENGINE = [
   "PKCS#12 reader/writer (PBES2/AES, legacy 3DES/RC2, SHA-1/SHA-2/PBMAC1 MACs, Java secret keys)",
-  "JKS and JCEKS reader/writer (keytool compatible, incl. sealed secret keys) + read-only BKS v2",
+  "JKS and JCEKS reader/writer (keytool compatible, incl. sealed secret keys)",
+  "Bouncy Castle BKS, UBER and BCFKS reader/writer, checked byte for byte against files Bouncy Castle wrote",
+  "OpenSSH private keys (every ssh-keygen cipher), SSH2 and OpenSSH public keys, JWK",
   "X.509 certificates, PKCS#10 CSRs and v2 CRLs built and signed with your keys",
   "RSA (rsa), ECDSA P-256/384/521 (RustCrypto), Ed25519 (ed25519-dalek)",
   "CMS/PKCS#7 SignedData, JAR signing, RFC 3161 timestamps, JWS/JWT",
@@ -269,20 +246,6 @@ export const SettingsView: React.FC = () => {
   const followHelpLink = (link: HelpLink) => ("tab" in link ? setTab(link.tab) : select(link.settings));
   const def = SECTIONS.find((s) => s.id === section)!;
 
-  const [tools, setTools] = useState<ToolStatus[] | null>(null);
-  const [toolsLoading, setToolsLoading] = useState(false);
-  const loadTools = () => {
-    setToolsLoading(true);
-    api
-      .toolStatus()
-      .then(setTools)
-      .catch((err) => toast.error(`Could not check installed tools: ${err instanceof Error ? err.message : String(err)}`))
-      .finally(() => setToolsLoading(false));
-  };
-  useEffect(() => {
-    if (section === "tools" && tools === null && !toolsLoading) loadTools();
-  }, [section]); // eslint-disable-line react-hooks/exhaustive-deps
-
   /** Restores the defaults for one section's keys only, with an undo. */
   const restore = (keys: (keyof Settings)[], label: string) => {
     const before = Object.fromEntries(keys.map((k) => [k, settings[k]])) as Partial<Settings>;
@@ -430,65 +393,7 @@ export const SettingsView: React.FC = () => {
       case "tools":
         return (
           <CardGrid>
-            <WideCard className="flex items-center justify-between gap-4">
-              <CardHeader
-                title="Command-line tools"
-                subtitle="Java, keytool and OpenSSL aren't required to use Keystore Studio — the engine is self-contained — but the built-in terminal and migration commands use them when present."
-                icon={Wrench}
-                className="!mb-0"
-              />
-              <Button icon={RotateCcw} onClick={loadTools} disabled={toolsLoading} data-testid="settings-tools-recheck">
-                {toolsLoading ? "Checking…" : "Re-check"}
-              </Button>
-            </WideCard>
-            {toolsLoading && tools === null ? (
-              <WideCard className="flex items-center gap-2.5 text-[13px] text-muted">
-                <Spinner /> Checking installed tools…
-              </WideCard>
-            ) : (
-              (tools ?? []).map((tool) => {
-                const hint = INSTALL_HINTS[tool.id];
-                const command = (hint && (hint[OS] ?? hint.fallback)) || undefined;
-                return (
-                  <WideCard key={tool.id} data-testid={`settings-tool-${tool.id}`}>
-                    <div className="flex items-start justify-between gap-3">
-                      <CardHeader title={tool.name} subtitle={tool.description} icon={Wrench} className="!mb-0" />
-                      {tool.available ? (
-                        <Badge tone="success" dot icon={CheckCircle2}>
-                          Available
-                        </Badge>
-                      ) : (
-                        <Badge tone="danger" dot icon={XCircle}>
-                          Not found
-                        </Badge>
-                      )}
-                    </div>
-                    {tool.available ? (
-                      <div className="text-[13px] text-ink-2 space-y-1">
-                        {tool.version && <div className="font-mono text-[12px]">{tool.version}</div>}
-                        {tool.path && <div className="text-faint break-all">{tool.path}</div>}
-                      </div>
-                    ) : (
-                      <div className="space-y-2.5">
-                        <p className="text-[13px] text-muted">Not found on your PATH. Install it to use this tool from the terminal or migration commands.</p>
-                        {command ? (
-                          <CodeBlock value={command} testId={`settings-tool-${tool.id}-install`} />
-                        ) : (
-                          hint && (
-                            <p className="text-[13px] text-muted">
-                              {hint.fallback}{" "}
-                              <a href={hint.url} target="_blank" rel="noreferrer" className="text-brand hover:underline">
-                                {hint.url}
-                              </a>
-                            </p>
-                          )
-                        )}
-                      </div>
-                    )}
-                  </WideCard>
-                );
-              })
-            )}
+            <ToolsPanel />
           </CardGrid>
         );
 
@@ -608,7 +513,7 @@ export const SettingsView: React.FC = () => {
                   </li>
                 ))}
               </ul>
-              <p className="text-[12px] text-faint">Not supported: Bouncy Castle BCFKS/UBER keystores (BKS v2 is read-only), hardware tokens (PKCS#11).</p>
+              <p className="text-[12px] text-faint">Not supported: hardware tokens (PKCS#11), operating system certificate stores, PuTTY .ppk keys.</p>
             </WideCard>
             <WideCard>
               <CardHeader title="Privacy policy" subtitle="What Keystore Studio keeps, and what leaves your computer." icon={EyeOff} />

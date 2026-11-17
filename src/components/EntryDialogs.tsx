@@ -96,7 +96,7 @@ export const ExportDialog: React.FC<{ entry: KeystoreEntry | null; keystoreId?: 
       const path = await pickSavePath(`Export ${entry.alias}`, `${safeFileStem(entry.alias)}.${t.ext}`);
       if (!path) return;
       setBusy(true);
-      const res = await api.exportEntry(entry, t.id, path, t.needsPassword ? pw : null);
+      const res = await api.exportEntry(entry, t.id, path, t.needsPassword || (t.optionalPassword && pw) ? pw : null);
       setPreview(res.text ?? null);
       setWritten({ path: res.path, summary: `${res.format} · ${res.byte_length.toLocaleString()} bytes` });
       saved(`Exported ${entry.alias} as ${res.format} (${res.byte_length.toLocaleString()} bytes).`, res.path);
@@ -121,7 +121,7 @@ export const ExportDialog: React.FC<{ entry: KeystoreEntry | null; keystoreId?: 
           <Button onClick={onClose} disabled={busy}>
             Close
           </Button>
-          <Button variant="primary" onClick={run} disabled={busy || !t || blocked || (t.needsPassword && (!pw || pw !== pw2))} data-testid="export-run">
+          <Button variant="primary" onClick={run} disabled={busy || !t || blocked || (t.needsPassword && (!pw || pw !== pw2)) || (t.optionalPassword && pw !== pw2)} data-testid="export-run">
             {busy && <Spinner />} Export…
           </Button>
         </>
@@ -150,9 +150,9 @@ export const ExportDialog: React.FC<{ entry: KeystoreEntry | null; keystoreId?: 
             </optgroup>
           ))}
         </Select>
-        {t?.needsPassword && (
+        {(t?.needsPassword || t?.optionalPassword) && (
           <div className="grid grid-cols-2 gap-3">
-            <PasswordInput label={t.id === "pkcs12" ? "PKCS#12 password" : "Encryption password"} value={pw} onChange={setPw} data-testid="export-password" />
+            <PasswordInput label={t.id === "pkcs12" ? "PKCS#12 password" : t.optionalPassword ? "Passphrase (optional)" : "Encryption password"} value={pw} onChange={setPw} data-testid="export-password" />
             <PasswordInput label="Confirm" value={pw2} onChange={setPw2} error={pw2 && pw !== pw2 ? "Passwords do not match" : undefined} data-testid="export-password-confirm" />
           </div>
         )}
@@ -173,7 +173,7 @@ export const ExportDialog: React.FC<{ entry: KeystoreEntry | null; keystoreId?: 
         )}
         {t?.sensitive && !blocked && (
           <Alert tone="warning" title="Sensitive export">
-            {t.needsPassword ? "The file contains key material protected by the password above." : "The file contains unencrypted key material. Store it securely and delete it when no longer needed."}
+            {t.needsPassword || (t.optionalPassword && pw) ? "The file contains key material protected by the password above." : "The file contains unencrypted key material. Store it securely and delete it when no longer needed."}
           </Alert>
         )}
         {written && <SavedNote title={`Exported · ${written.summary}`} path={written.path} />}

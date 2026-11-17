@@ -91,6 +91,7 @@ export const PAGE_TITLES: Record<TabType, string> = {
 /** Icon for each converter, shared by the sidebar, the Convert page and the command palette. */
 export const CONVERTER_ICONS: Record<ConverterId, React.ElementType> = {
   certificate: FileBadge,
+  truststore: ShieldCheck,
   private_key: FileKey2,
   public_key: KeyRound,
   keystore: Repeat,

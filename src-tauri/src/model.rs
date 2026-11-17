@@ -3,6 +3,10 @@
 
 use serde::{Deserialize, Serialize};
 
+fn yes() -> bool {
+    true
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
 pub struct X509ExtensionInfo {
     pub oid: String,
@@ -93,7 +97,7 @@ pub struct KeystoreEntry {
 pub struct KeystoreFile {
     pub id: String,
     pub name: String,
-    /// "PKCS12", "JKS" or "JCEKS".
+    /// "PKCS12", "JKS", "JCEKS", "BKS", "UBER" or "BCFKS".
     pub format: String,
     /// Absolute path on disk; empty for a keystore that has never been saved.
     pub path: String,
@@ -105,6 +109,12 @@ pub struct KeystoreFile {
     #[serde(default)]
     pub source_mtime_ms: Option<i64>,
     pub entries: Vec<KeystoreEntry>,
+    /// What the decoder found that the entry list does not show (see `keystore::Decoded`).
+    #[serde(default)]
+    pub notes: Vec<String>,
+    /// Entries in the file the app could not represent. Saving over the file drops them.
+    #[serde(default)]
+    pub omitted_entries: usize,
 }
 
 /// Inputs for building a PKCS#12 (.p12/.pfx) straight from a certificate and its private key.
@@ -214,6 +224,11 @@ pub struct CsrInfo {
     pub curve: Option<String>,
     pub signature_algorithm: String,
     pub signature_valid: bool,
+    /// False when the signature uses an algorithm this app cannot verify (Ed448, post-quantum,
+    /// a curve it does not compute on). `signature_valid` is then false too, but that says
+    /// nothing about the request.
+    #[serde(default = "yes")]
+    pub signature_checked: bool,
     pub sans: Vec<String>,
     /// Builder ids requested by the CSR (`digitalSignature`, …). Empty when the CSR has no key usage.
     #[serde(default)]

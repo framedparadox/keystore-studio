@@ -24,6 +24,7 @@ import type {
   KeystoreFormat,
   OcspInfo,
   PemBundleOptions,
+  Pkcs12Profile,
   RevokedCertEntry,
   SaveResult,
   SecretSummary,
@@ -93,7 +94,7 @@ export const api = {
   probeFile: (path: string) => call<FileProbe>("probe_file", { path }),
   openKeystore: (path: string, password: string, keyPasswords?: Record<string, string>) =>
     call<KeystoreFile>("open_keystore", { path, password, keyPasswords: keyPasswords ?? null }),
-  saveKeystore: (ks: KeystoreFile, path: string, password: string, format: KeystoreFormat, mac?: "pkcs12" | "pbmac1" | null, force?: boolean) =>
+  saveKeystore: (ks: KeystoreFile, path: string, password: string, format: KeystoreFormat, mac?: Pkcs12Profile | null, force?: boolean) =>
     call<SaveResult>("save_keystore", { ks: wire(ks), path, password, format, mac: mac ?? null, force: force ?? false }),
   exportKeystoreCsv: (ks: KeystoreFile, path: string) => call<ExportResult>("export_keystore_csv", { ks: wire(ks), path }),
 
@@ -104,7 +105,7 @@ export const api = {
     call<KeystoreEntry[]>("import_trusted_certificates", { alias, data, existingAliases }),
   importKeyPair: (alias: string, key: DataSource, keyPassword: string | null, certificates: DataSource | null) =>
     call<KeystoreEntry>("import_key_pair", { alias, key, keyPassword, certificates }),
-  buildPkcs12: (args: { path: string; key: DataSource; certificate: DataSource | null; keyPassword: string | null; passphrase: string; alias: string | null; mac?: "pkcs12" | "pbmac1" | null }) =>
+  buildPkcs12: (args: { path: string; key: DataSource; certificate: DataSource | null; keyPassword: string | null; passphrase: string; alias: string | null; mac?: Pkcs12Profile | null }) =>
     call<ExportResult>("build_pkcs12", {
       path: args.path,
       key: args.key,
@@ -126,8 +127,11 @@ export const api = {
   // non-sensitive text comes back.
   convertCertificates: (data: DataSource, target: string, order: boolean, path?: string | null) =>
     call<ConvertResult>("convert_certificates", { data, target, order, path: path ?? null }),
-  convertPrivateKey: (data: DataSource, password: string | null, target: string, outPassword: string | null, path?: string | null) =>
-    call<ConvertResult>("convert_private_key", { data, password, target, outPassword, path: path ?? null }),
+  convertPrivateKey: (data: DataSource, password: string | null, target: string, outPassword: string | null, path?: string | null, comment?: string) =>
+    call<ConvertResult>("convert_private_key", { data, password, target, outPassword, comment: comment ?? null, path: path ?? null }),
+  /** Every certificate in `data` as a trusted certificate entry of a new keystore in `format`. */
+  convertTruststore: (data: DataSource, format: KeystoreFormat, password: string, alias: string, path?: string | null) =>
+    call<ConvertResult>("convert_truststore", { data, format, password, alias, path: path ?? null }),
   convertPublicKey: (data: DataSource, password: string | null, target: string, comment: string, path?: string | null) =>
     call<ConvertResult>("convert_public_key", { data, password, target, comment, path: path ?? null }),
   convertEncoding: (data: DataSource, label: string | null, path?: string | null) => call<ConvertResult>("convert_encoding", { data, label, path: path ?? null }),

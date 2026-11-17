@@ -1,6 +1,7 @@
 //! Detects the external command-line tools Keystore Studio's workflows refer to (the terminal
-//! hints, the keytool migration command, OpenSSL interop notes) without ever running the
-//! user's own crypto through them — the engine itself is self-contained Rust.
+//! hints, keytool and ssh-keygen commands, the Bouncy Castle provider keytool needs for BKS, UBER
+//! and BCFKS) without ever running the user's own crypto through them: the engine itself is
+//! self-contained Rust.
 
 use serde::Serialize;
 use std::io::Read;
@@ -17,6 +18,10 @@ pub struct ToolStatus {
     pub id: &'static str,
     pub name: &'static str,
     pub description: &'static str,
+    /// The family the Tools page lists it under: `java`, `openssl` or `ssh`.
+    pub group: &'static str,
+    /// What in Keystore Studio refers to the tool.
+    pub used_by: &'static [&'static str],
     pub available: bool,
     /// First line of the tool's own version output, when it could be run.
     pub version: Option<String>,
@@ -24,32 +29,119 @@ pub struct ToolStatus {
     pub path: Option<String>,
 }
 
+/// How a tool is found.
+enum Kind {
+    /// A program on PATH. `version_from` names a sibling program that reports the version when the
+    /// tool itself has no version flag (ssh-keygen: `ssh -V`).
+    Binary { binaries: &'static [&'static str], version_args: &'static [&'static str], version_from: Option<&'static str> },
+    /// The Bouncy Castle provider jar, which is a file, not a program.
+    BcprovJar,
+}
+
 struct ToolSpec {
     id: &'static str,
     name: &'static str,
     description: &'static str,
-    /// Binary names to look for, tried in order (e.g. a versioned fallback).
-    binaries: &'static [&'static str],
-    version_args: &'static [&'static str],
+    group: &'static str,
+    used_by: &'static [&'static str],
+    kind: Kind,
+}
+
+const fn bin(binaries: &'static [&'static str], version_args: &'static [&'static str]) -> Kind {
+    Kind::Binary { binaries, version_args, version_from: None }
 }
 
 const TOOLS: &[ToolSpec] = &[
-    ToolSpec { id: "java", name: "Java Runtime", description: "Runs keytool and any JVM-based tooling you invoke from the terminal.", binaries: &["java"], version_args: &["-version"] },
+    ToolSpec {
+        id: "java",
+        name: "Java Runtime",
+        description: "Runs keytool, jarsigner and any JVM-based tooling you invoke from the terminal.",
+        group: "java",
+        used_by: &["Terminal commands for keytool and jarsigner"],
+        kind: bin(&["java"], &["-version"]),
+    },
     ToolSpec {
         id: "keytool",
         name: "keytool",
-        description: "The JDK's own keystore tool. Ships with the Java Runtime; useful for interop and migration commands.",
-        binaries: &["keytool"],
-        version_args: &["-version"],
+        description: "The JDK's own keystore tool. Ships with the Java Runtime.",
+        group: "java",
+        used_by: &["keytool commands shown by Convert and the terminal hints", "keytool -importkeystore migrations"],
+        kind: bin(&["keytool"], &["-version"]),
+    },
+    ToolSpec {
+        id: "jarsigner",
+        name: "jarsigner",
+        description: "Verifies the JAR signatures Keystore Studio writes. Ships with the JDK.",
+        group: "java",
+        used_by: &["Verifying signed JARs (CA & Signing → JAR)"],
+        kind: bin(&["jarsigner"], &["-version"]),
+    },
+    ToolSpec {
+        id: "bcprov",
+        name: "Bouncy Castle provider",
+        description: "bcprov.jar lets keytool read and write BKS, UBER and BCFKS. Keystore Studio itself does not need it.",
+        group: "java",
+        used_by: &["keytool commands for BKS, UBER and BCFKS (-providerpath bcprov.jar)"],
+        kind: Kind::BcprovJar,
     },
     ToolSpec {
         id: "openssl",
         name: "OpenSSL",
-        description: "Industry-standard crypto CLI, handy for cross-checking certificates, keys and PKCS#12 files from the terminal.",
-        binaries: &["openssl"],
-        version_args: &["version"],
+        description: "Industry-standard crypto CLI, handy for cross-checking certificates, keys and PKCS#12 files.",
+        group: "openssl",
+        used_by: &["openssl commands shown by Convert, Examine and the terminal hints"],
+        kind: bin(&["openssl"], &["version"]),
+    },
+    ToolSpec {
+        id: "ssh-keygen",
+        name: "ssh-keygen",
+        description: "OpenSSH's key tool. Reads the OpenSSH and SSH2 keys Keystore Studio writes.",
+        group: "ssh",
+        used_by: &["ssh-keygen commands shown when converting OpenSSH and SSH2 keys"],
+        kind: Kind::Binary { binaries: &["ssh-keygen"], version_args: &["-V"], version_from: Some("ssh") },
+    },
+    ToolSpec {
+        id: "puttygen",
+        name: "PuTTYgen",
+        description: "Converts between PuTTY .ppk files and OpenSSH keys, which Keystore Studio reads and writes.",
+        group: "ssh",
+        used_by: &["Turning a .ppk into an OpenSSH key before opening it here"],
+        kind: bin(&["puttygen"], &["--version"]),
     },
 ];
+
+/// The Bouncy Castle provider jar: `BCPROV_JAR`, then the places package managers and Maven put
+/// it. Returns the path and the version in its file name (`bcprov-jdk18on-1.80.jar` → `1.80`).
+fn find_bcprov() -> Option<(String, Option<String>)> {
+    let mut candidates: Vec<std::path::PathBuf> = Vec::new();
+    if let Some(p) = std::env::var_os("BCPROV_JAR") {
+        candidates.push(p.into());
+    }
+    for dir in ["/usr/share/java", "/usr/local/share/java", "/opt/homebrew/share/java"] {
+        if let Ok(read) = std::fs::read_dir(dir) {
+            candidates.extend(read.flatten().map(|e| e.path()));
+        }
+    }
+    if let Some(home) = dirs::home_dir() {
+        let root = home.join(".m2/repository/org/bouncycastle");
+        for artifact in std::fs::read_dir(root).into_iter().flatten().flatten().filter(|d| d.file_name().to_string_lossy().starts_with("bcprov")) {
+            for version in std::fs::read_dir(artifact.path()).into_iter().flatten().flatten() {
+                candidates.extend(std::fs::read_dir(version.path()).into_iter().flatten().flatten().map(|e| e.path()));
+            }
+        }
+    }
+    let mut jars: Vec<std::path::PathBuf> = candidates
+        .into_iter()
+        .filter(|p| p.is_file())
+        .filter(|p| p.file_name().map(|n| n.to_string_lossy().to_ascii_lowercase()).is_some_and(|n| n.starts_with("bcprov") && n.ends_with(".jar") && !n.contains("sources") && !n.contains("javadoc")))
+        .collect();
+    // The newest version sorts last.
+    jars.sort();
+    let jar = jars.pop()?;
+    let name = jar.file_stem()?.to_string_lossy().into_owned();
+    let version = name.rsplit('-').next().filter(|v| v.chars().next().is_some_and(|c| c.is_ascii_digit())).map(String::from);
+    Some((jar.to_string_lossy().into_owned(), version))
+}
 
 /// The extra PATH entries the built-in terminal adds, since GUI apps on macOS and Linux start
 /// with a minimal PATH that is missing Homebrew and other common tool locations.
@@ -163,9 +255,22 @@ pub fn status() -> Vec<ToolStatus> {
     TOOLS
         .iter()
         .map(|spec| {
-            let found = spec.binaries.iter().find_map(|b| find_on_path(b, &path_env));
-            let version = found.as_deref().and_then(|exe| probe_version(exe, spec.version_args, &path_env));
-            ToolStatus { id: spec.id, name: spec.name, description: spec.description, available: found.is_some(), version, path: found }
+            let (found, version) = match &spec.kind {
+                Kind::Binary { binaries, version_args, version_from } => {
+                    let found = binaries.iter().find_map(|b| find_on_path(b, &path_env));
+                    let version = match (version_from, found.as_deref()) {
+                        (Some(sibling), Some(_)) => find_on_path(sibling, &path_env).and_then(|exe| probe_version(&exe, version_args, &path_env)),
+                        (None, Some(exe)) => probe_version(exe, version_args, &path_env),
+                        _ => None,
+                    };
+                    (found, version)
+                }
+                Kind::BcprovJar => match find_bcprov() {
+                    Some((path, version)) => (Some(path), version),
+                    None => (None, None),
+                },
+            };
+            ToolStatus { id: spec.id, name: spec.name, description: spec.description, group: spec.group, used_by: spec.used_by, available: found.is_some(), version, path: found }
         })
         .collect()
 }
@@ -208,6 +313,8 @@ mod tests {
         for (spec, result) in TOOLS.iter().zip(results.iter()) {
             assert_eq!(spec.id, result.id);
             assert_eq!(result.available, result.path.is_some());
+            assert!(["java", "openssl", "ssh"].contains(&result.group), "{}", result.id);
+            assert!(!result.used_by.is_empty(), "{}", result.id);
         }
     }
 }

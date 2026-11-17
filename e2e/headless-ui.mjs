@@ -579,7 +579,7 @@ async function run() {
     await driver.wait(until.elementLocated(byTest("convert-ks-summary")), 15000);
     // 'sep' has its own key password, so PKCS#12 is refused until it is given.
     await click("convert-format-PKCS12");
-    await waitText("can only be saved back to JKS", 10000);
+    await waitText("can only be saved as JKS", 10000);
     await setField("convert-ks-keypw", "newkey99");
     await click("convert-ks-unlock");
     await driver.wait(async () => !(await driver.findElement(By.tagName("body")).getText()).includes("locked by their own key password"), 15000, "the locked key never unlocked");
@@ -591,6 +591,113 @@ async function run() {
     // Every key, including the one that had its own password, opens with the one PKCS#12 password.
     const dump = sh("openssl", ["pkcs12", "-in", out, "-passin", `pass:${STORE_PW}`, "-nodes"]);
     if ((dump.match(/BEGIN PRIVATE KEY/g) ?? []).length !== 2) throw new Error(`expected two keys under the store password:\n${dump}`);
+  });
+
+  // ------------------------------------------------------------------ formats (2026-11 pass)
+  const FIXTURES = path.join(path.dirname(new URL(import.meta.url).pathname), "..", "src-tauri", "tests", "fixtures");
+  const header = (file) => [...fs.readFileSync(file).subarray(0, 4)];
+
+  await step("formats: a BCFKS store from Bouncy Castle opens and converts to BKS, UBER and BCFKS", async () => {
+    const src = path.join(WORK, "old.bcfks");
+    fs.copyFileSync(path.join(FIXTURES, "bouncycastle", "oldKeyStore.bcfks"), src);
+    await click("nav-convert-keystore");
+    await clickTab("File on disk");
+    await driver.executeScript(`window.__xksStub.open.push(${JSON.stringify(src)});`);
+    await click("convert-ks-pick");
+    await setField("convert-ks-password", "hello world");
+    await click("convert-ks-load");
+    await driver.wait(until.elementLocated(byTest("convert-ks-summary")), 15000);
+    await waitText("BCFKS", 10000);
+    const written = {};
+    for (const [format, ext] of [["BKS", "bks"], ["UBER", "uber"], ["BCFKS", "bcfks"]]) {
+      const out = path.join(WORK, `from-bcfks.${ext}`);
+      await click(`convert-format-${format}`);
+      await driver.executeScript(`window.__xksStub.save.push(${JSON.stringify(out)});`);
+      await click("convert-save");
+      await driver.wait(async () => fs.existsSync(out), 30000, `the ${format} file was never written`);
+      written[format] = out;
+    }
+    // BKS starts with store version 2, UBER with version 1, BCFKS is a DER SEQUENCE.
+    if (header(written.BKS).join() !== "0,0,0,2") throw new Error(`BKS header ${header(written.BKS)}`);
+    if (header(written.UBER).join() !== "0,0,0,1") throw new Error(`UBER header ${header(written.UBER)}`);
+    if (header(written.BCFKS)[0] !== 0x30) throw new Error(`BCFKS header ${header(written.BCFKS)}`);
+    // Reopen the UBER copy in the app: the key pair is there.
+    await driver.executeScript(`window.__xksStub.open.push(${JSON.stringify(written.UBER)});`);
+    await click("header-open");
+    await setField("open-password", "hello world");
+    await click("open-submit");
+    await driver.wait(until.elementLocated(byTest("ks-tab-from-bcfks.uber")), 15000);
+  });
+
+  await step("formats: a keystore without a password opens with 'no password'", async () => {
+    const src = path.join(WORK, "nopw.bcfks");
+    fs.copyFileSync(path.join(FIXTURES, "bouncycastle", "oldKeyStoreNoPW.bcfks"), src);
+    await driver.executeScript(`window.__xksStub.open.push(${JSON.stringify(src)});`);
+    await click("header-open");
+    await driver.wait(until.elementLocated(byTest("open-no-password")), 10000);
+    await click("open-no-password");
+    if (await exists('[data-testid="open-password"]')) throw new Error("the password field is still shown");
+    await click("open-submit");
+    await driver.wait(until.elementLocated(byTest("ks-tab-nopw.bcfks")), 15000);
+  });
+
+  await step("formats: a private key converts to an OpenSSH key that ssh-keygen reads", async () => {
+    const key = path.join(WORK, "for-ssh.pem");
+    sh("openssl", ["genpkey", "-algorithm", "ED25519", "-out", key]);
+    const out = path.join(WORK, "id_ed25519");
+    await click("nav-convert-private_key");
+    await setField("convert-input", fs.readFileSync(key, "utf8"));
+    await click("convert-target-openssh");
+    await setField("convert-comment", "e2e@headless");
+    await setField("convert-out-password", "ssh-pass-1");
+    await setField("convert-out-password-confirm", "ssh-pass-1");
+    await driver.executeScript(`window.__xksStub.save.push(${JSON.stringify(out)});`);
+    await click("convert-save");
+    await driver.wait(async () => fs.existsSync(out), 20000, "the OpenSSH key was never written");
+    fs.chmodSync(out, 0o600);
+    const line = sh("ssh-keygen", ["-y", "-P", "ssh-pass-1", "-f", out]);
+    if (!line.startsWith("ssh-ed25519 ")) throw new Error(`ssh-keygen read: ${line}`);
+    if (spawnSync("ssh-keygen", ["-y", "-P", "wrong", "-f", out], { stdio: "ignore" }).status === 0) throw new Error("the wrong passphrase opened the key");
+  });
+
+  await step("formats: a certificate bundle becomes a JKS truststore keytool lists", async () => {
+    const out = path.join(WORK, "trust.jks");
+    await click("nav-convert-truststore");
+    await setField("convert-input", certPem());
+    await waitText("X.509 certificate", 10000);
+    await click("convert-trust-format-JKS");
+    await setField("convert-trust-password", "trust-pw-1");
+    await setField("convert-trust-password-confirm", "trust-pw-1");
+    await driver.executeScript(`window.__xksStub.save.push(${JSON.stringify(out)});`);
+    await click("convert-save");
+    await driver.wait(async () => fs.existsSync(out), 20000, "the truststore was never written");
+    const list = sh("keytool", ["-list", "-keystore", out, "-storetype", "JKS", "-storepass", "trust-pw-1"]);
+    if (!list.includes("trustedCertEntry")) throw new Error(`not a truststore:\n${list}`);
+  });
+
+  await step("tools: Settings → Tools is one grouped table whose rows expand", async () => {
+    await click("sidebar-tools");
+    await driver.wait(until.elementLocated(byTest("settings-tools-summary")), 20000);
+    const info = await driver.executeScript(`
+      const rows = [...document.querySelectorAll('[data-testid^="settings-tool-"][data-available]')];
+      const groups = [...document.querySelectorAll('[data-testid="settings-tools"] section > h3')].map((h) => h.textContent.trim());
+      return { ids: rows.map((r) => r.dataset.testid.replace("settings-tool-", "")), groups,
+        summary: document.querySelector('[data-testid="settings-tools-summary"]').textContent,
+        missingOpen: rows.filter((r) => r.dataset.available === "false").every((r) => r.querySelector('button').getAttribute('aria-expanded') === 'true'),
+        cards: document.querySelectorAll('[data-testid="settings-tools"]').length };`);
+    for (const id of ["java", "keytool", "jarsigner", "bcprov", "openssl", "ssh-keygen", "puttygen"]) {
+      if (!info.ids.includes(id)) throw new Error(`no row for ${id}: ${info.ids}`);
+    }
+    if (info.groups.join() !== "Java,OpenSSL,SSH") throw new Error(`groups: ${info.groups}`);
+    if (info.cards !== 1) throw new Error("the tools are not in one card");
+    if (!/^\d+ of 7 found$/.test(info.summary.trim())) throw new Error(`summary: ${info.summary}`);
+    if (!info.missingOpen) throw new Error("a missing tool did not start expanded");
+    // Expand an installed tool and see what uses it.
+    const row = await driver.findElement(By.css('[data-testid="settings-tool-openssl"] button'));
+    if ((await row.getAttribute("aria-expanded")) !== "true") await driver.executeScript("arguments[0].click()", row);
+    const panel = await driver.wait(until.elementLocated(By.id("tool-panel-openssl")), 5000);
+    if (!/used by/i.test(await panel.getText())) throw new Error("the expanded row does not say what uses the tool");
+    await shot("settings-tools");
   });
 
   await step("export an open keystore to PEM after unlocking its key pair", async () => {
@@ -1332,7 +1439,7 @@ async function run() {
       if (await convert.getAttribute("aria-expanded") !== "true") await click("nav-convert");
       for (const width of [1024, 1600]) {
         await setViewport(width, 900);
-        for (const id of ["certificate", "private_key", "public_key", "keystore", "extract", "encoding"]) {
+        for (const id of ["certificate", "truststore", "private_key", "public_key", "keystore", "extract", "encoding"]) {
           await click(`nav-convert-${id}`);
           const sections = await driver.executeScript(`const card = document.querySelector('[data-testid="convert-save"]').closest('[class*="xl:col-span-7"]');
             return [...card.querySelectorAll(':scope > section')].map(section => {
@@ -1354,7 +1461,7 @@ async function run() {
     try {
       for (const width of [1024, 1400]) {
         await setViewport(width, 900);
-        for (const id of ["certificate", "private_key", "public_key", "keystore", "pkcs12", "extract", "encoding"]) {
+        for (const id of ["certificate", "truststore", "private_key", "public_key", "keystore", "pkcs12", "extract", "encoding"]) {
           await click(`nav-convert-${id}`);
           if (await exists('[data-testid="convert-switch"]') || !(await exists(`[data-testid="converter-${id}"]`)) ||
               (await driver.findElement(byTest(`nav-convert-${id}`)).getAttribute("aria-current")) !== "page") {
@@ -1637,7 +1744,8 @@ async function run() {
       const term = card("Terminal"), gs = card("Get started"), rc = card("Recent files");
       if (!term) return null;
       const t = box(term), g = box(gs), c = box(rc);
-      const runs = [...term.querySelectorAll("button")].filter((b) => b.textContent.trim() === "Run").map((b) => box(b.closest("li")));
+      // The Run buttons are icon-only (commit 93b6980); their name is the aria-label.
+      const runs = [...term.querySelectorAll("li button")].filter((b) => (b.getAttribute("aria-label") ?? b.textContent).trim().startsWith("Run")).map((b) => box(b.closest("li")));
       return { below: t.top >= Math.max(g.bottom, c.bottom), left: Math.round(t.left - g.left), right: Math.round(t.right - c.right), run: runs.length,
                sideBySide: runs.length === 2 && Math.abs(runs[0].top - runs[1].top) < 1 && runs[1].left >= runs[0].right - 1 };`);
     if (!r) throw new Error("the welcome page has no Terminal section");

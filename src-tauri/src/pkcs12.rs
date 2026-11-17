@@ -507,6 +507,21 @@ pub enum MacKind {
     /// PBMAC1 with PBKDF2-HMAC-SHA256 (RFC 9579). Stronger key derivation, but needs OpenSSL 3.4+
     /// or an equally recent reader.
     Pbmac1,
+    /// The profile of `openssl pkcs12 -export -legacy`, for readers that predate PBES2 (Java 8
+    /// before 8u301, Windows 7/Server 2008, OpenSSL 1.0): keys and certificates under
+    /// pbeWithSHAAnd3-KeyTripleDES-CBC, an HMAC-SHA1 MAC, 2048 iterations. More than a MAC
+    /// choice, but it is chosen in the same place.
+    Legacy,
+}
+
+impl MacKind {
+    pub fn parse(name: Option<&str>) -> MacKind {
+        match name {
+            Some("pbmac1") => MacKind::Pbmac1,
+            Some("legacy") => MacKind::Legacy,
+            _ => MacKind::Pkcs12,
+        }
+    }
 }
 
 pub fn encode(entries: &[KeystoreEntry], password: &str) -> Res<Vec<u8>> {
@@ -514,7 +529,9 @@ pub fn encode(entries: &[KeystoreEntry], password: &str) -> Res<Vec<u8>> {
 }
 
 pub fn encode_with_mac(entries: &[KeystoreEntry], password: &str, mac_kind: MacKind) -> Res<Vec<u8>> {
-    let iterations = pbe::DEFAULT_ITERATIONS;
+    let legacy = mac_kind == MacKind::Legacy;
+    let iterations = if legacy { pbe::LEGACY_ITERATIONS } else { pbe::DEFAULT_ITERATIONS };
+    let shroud = |pw: &str, plain: &[u8]| if legacy { pbe::encrypt_pkcs8_3des(pw, plain, iterations) } else { pbe::encrypt_pkcs8(pw, plain, iterations) };
     let mut cert_bags = Vec::new();
     let mut key_bags = Vec::new();
     let mut aliases = std::collections::HashSet::new();
@@ -536,7 +553,7 @@ pub fn encode_with_mac(entries: &[KeystoreEntry], password: &str, mac_kind: MacK
                     let pkcs8 = entry::private_key_der(entry)?;
                     let kid = chain.first().map(|c| sha1(c)).unwrap_or_else(|| sha1(&pkcs8));
                     let key_pw = entry.key_password.as_deref().filter(|p| !p.is_empty()).unwrap_or(password);
-                    let enc = pbe::encrypt_pkcs8(key_pw, &pkcs8, iterations)?;
+                    let enc = shroud(key_pw, &pkcs8)?;
                     (kid, enc)
                 };
                 key_bags.push(yasna::construct_der(|w| {
@@ -578,7 +595,7 @@ pub fn encode_with_mac(entries: &[KeystoreEntry], password: &str, mac_kind: MacK
                         })
                     });
                     let key_pw = entry.key_password.as_deref().filter(|p| !p.is_empty()).unwrap_or(password);
-                    let enc = pbe::encrypt_pkcs8(key_pw, &info, iterations)?;
+                    let enc = shroud(key_pw, &info)?;
                     // Stable across saves: alias plus key bytes, not the clock.
                     let mut id_src = entry.alias.as_bytes().to_vec();
                     id_src.extend_from_slice(&key);
@@ -603,7 +620,8 @@ pub fn encode_with_mac(entries: &[KeystoreEntry], password: &str, mac_kind: MacK
 
     let mut infos = Vec::new();
     if !cert_bags.is_empty() {
-        let (alg, ciphertext) = pbe::pbes2_encrypt(password, &safe_contents(&cert_bags), iterations)?;
+        let plain = safe_contents(&cert_bags);
+        let (alg, ciphertext) = if legacy { pbe::pkcs12_3des_encrypt(password, &plain, iterations)? } else { pbe::pbes2_encrypt(password, &plain, iterations)? };
         infos.push(yasna::construct_der(|w| {
             w.write_sequence(|w| {
                 w.next().write_oid(&oid(oids::PKCS7_ENCRYPTED_DATA));
@@ -636,8 +654,19 @@ pub fn encode_with_mac(entries: &[KeystoreEntry], password: &str, mac_kind: MacK
             }
         })
     });
-    let mac_salt = random_bytes(20);
+    // OpenSSL writes an 8-byte MAC salt in its legacy profile; some old readers expect no more.
+    let mac_salt = random_bytes(if legacy { 8 } else { 20 });
     let (mac_alg, mac) = match mac_kind {
+        MacKind::Legacy => {
+            let mac_key = pbe::pkcs12_kdf(HashAlg::Sha1, password, &mac_salt, iterations, 3, 20);
+            let alg = yasna::construct_der(|w| {
+                w.write_sequence(|w| {
+                    w.next().write_oid(&oid(oids::SHA1));
+                    w.next().write_null();
+                })
+            });
+            (alg, HashAlg::Sha1.hmac(&mac_key, &auth_safe))
+        }
         MacKind::Pkcs12 => {
             let mac_key = pbe::pkcs12_kdf(HashAlg::Sha256, password, &mac_salt, iterations, 3, 32);
             let alg = yasna::construct_der(|w| {
@@ -677,6 +706,23 @@ pub fn encode_with_mac(entries: &[KeystoreEntry], password: &str, mac_kind: MacK
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_legacy_profile_uses_3des_and_sha1_and_reads_back() {
+        let e = crate::ops::generate_key_pair(&crate::ops::tests_support::input("old", "RSA", false), None).unwrap();
+        let secret = entry::secret_key_entry("aes", "AES", &[3u8; 16], None);
+        let der = encode_with_mac(&[e.clone(), secret], "legacy-pw", MacKind::Legacy).unwrap();
+        let back = decode(&der, "legacy-pw").unwrap();
+        assert_eq!(back.len(), 2);
+        assert_eq!(back.iter().find(|x| x.alias == "old").unwrap().private_key_pem, e.private_key_pem);
+        // No PBES2 anywhere, and the MAC is SHA-1.
+        let pbes2 = yasna::construct_der(|w| w.write_oid(&oid(oids::PBES2)));
+        assert!(!der.windows(pbes2.len()).any(|w| w == pbes2.as_slice()));
+        let sha1 = yasna::construct_der(|w| w.write_oid(&oid(oids::SHA1)));
+        assert!(der.windows(sha1.len()).any(|w| w == sha1.as_slice()));
+        assert_eq!(MacKind::parse(Some("legacy")), MacKind::Legacy);
+        assert_eq!(MacKind::parse(None), MacKind::Pkcs12);
+    }
 
     fn key_pair(alias: &str, alg: &str) -> KeystoreEntry {
         let input = crate::model::GenerateKeyPairInput {

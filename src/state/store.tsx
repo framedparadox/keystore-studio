@@ -7,7 +7,7 @@ import { setThresholds } from "../lib/metrics";
 import { applyTheme, cachedThemePreference, isThemePreference, watchSystemTheme, type ThemePreference } from "../lib/theme";
 import { isCertificateBundle, isCertificateProbe, mergeCertificates, persistCertificates, toOpenCertificates, type PersistedCertificate } from "../lib/certificates";
 import { useConfirm, useToast } from "../components/ui";
-import type { AppInfo, DataSource, KeystoreEntry, KeystoreFile, KeystoreFormat, OpenCertificate, OpenKeystore, TabType, VaultStatus, Workspace } from "../types/crypto";
+import type { AppInfo, DataSource, KeystoreEntry, KeystoreFile, KeystoreFormat, OpenCertificate, OpenKeystore, Pkcs12Profile, TabType, VaultStatus, Workspace } from "../types/crypto";
 
 export interface Settings {
   /** Light, dark (black) or follow the operating system. */
@@ -164,7 +164,7 @@ interface Store {
   setBuildPkcs12Open: (open: boolean) => void;
   save: (keystoreId: string, opts?: { saveAs?: boolean; then?: () => void }) => Promise<void>;
   pendingSave: PendingSave | null;
-  completeSave: (args: { path: string; password: string; format: KeystoreFormat; remember: boolean; mac?: "pkcs12" | "pbmac1"; force?: boolean }) => Promise<boolean>;
+  completeSave: (args: { path: string; password: string; format: KeystoreFormat; remember: boolean; mac?: Pkcs12Profile; force?: boolean }) => Promise<boolean>;
   cancelSave: () => void;
   closeKeystore: (keystoreId: string) => Promise<boolean>;
   recentFiles: RecentFile[];
@@ -554,9 +554,13 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       setAll(place(keystoresRef.current), historyRef.current.map(place), redoRef.current.map(place));
       setActiveKeystoreId(id);
       addRecent(file.path, file.format);
+      // Entries the app cannot model are not silently dropped: say so once, when the file opens.
+      if (file.omitted_entries) {
+        toast.info(`${file.name}: ${file.omitted_entries} ${file.omitted_entries === 1 ? "entry is" : "entries are"} not shown. Saving over this file would drop ${file.omitted_entries === 1 ? "it" : "them"}; the Keystores page explains why.`);
+      }
       return opened;
     },
-    [applyLabels, addRecent, setAll, forgetUnlocked]
+    [applyLabels, addRecent, setAll, forgetUnlocked, toast]
   );
 
   const openPathRef = useRef<(path: string, sealedId?: string) => Promise<void>>(async () => undefined);
@@ -597,9 +601,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           setPendingOpen({ path, name: probe.name, format: probe.keystore_format ?? "", sealedId: sealedId ?? keystoresRef.current.find((k) => k.path === path)?.id });
           return;
         }
-        if (probe.kind === "unsupported_keystore") {
-          toast.error(`${probe.name}: this Bouncy Castle keystore cannot be opened here. UBER and BCFKS still need conversion with keytool -importkeystore.`);
-        } else if (probe.kind === "apk") {
+        if (probe.kind === "apk") {
           toast.error(`${probe.name} is an Android APK. APK Signature Scheme v2/v3 is not a JAR signature, so it is not opened for signing.`);
         } else if (probe.kind === "jar") {
           setJarRequest({ path, nonce: Date.now() });
@@ -778,7 +780,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   );
 
   const completeSave = useCallback(
-    async ({ path, password, format, remember, mac, force }: { path: string; password: string; format: KeystoreFormat; remember: boolean; mac?: "pkcs12" | "pbmac1"; force?: boolean }) => {
+    async ({ path, password, format, remember, mac, force }: { path: string; password: string; format: KeystoreFormat; remember: boolean; mac?: Pkcs12Profile; force?: boolean }) => {
       const req = pendingSave;
       const ks = req && keystoresRef.current.find((k) => k.id === req.keystoreId);
       if (!req || !ks) return false;

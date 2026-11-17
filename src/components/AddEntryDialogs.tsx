@@ -1,6 +1,7 @@
 import React, { useLayoutEffect, useMemo, useState } from "react";
 import { FolderOpen, KeyRound, Lock, ShieldCheck, Import, FileKey2, FolderArchive } from "lucide-react";
-import type { GenerateKeyPairInput, KeystoreEntry, KeystoreFile, OpenKeystore } from "../types/crypto";
+import type { GenerateKeyPairInput, KeystoreEntry, KeystoreFile, OpenKeystore, Pkcs12Profile } from "../types/crypto";
+import { Pkcs12ProfileSelect } from "./KeystoreDialogs";
 import { api, errorMessage } from "../lib/api";
 import { FILTERS, baseName, pickFile, pickSavePath, safeFileStem } from "../lib/files";
 import { EXTENDED_KEY_USAGES, KEY_USAGES, aliasTaken, canHoldSecretKeys, cnOf, isCaEntry, profileUsages, pkcs12BuildReady, splitList, ENTRY_TYPE_LABEL, type CertProfileName } from "../lib/keystore";
@@ -700,7 +701,7 @@ export function usePkcs12Builder(testIdPrefix = "build-p12") {
   const [keyPw, setKeyPw] = useState("");
   const [pass, setPass] = useState("");
   const [pass2, setPass2] = useState("");
-  const [mac, setMac] = useState<"pkcs12" | "pbmac1">("pkcs12");
+  const [mac, setMac] = useState<Pkcs12Profile>("pkcs12");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<string | null>(null);
@@ -793,15 +794,7 @@ export function usePkcs12Builder(testIdPrefix = "build-p12") {
         placeholder="Defaults to the certificate file name"
         data-testid={`${testIdPrefix}-alias`}
       />
-      <Select
-        label="Integrity MAC"
-        value={mac}
-        onChange={(e) => setMac(e.target.value as "pkcs12" | "pbmac1")}
-        hint="The legacy MAC is read by every tool. PBMAC1 needs OpenSSL 3.4 or newer."
-      >
-        <option value="pkcs12">Legacy PKCS#12 MAC (compatible)</option>
-        <option value="pbmac1">PBMAC1 (RFC 9579)</option>
-      </Select>
+      <Pkcs12ProfileSelect value={mac} onChange={setMac} testId={`${testIdPrefix}-profile`} />
       {error && <Alert tone="danger">{error}</Alert>}
       {done && (
         <Alert tone="success" title="PKCS#12 created">

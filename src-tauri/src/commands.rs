@@ -130,16 +130,10 @@ async fn probe_file(path: String) -> Res<FileProbe> {
         let lower = name.to_ascii_lowercase();
         let (kind, keystore_format) = if let Some(fmt) = keystore::detect(&head) {
             ("keystore".to_string(), Some(fmt.name().to_string()))
-        } else if keystore::looks_like_bks_v2(&head) {
-            ("keystore".to_string(), Some("BKS".to_string()))
         } else if lower.ends_with(".apk") {
             ("apk".to_string(), None)
         } else if lower.ends_with(".jar") || lower.ends_with(".war") || lower.ends_with(".ear") {
             ("jar".to_string(), None)
-        } else if let Some(kind) = keystore::detect_unsupported(&head) {
-            // Report the actual format: the conversion command differs per store type, and
-            // suggesting BKS for a BCFKS file produces a command that fails.
-            ("unsupported_keystore".to_string(), Some(kind.store_type().to_string()))
         } else {
             match detect::examine(&head, None) {
                 Ok(r) => (r.kind, None),
@@ -169,10 +163,7 @@ struct SaveResult {
 async fn save_keystore(mut ks: KeystoreFile, path: String, mut password: String, format: String, mac: Option<String>, force: Option<bool>) -> Res<SaveResult> {
     blocking(move || {
         let fmt = keystore::Format::parse(&format)?;
-        let mac_kind = match mac.as_deref() {
-            Some("pbmac1") => pkcs12::MacKind::Pbmac1,
-            _ => pkcs12::MacKind::Pkcs12,
-        };
+        let mac_kind = pkcs12::MacKind::parse(mac.as_deref());
         let saved = keystore::save_with(&ks, &path, &password, fmt, keystore::SavePolicy { mac: mac_kind, force: force.unwrap_or(false) });
         password.zeroize();
         for entry in &mut ks.entries {
@@ -311,10 +302,10 @@ async fn convert_certificates(data: DataSource, target: String, order: Option<bo
 }
 
 #[tauri::command]
-async fn convert_private_key(data: DataSource, password: Option<String>, target: String, out_password: Option<String>, path: Option<String>) -> Res<convert::ConvertResult> {
+async fn convert_private_key(data: DataSource, password: Option<String>, target: String, out_password: Option<String>, comment: Option<String>, path: Option<String>) -> Res<convert::ConvertResult> {
     blocking(move || {
         let mut out_password = out_password;
-        let result = convert::private_key(&data.bytes()?, password.as_deref(), &target, out_password.as_deref());
+        let result = convert::private_key(&data.bytes()?, password.as_deref(), &target, out_password.as_deref(), comment.as_deref().unwrap_or(""));
         if let Some(pw) = out_password.as_mut() {
             pw.zeroize();
         }
@@ -331,6 +322,18 @@ async fn convert_public_key(data: DataSource, password: Option<String>, target: 
 #[tauri::command]
 async fn convert_encoding(data: DataSource, label: Option<String>, path: Option<String>) -> Res<convert::ConvertResult> {
     blocking(move || convert::deliver(convert::encoding(&data.bytes()?, label.as_deref())?, path.as_deref())).await
+}
+
+/// Certificates (any format) written as a truststore in any keystore format.
+#[tauri::command]
+async fn convert_truststore(data: DataSource, format: String, password: String, alias: Option<String>, path: Option<String>) -> Res<convert::ConvertResult> {
+    blocking(move || {
+        let mut password = password;
+        let result = convert::truststore(&data.bytes()?, &format, &password, alias.as_deref().unwrap_or(""));
+        password.zeroize();
+        convert::deliver(result?, path.as_deref())
+    })
+    .await
 }
 
 /// Certificates and private keys of keystore entries as one PEM file.
@@ -933,6 +936,7 @@ pub fn run() {
             convert_private_key,
             convert_public_key,
             convert_encoding,
+            convert_truststore,
             entries_to_pem,
             sign_csr,
             inspect_csr,

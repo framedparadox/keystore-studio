@@ -141,6 +141,20 @@ pub fn random_serial() -> Vec<u8> {
 pub struct PemBlock {
     pub tag: String,
     pub der: Vec<u8>,
+    /// RFC 1421 headers between the BEGIN line and the data, as OpenSSL's traditional encrypted
+    /// keys carry them (`Proc-Type`, `DEK-Info`).
+    pub headers: Vec<(String, String)>,
+}
+
+impl PemBlock {
+    pub fn header(&self, name: &str) -> Option<&str> {
+        self.headers.iter().find(|(k, _)| k.eq_ignore_ascii_case(name)).map(|(_, v)| v.as_str())
+    }
+
+    /// The `DEK-Info` of a block encrypted the pre-PKCS#8 OpenSSL way, e.g. `AES-256-CBC,0A1B…`.
+    pub fn legacy_encryption(&self) -> Option<&str> {
+        self.header("Proc-Type").filter(|v| v.replace(' ', "").eq_ignore_ascii_case("4,ENCRYPTED")).and_then(|_| self.header("DEK-Info"))
+    }
 }
 
 /// Extracts every PEM block from `text`, tolerating surrounding text (as produced by
@@ -156,9 +170,48 @@ pub fn pem_blocks(text: &str) -> Vec<PemBlock> {
         let Some(end) = rest[start..].find(&end_marker) else { break };
         let block = &rest[start..start + end + end_marker.len()];
         if let Ok(parsed) = pem::parse(block.as_bytes()) {
-            out.push(PemBlock { tag: parsed.tag().to_string(), der: parsed.contents().to_vec() });
+            let headers = parsed.headers().iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();
+            out.push(PemBlock { tag: parsed.tag().to_string(), der: parsed.contents().to_vec(), headers });
         }
         rest = &rest[start + end + end_marker.len()..];
+    }
+    out
+}
+
+/// Decodes Java's "modified UTF-8" (`DataInput.readUTF`), which the JKS, JCEKS and BKS formats
+/// use for aliases: U+0000 takes two bytes, and a character outside the Basic Multilingual Plane
+/// is a surrogate pair of three bytes each rather than one four-byte sequence.
+pub fn java_utf_decode(bytes: &[u8]) -> Option<String> {
+    let mut units: Vec<u16> = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    let cont = |b: u8| (b & 0xC0 == 0x80).then_some((b & 0x3F) as u16);
+    while i < bytes.len() {
+        let b = bytes[i];
+        if b & 0x80 == 0 {
+            units.push(b as u16);
+            i += 1;
+        } else if b & 0xE0 == 0xC0 {
+            units.push(((b as u16 & 0x1F) << 6) | cont(*bytes.get(i + 1)?)?);
+            i += 2;
+        } else if b & 0xF0 == 0xE0 {
+            units.push(((b as u16 & 0x0F) << 12) | (cont(*bytes.get(i + 1)?)? << 6) | cont(*bytes.get(i + 2)?)?);
+            i += 3;
+        } else {
+            return None;
+        }
+    }
+    String::from_utf16(&units).ok()
+}
+
+/// Encodes a string as Java's `DataOutput.writeUTF` does, without the length prefix.
+pub fn java_utf_encode(text: &str) -> Vec<u8> {
+    let mut out = Vec::with_capacity(text.len());
+    for unit in text.encode_utf16() {
+        match unit {
+            0x0001..=0x007F => out.push(unit as u8),
+            0x0000 | 0x0080..=0x07FF => out.extend_from_slice(&[0xC0 | (unit >> 6) as u8, 0x80 | (unit & 0x3F) as u8]),
+            _ => out.extend_from_slice(&[0xE0 | (unit >> 12) as u8, 0x80 | ((unit >> 6) & 0x3F) as u8, 0x80 | (unit & 0x3F) as u8]),
+        }
     }
     out
 }
@@ -312,6 +365,34 @@ mod tests {
         assert_eq!(parse_hex_serial("0x0001").unwrap(), vec![0x01]);
         assert_eq!(parse_hex_serial("abc").unwrap(), vec![0x0a, 0xbc]);
         assert!(parse_hex_serial("zz").is_err());
+    }
+
+    #[test]
+    fn java_modified_utf8_matches_data_output_stream() {
+        // Plain ASCII and BMP text is ordinary UTF-8.
+        for text in ["server", "Ünïcödé alias", "日本語"] {
+            assert_eq!(java_utf_encode(text), text.as_bytes());
+            assert_eq!(java_utf_decode(text.as_bytes()).as_deref(), Some(text));
+        }
+        // U+0000 is C0 80, and U+1F511 (a key emoji) is the surrogate pair D83D DD11, three bytes each.
+        assert_eq!(java_utf_encode("a\0b"), [b'a', 0xC0, 0x80, b'b']);
+        assert_eq!(java_utf_encode("\u{1F511}"), [0xED, 0xA0, 0xBD, 0xED, 0xB4, 0x91]);
+        assert_eq!(java_utf_decode(&[0xED, 0xA0, 0xBD, 0xED, 0xB4, 0x91]).as_deref(), Some("\u{1F511}"));
+        assert_eq!(java_utf_decode(&[b'a', 0xC0, 0x80, b'b']).as_deref(), Some("a\0b"));
+        // Truncated sequences, a stray continuation byte and an unpaired surrogate are rejected.
+        for bad in [&[0xC3u8][..], &[0xE2, 0x82], &[0x80], &[0xF0, 0x9F, 0x94, 0x91], &[0xED, 0xA0, 0xBD]] {
+            assert_eq!(java_utf_decode(bad), None, "{bad:?}");
+        }
+    }
+
+    #[test]
+    fn pem_blocks_carry_their_headers() {
+        let text = "-----BEGIN RSA PRIVATE KEY-----\nProc-Type: 4,ENCRYPTED\nDEK-Info: AES-256-CBC,00112233445566778899AABBCCDDEEFF\n\nAAECAwQFBgc=\n-----END RSA PRIVATE KEY-----\n";
+        let blocks = pem_blocks(text);
+        assert_eq!(blocks.len(), 1);
+        assert_eq!(blocks[0].der, [0, 1, 2, 3, 4, 5, 6, 7]);
+        assert_eq!(blocks[0].legacy_encryption(), Some("AES-256-CBC,00112233445566778899AABBCCDDEEFF"));
+        assert_eq!(pem_blocks(&to_pem("PRIVATE KEY", &[1]))[0].legacy_encryption(), None);
     }
 
     #[test]

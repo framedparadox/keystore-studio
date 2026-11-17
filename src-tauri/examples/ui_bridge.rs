@@ -134,10 +134,7 @@ fn handle(cmd: &str, args: &serde_json::Value) -> Result<serde_json::Value, Stri
         "save_keystore" => {
             let ks: keystore_studio_lib::model::KeystoreFile = serde_json::from_value(args.get("ks").cloned().unwrap_or_default()).map_err(|e| e.to_string())?;
             let fmt = keystore_studio_lib::keystore::Format::parse(&s("format"))?;
-            let mac = match args.get("mac").and_then(|v| v.as_str()) {
-                Some("pbmac1") => keystore_studio_lib::pkcs12::MacKind::Pbmac1,
-                _ => keystore_studio_lib::pkcs12::MacKind::Pkcs12,
-            };
+            let mac = keystore_studio_lib::pkcs12::MacKind::parse(args.get("mac").and_then(|v| v.as_str()));
             let force = args.get("force").and_then(|v| v.as_bool()).unwrap_or(false);
             let path = s("path");
             let n = keystore_studio_lib::keystore::save_with(&ks, &path, &s("password"), fmt, keystore_studio_lib::keystore::SavePolicy { mac, force })?;
@@ -159,12 +156,13 @@ fn handle(cmd: &str, args: &serde_json::Value) -> Result<serde_json::Value, Stri
             serde_json::to_value(keystore_studio_lib::detect::examine(&source("data")?, pw)?).map_err(|e| e.to_string())
         }
         // Conversions: the same engine calls the Tauri commands make.
-        "convert_certificates" | "convert_private_key" | "convert_public_key" | "convert_encoding" | "entries_to_pem" => {
+        "convert_certificates" | "convert_private_key" | "convert_public_key" | "convert_encoding" | "convert_truststore" | "entries_to_pem" => {
             use keystore_studio_lib::convert;
             let opt = |k: &str| args.get(k).and_then(|v| v.as_str()).map(String::from).filter(|v| !v.is_empty());
             let out = match cmd {
                 "convert_certificates" => convert::certificates(&source("data")?, &s("target"), args.get("order").and_then(|v| v.as_bool()).unwrap_or(true))?,
-                "convert_private_key" => convert::private_key(&source("data")?, opt("password").as_deref(), &s("target"), opt("outPassword").as_deref())?,
+                "convert_private_key" => convert::private_key(&source("data")?, opt("password").as_deref(), &s("target"), opt("outPassword").as_deref(), &s("comment"))?,
+                "convert_truststore" => convert::truststore(&source("data")?, &s("format"), &s("password"), &s("alias"))?,
                 "convert_public_key" => convert::public_key(&source("data")?, opt("password").as_deref(), &s("target"), &s("comment"))?,
                 "convert_encoding" => convert::encoding(&source("data")?, opt("label").as_deref())?,
                 _ => {
@@ -234,6 +232,7 @@ fn handle(cmd: &str, args: &serde_json::Value) -> Result<serde_json::Value, Stri
             to_json(keystore_studio_lib::ocsp::check(&url, &subject, &issuer)?.info())
         }
         // State the UI reads on its pages; the bridge keeps none, so these answer "empty".
+        "tool_status" => to_json(keystore_studio_lib::tools::status()),
         "ledger_search" => Ok(serde_json::json!([])),
         "ca_next_crl_number" => Ok(serde_json::json!(1)),
         other => Err(format!("ui_bridge does not implement '{other}'")),

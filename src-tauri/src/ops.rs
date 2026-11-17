@@ -391,10 +391,7 @@ pub fn build_pkcs12(input: &BuildPkcs12Input) -> Res<Vec<u8>> {
     let mut entry = import_key_pair(&alias, &input.key, input.key_password.as_deref(), input.certificate.as_deref())?;
     // The output password protects the key bag; clear any per-entry password carried by the import.
     entry.key_password = None;
-    let mac = match input.mac.as_deref() {
-        Some("pbmac1") => pkcs12::MacKind::Pbmac1,
-        _ => pkcs12::MacKind::Pkcs12,
-    };
+    let mac = pkcs12::MacKind::parse(input.mac.as_deref());
     pkcs12::encode_with_mac(std::slice::from_ref(&entry), &input.passphrase, mac)
 }
 

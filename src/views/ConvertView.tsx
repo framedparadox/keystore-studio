@@ -2,7 +2,8 @@ import React, { useEffect, useMemo, useState } from "react";
 import clsx from "clsx";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import { ArrowRight, CheckCircle2, ChevronLeft, FileOutput, FolderOpen, Lock, Repeat, Sparkles, Unlock } from "lucide-react";
-import type { ConvertResult, DataSource, DetectionResult, KeystoreEntry, KeystoreFile, KeystoreFormat, OpenKeystore, PemBundleOptions } from "../types/crypto";
+import type { ConvertResult, DataSource, DetectionResult, KeystoreEntry, KeystoreFile, KeystoreFormat, OpenKeystore, PemBundleOptions, Pkcs12Profile } from "../types/crypto";
+import { Pkcs12ProfileSelect } from "../components/KeystoreDialogs";
 import { KEYSTORE_FORMATS } from "../types/crypto";
 import { api, errorMessage } from "../lib/api";
 import { FILTERS, baseName, pickFile, pickSavePath, type FileFilter } from "../lib/files";
@@ -259,6 +260,66 @@ const CertificatePanel: React.FC = () => {
   );
 };
 
+// ============================================================================ truststore
+
+const TruststorePanel: React.FC = () => {
+  const runner = useRunner();
+  const [path, setPath] = useState<string | null>(null);
+  const [text, setText] = useState("");
+  const [format, setFormat] = useState<KeystoreFormat>("PKCS12");
+  const [alias, setAlias] = useState("");
+  const [pw, setPw] = useState("");
+  const [pw2, setPw2] = useState("");
+  const source = sourceOf(path, text);
+  const detection = useDetection(source, "");
+  const count = detection.result?.certificates.length ?? 0;
+  const pwError = pw2 && pw !== pw2 ? "Passwords do not match" : undefined;
+  const ready = !!source && pw.length > 0 && pw === pw2;
+  const convert = (out: string | null) => api.convertTruststore(source!, format, pw, alias, out);
+  return (
+    <Layout
+      form={
+        <>
+          <Step title="Certificates" hint="A CA bundle: PEM, DER, PKCS#7 or PkiPath">
+            <FileOrText label="Input" filters={[FILTERS.certificates]} path={path} setPath={setPath} text={text} setText={setText} placeholder="-----BEGIN CERTIFICATE-----" testId="convert-input" />
+            <Detected {...detection} />
+          </Step>
+          <Step title="Truststore format">
+            <OptionList
+              label="Truststore format"
+              value={format}
+              onChange={(v) => setFormat(v as KeystoreFormat)}
+              columns={2}
+              options={KEYSTORE_FORMATS.map((f) => ({ value: f, label: FORMAT_INFO[f].label, hint: FORMAT_INFO[f].description, meta: `.${FORMAT_EXTENSION[f]}`, testId: `convert-trust-format-${f}` }))}
+            />
+            <TextInput
+              className="mt-3"
+              label="Alias of the first certificate (optional)"
+              value={alias}
+              onChange={(e) => setAlias(e.target.value)}
+              hint={`Every certificate becomes a trusted certificate entry named after its common name${format === "JKS" || format === "JCEKS" ? ", in lower case as keytool stores it" : ""}.`}
+              data-testid="convert-trust-alias"
+            />
+          </Step>
+          <Step title="Password">
+            <div className="grid grid-cols-2 gap-3">
+              <PasswordInput label="Truststore password" value={pw} onChange={setPw} data-testid="convert-trust-password" />
+              <PasswordInput label="Confirm" value={pw2} onChange={setPw2} error={pwError} data-testid="convert-trust-password-confirm" />
+            </div>
+          </Step>
+          <Actions runner={runner} disabled={!ready} saveLabel={count > 1 ? `Build truststore (${count} certificates)…` : "Build truststore…"} onSave={() => runner.save(convert, { title: "Save truststore", input: path, stem: "truststore", ext: FORMAT_EXTENSION[format], filters: [FILTERS.keystores] })} />
+        </>
+      }
+      side={
+        <>
+          <ResultPanel runner={runner} empty="Choose the certificates, a format and a password. The truststore is written to a file." />
+          <Hint command={cliHint("truststore", format, path)} />
+        </>
+      }
+    />
+  );
+};
+
 // =========================================================================== private key
 
 const PrivateKeyPanel: React.FC = () => {
@@ -272,14 +333,16 @@ const PrivateKeyPanel: React.FC = () => {
   const source = sourceOf(path, text);
   const detection = useDetection(source, inPw);
   const t = KEY_OUTPUTS.find((o) => o.value === target)!;
-  const pwError = t.needsPassword && outPw2 && outPw !== outPw2 ? "Passwords do not match" : undefined;
-  const ready = !!source && (!t.needsPassword || (!!outPw && outPw === outPw2));
-  const convert = (out: string | null) => api.convertPrivateKey(source!, inPw || null, target, t.needsPassword ? outPw : null, out);
+  const [comment, setComment] = useState("");
+  const takesPassword = !!(t.needsPassword || t.optionalPassword);
+  const pwError = takesPassword && outPw2 && outPw !== outPw2 ? "Passwords do not match" : undefined;
+  const ready = !!source && (t.needsPassword ? !!outPw && outPw === outPw2 : !t.optionalPassword || outPw === outPw2);
+  const convert = (out: string | null) => api.convertPrivateKey(source!, inPw || null, target, takesPassword && outPw ? outPw : null, out, comment);
   return (
     <Layout
       form={
         <>
-          <Step title="Private key" hint="PKCS#8, encrypted PKCS#8, PKCS#1 or SEC1">
+          <Step title="Private key" hint="PKCS#8, encrypted PKCS#8, PKCS#1, SEC1, OpenSSH or JWK">
             <div className="space-y-3">
               <FileOrText label="Input" filters={[FILTERS.keys]} path={path} setPath={setPath} text={text} setText={setText} placeholder="-----BEGIN PRIVATE KEY-----" testId="convert-input" />
               <PasswordInput label="Password of the input key (only if it is encrypted)" value={inPw} onChange={setInPw} data-testid="convert-input-password" />
@@ -288,12 +351,16 @@ const PrivateKeyPanel: React.FC = () => {
           </Step>
           <Step title="Output format">
             <OptionList label="Private key output format" value={target} onChange={setTarget} options={targetOptions(KEY_OUTPUTS)} columns={2} />
-            {t.needsPassword ? (
+            {target === "openssh" && (
+              <TextInput className="mt-3" label="Comment" value={comment} onChange={(e) => setComment(e.target.value)} placeholder="user@host" hint="Stored in the key and shown by ssh-keygen -l." data-testid="convert-comment" />
+            )}
+            {takesPassword && (
               <div className="grid grid-cols-2 gap-3 mt-3">
-                <PasswordInput label="Password for the converted key" value={outPw} onChange={setOutPw} data-testid="convert-out-password" />
+                <PasswordInput label={t.needsPassword ? "Password for the converted key" : "Password (optional)"} value={outPw} onChange={setOutPw} data-testid="convert-out-password" />
                 <PasswordInput label="Confirm" value={outPw2} onChange={setOutPw2} error={pwError} data-testid="convert-out-password-confirm" />
               </div>
-            ) : (
+            )}
+            {!t.needsPassword && !(t.optionalPassword && outPw) && (
               <Alert tone="warning" className="mt-3">
                 This format is not encrypted. Anyone who can read the file can use the key.
               </Alert>
@@ -587,7 +654,7 @@ const KeystorePanel: React.FC = () => {
   const [keepPw, setKeepPw] = useState(true);
   const [pw, setPw] = useState("");
   const [pw2, setPw2] = useState("");
-  const [mac, setMac] = useState<"pkcs12" | "pbmac1">("pkcs12");
+  const [mac, setMac] = useState<Pkcs12Profile>("pkcs12");
   const problems = source ? saveProblems(source.ks.entries, source.ks.format, target) : [];
   const newPw = keepPw ? source?.password ?? "" : pw;
   const pwError = !keepPw && pw && pw.length < 6 ? "At least 6 characters" : !keepPw && pw2 && pw !== pw2 ? "Passwords do not match" : undefined;
@@ -646,10 +713,9 @@ const KeystorePanel: React.FC = () => {
               options={KEYSTORE_FORMATS.map((f) => ({ value: f, label: FORMAT_INFO[f].label, hint: FORMAT_INFO[f].description, meta: `.${FORMAT_EXTENSION[f]}`, testId: `convert-format-${f}` }))}
             />
             {target === "PKCS12" && (
-              <Select className="mt-3" label="Integrity MAC" value={mac} onChange={(e) => setMac(e.target.value as "pkcs12" | "pbmac1")} hint="The legacy MAC is read by every tool. PBMAC1 needs OpenSSL 3.4 or newer.">
-                <option value="pkcs12">Legacy PKCS#12 MAC (compatible)</option>
-                <option value="pbmac1">PBMAC1 (RFC 9579)</option>
-              </Select>
+              <div className="mt-3">
+                <Pkcs12ProfileSelect value={mac} onChange={setMac} testId="convert-pkcs12-profile" />
+              </div>
             )}
           </Step>
           <Step title="Password">
@@ -860,6 +926,7 @@ const Pkcs12Panel: React.FC = () => {
 
 const PANELS: Record<ConverterId, React.FC> = {
   certificate: CertificatePanel,
+  truststore: TruststorePanel,
   private_key: PrivateKeyPanel,
   public_key: PublicKeyPanel,
   keystore: KeystorePanel,

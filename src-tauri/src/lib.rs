@@ -6,6 +6,7 @@
 //! The Tauri command layer lives in `commands` behind the default `tauri-app` feature. Building
 //! with `--no-default-features` gives the engine alone, which is how the fuzz targets link it.
 
+pub mod bcfks;
 pub mod bks;
 pub mod cms;
 pub mod convert;
@@ -21,9 +22,11 @@ pub mod jwt;
 pub mod keys;
 pub mod keystore;
 pub mod model;
+pub mod modes;
 pub mod netcheck;
 pub mod ocsp;
 pub mod oids;
+pub mod openssh;
 pub mod ops;
 pub mod pbe;
 pub mod pkcs12;

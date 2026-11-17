@@ -37,8 +37,9 @@ Windows · macOS · Linux &nbsp;|&nbsp; MIT licensed
 `keytool` and `openssl` are powerful, but day-to-day certificate work means juggling flags,
 formats and passwords across both. Keystore Studio puts that work in one window:
 
-- **One place for every format.** PKCS#12, JKS and JCEKS keystores, PEM/DER certificates and
-  chains, PKCS#7 bundles, PKCS#8/PKCS#1/SEC1 keys, CSRs, CRLs, JWTs and OpenSSH keys.
+- **One place for every format.** PKCS#12, JKS, JCEKS and Bouncy Castle BKS, UBER and BCFKS
+  keystores; PEM/DER certificates, chains, PKCS#7 bundles, PkiPath and Netscape sequences;
+  PKCS#8/PKCS#1/SEC1/DSA, OpenSSH and JWK keys; SSH2 public keys; CSRs, CRLs and JWTs.
 - **Interoperable by design.** Everything it writes is read back by `keytool`, `jarsigner` and
   `openssl` in the test suite, and each conversion shows you the equivalent command line.
 - **Local only.** No accounts, no telemetry. The only network traffic is the TLS handshakes,
@@ -136,17 +137,18 @@ Light, dark (true black) or follow the system, under Settings → General → Ap
 
 | Area | What you can do |
 | --- | --- |
-| **Keystores** | Open, create, edit and save **PKCS#12**, **JKS** and **JCEKS** files (keytool/OpenSSL compatible). Convert between formats and change passwords with *Save as…*. Key pairs, trusted certificates and secret keys, each with its own icon. Open keystores are listed in a navigator beside the entry table, each with its entries grouped by type, so a session with many keystores stays manageable. Key pairs open locked and need their key password before they can be inspected, exported, copied or used for signing (Settings can turn this off). Per-key passwords (JKS/JCEKS) are preserved. Undo/redo, cut/copy/paste between keystores, rename, labels, CSV inventory export. Unsaved-changes tracking with a guard on close/quit. |
+| **Keystores** | Open, create, edit and save **PKCS#12**, **JKS**, **JCEKS** and Bouncy Castle **BKS** (versions 1 and 2 read, 2 written), **UBER** and **BCFKS** files (keytool/OpenSSL compatible; the Bouncy Castle writers reproduce Bouncy Castle's own files byte for byte). Convert between all six and change passwords with *Save as…*. PKCS#12 can be written in a compatibility profile (3DES, SHA-1 MAC) for Java 8 and Windows 7. Stores without a password open too. Key pairs, trusted certificates and secret keys, each with its own icon. Open keystores are listed in a navigator beside the entry table, each with its entries grouped by type, so a session with many keystores stays manageable. Key pairs open locked and need their key password before they can be inspected, exported, copied or used for signing (Settings can turn this off). Per-key passwords (JKS/JCEKS) are preserved. Undo/redo, cut/copy/paste between keystores, rename, labels, CSV inventory export. Unsaved-changes tracking with a guard on close/quit. |
 | **Certificates** | Certificate files opened on their own (PEM, DER, chains, PKCS#7 bundles) are listed under Keystores, one row per certificate with its type, algorithm, expiry and health. Inspect, export (PEM, DER, PKCS#7, public key, JWK), copy, add to any open keystore or to a workspace; paste PEM, or keep certificates found in Examine. The list survives restarts; removing a certificate never changes its file. |
-| **Entries** | Generate RSA (2048–4096), ECDSA (P-256/384/521) and Ed25519 key pairs with certificates that are self-signed or issued by any open CA; generate AES/HMAC/3DES secret keys; import trusted certificates (PEM/DER/PKCS#7, bundles), key pairs from PEM/DER (PKCS#8, encrypted PKCS#8, PKCS#1, SEC1) or from another keystore. Generate CSRs, install CA replies. |
-| **Export** | Certificate (PEM/DER), full chain, PKCS#7 (PEM/DER), PkiPath, public key (PEM, OpenSSH, JWK), private key (encrypted or plain PKCS#8, JWK), single-entry PKCS#12, secret key (hex, JWK). |
+| **Entries** | Generate RSA (2048–4096), ECDSA (P-256/384/521) and Ed25519 key pairs with certificates that are self-signed or issued by any open CA; generate AES/HMAC/3DES secret keys; import trusted certificates (PEM/DER/PKCS#7, bundles), key pairs from PEM/DER (PKCS#8 incl. scrypt and PBES1, PKCS#1, SEC1, DSA, OpenSSL `Proc-Type` encrypted PEM), OpenSSH, JWK or another keystore. Generate CSRs, install CA replies. |
+| **Export** | Certificate (PEM/DER), full chain, PKCS#7 (PEM/DER), PkiPath, public key (PEM, OpenSSH, SSH2/RFC 4716, JWK), private key (encrypted or plain PKCS#8, PKCS#1/SEC1, OpenSSH, JWK), single-entry PKCS#12, secret key (hex, JWK). |
 | **Build a PKCS#12** | Bundle an existing certificate (or chain) and its private key into a passphrase-protected **.p12 / .pfx** in one step, without opening a keystore first, from the dashboard or the command palette. The input key may be encrypted (its own password is asked for separately), and it is matched against the certificate before anything is written. Readable by OpenSSL and `keytool`. |
-| **Convert** | One place for format conversions, each listed under Convert in the sidebar: certificates (PEM, DER, PKCS#7, PkiPath), private keys (PKCS#8, encrypted PKCS#8, PKCS#1/SEC1, JWK), public keys from a certificate, CSR or key (PEM, DER, PKCS#1, OpenSSH, JWK), keystores (PKCS#12 ↔ JKS ↔ JCEKS, BKS in), key + certificate → PKCS#12, keystore → PEM bundle, and PEM ↔ DER for any object. Each shows the equivalent OpenSSL/keytool command. |
+| **Convert** | One place for format conversions, each listed under Convert in the sidebar: certificates (PEM, DER, PKCS#7, PkiPath, Netscape sequence), certificates → truststore in any keystore format, private keys (PKCS#8, encrypted PKCS#8 with AES or legacy 3DES, PKCS#1/SEC1, OpenSSH, JWK), public keys from a certificate, CSR or key (PEM, DER, PKCS#1, OpenSSH, SSH2, JWK), keystores between all six formats, key + certificate → PKCS#12, keystore → PEM bundle, and PEM ↔ DER for any object. Each shows the equivalent OpenSSL, ssh-keygen or keytool command (with the Bouncy Castle provider flags where keytool needs them). |
 | **CA & Signing** | Sign CSRs (with CSR inspection and one-click installation into the matching key pair), issue v2 CRLs, CMS/PKCS#7 sign & verify (attached/detached), JWT sign & verify (RS/ES/EdDSA/HS), JAR signing (jarsigner-verifiable), **RFC 3161 trusted timestamps** on CMS and JAR signatures, DH parameters (RFC 7919 groups or freshly generated safe primes). |
 | **Examine** | Live TLS inspection (protocol, cipher, ALPN, chain, trust and hostname verdict against the OS trust store), a connection test that says whether a server port can be reached from this machine (every resolved address, source address and interface, connect time, and why it failed: refused, timed out, unreachable or not resolved), decode anything you paste or pick there (certificates, chains, CSRs, CRLs, keys, PKCS#7, JWTs, OpenSSH keys, keystores), compare two certificates. Opened key, CSR, CRL and signature files land here; certificate files go to Certificates. |
 | **Security audit** | Health score and findings (expired/expiring, weak keys and digests, deprecated ciphers, incomplete chains, self-signed servers), key rotation that keeps subject/SANs/usages and is re-issued by the original CA when it is open, same-key renewal, CSV report. |
 | **Workspaces** | Group keystore entries and certificates from the Certificates page by project or audit scope; persisted across sessions. |
 | **Vault** | Remember keystore passwords under one master key (Argon2id → AES-256-GCM), auto-lock after inactivity, change master key (re-encrypts every secret), reset if forgotten. Keystores from the last session reopen automatically once the vault is unlocked. |
+| **Tools** | Settings → Tools lists the command-line tools the app refers to (java, keytool, jarsigner, the Bouncy Castle provider jar, OpenSSL, ssh-keygen, PuTTYgen) in one grouped table: found or not, version, path, what uses each, and the install command for the ones that are missing. None of them is needed by the engine. |
 | **Productivity** | Window-wide drag and drop, command palette (`Ctrl+K`), keyboard shortcuts, built-in terminal (`` Ctrl+` ``) with ready-made keytool/openssl commands and `Test-NetConnection` built in on every platform (`-ComputerName`, `-Port`, `-CommonTCPPort`, `-InformationLevel Detailed\|Quiet`), recent files, session restore. |
 
 ### Keyboard shortcuts
@@ -297,6 +299,8 @@ src/                      React UI
 src-tauri/src/            Rust engine (crate keystore_studio_lib)
   keys.rs  x509.rs        keys, signing/verification, certificate/CSR/CRL building and parsing
   pkcs12.rs jks.rs        keystore codecs (javaser.rs: JCEKS sealed secret keys), pbe.rs: PBE schemes
+  bks.rs bcfks.rs         Bouncy Castle BKS/UBER and BCFKS; modes.rs: AES-CCM, AES-KWP, RC4
+  openssh.rs              OpenSSH private keys and RFC 4716 public keys; tools.rs: external tool detection
   ops.rs entry.rs         entry operations and display models
   cms.rs jwt.rs jar.rs dh.rs tls.rs detect.rs export.rs  netcheck.rs: TCP connection test
   vault.rs                master-key vault; terminal.rs: built-in shell
@@ -311,14 +315,17 @@ engine alone, which is how the fuzz targets and the UI bridge link it.
 
 ## Limitations
 
-- **Bouncy Castle BCFKS and UBER keystores** cannot be opened. **BKS version 2** opens read-only
-  (save as PKCS#12 to keep the entries). Keystore Studio recognises BCFKS and UBER and prints the
-  `keytool -importkeystore` command that converts them, with the correct `-srcstoretype`.
+- **Bouncy Castle edge cases.** BCFKS stores protected with HMAC-SHA3-512, or holding PBE-key
+  entries, are not fully supported (the first is refused, the second listed as not shown). A
+  signature-protected BCFKS store is verified against the certificate inside it, without a trust
+  decision, and is saved back with a password MAC. UBER store version 0 is not read.
+- **PuTTY `.ppk`** keys are not read; convert them with `puttygen key.ppk -O private-openssh`.
 - **PKCS#11 hardware tokens** are not supported. Keys on a token cannot be exported, so signing has
   to happen on the device through a vendor library; that does not fit the "a keystore is a file"
   model the app is built on.
-- **Post-quantum keys** (ML-DSA, ML-KEM, SLH-DSA) written by newer JDKs load and save losslessly
-  but cannot be used for signing.
+- **Post-quantum keys** (ML-DSA, ML-KEM, SLH-DSA) written by newer JDKs, and DSA, Ed448 and
+  RSA-PSS keys, load and save losslessly but cannot be used for signing. DSA and RSA-PSS
+  signatures on certificates, CSRs and CRLs are verified.
 
 PKCS#12 files are written with the classic MAC for maximum compatibility; PBMAC1 (RFC 9579) is read
 and can be written. Timestamp tokens are bound to the signature they cover, but the timestamp

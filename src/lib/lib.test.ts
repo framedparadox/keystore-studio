@@ -1,9 +1,10 @@
 import { describe, expect, it, beforeEach } from "vitest";
-import type { KeystoreEntry, OpenKeystore } from "../types/crypto";
+import { KEYSTORE_FORMATS, type KeystoreEntry, type OpenKeystore } from "../types/crypto";
 import { daysUntilExpiry, entryHealth, entryMix, expiryStatus, findingsFor, formatDuration, plural, setThresholds, summarize } from "./metrics";
 import {
   aliasTaken,
   byTypeThenAlias,
+  canHoldSecretKeys,
   canonicalAlias,
   cnOf,
   entryIdRemap,
@@ -11,6 +12,8 @@ import {
   entryMatches,
   entryTypeName,
   findIssuingCa,
+  FORMAT_EXTENSION,
+  FORMAT_GROUPS,
   isCaEntry,
   isKeyLocked,
   keyPasswordMatches,
@@ -275,11 +278,28 @@ describe("milestone helpers", () => {
     expect(term.note).toContain("398");
   });
 
-  it("blocks saving secret keys into JKS and refuses to write BKS", () => {
+  it("blocks saving secret keys into JKS and locked keys outside their family", () => {
     const entries = [{ entry_type: "SecretKey", locked: false }, { entry_type: "KeyPair", locked: true }];
     expect(saveProblems(entries, "PKCS12", "JKS").join(" ")).toContain("secret");
     expect(saveProblems(entries, "PKCS12", "PKCS12")).toEqual([]);
-    expect(saveProblems([], "BKS", "BKS").join(" ")).toContain("read-only");
+    // Every Bouncy Castle format is writable now.
+    for (const f of ["BKS", "UBER", "BCFKS"] as const) expect(saveProblems([{ entry_type: "KeyPair", locked: false }], "PKCS12", f)).toEqual([]);
+    // BKS and UBER seal keys the same way, so a locked key moves between them and nowhere else.
+    const locked = [{ entry_type: "KeyPair", locked: true }];
+    expect(saveProblems(locked, "BKS", "UBER")).toEqual([]);
+    expect(saveProblems(locked, "UBER", "BKS")).toEqual([]);
+    expect(saveProblems(locked, "BKS", "BCFKS").join(" ")).toContain("locked");
+    expect(saveProblems(locked, "BCFKS", "PKCS12").join(" ")).toContain("locked");
+  });
+
+  it("knows six formats, grouped and with their extensions", () => {
+    expect(KEYSTORE_FORMATS).toEqual(["PKCS12", "JKS", "JCEKS", "BKS", "UBER", "BCFKS"]);
+    expect(FORMAT_GROUPS.map((g) => [g.label, g.formats])).toEqual([
+      ["Standard", ["PKCS12", "JKS", "JCEKS"]],
+      ["Bouncy Castle", ["BKS", "UBER", "BCFKS"]],
+    ]);
+    expect(KEYSTORE_FORMATS.map((f) => FORMAT_EXTENSION[f])).toEqual(["p12", "jks", "jceks", "bks", "uber", "bcfks"]);
+    expect(KEYSTORE_FORMATS.filter((f) => !canHoldSecretKeys(f))).toEqual(["JKS"]);
   });
 
   it("classifies engine errors and flags a JKS store", () => {
@@ -403,10 +423,22 @@ describe("conversion catalog", () => {
   it("offers exactly the targets the engine accepts", () => {
     // Mirrors CERT_TARGETS, KEY_TARGETS and PUBLIC_TARGETS in src-tauri/src/convert.rs.
     expect(CERT_OUTPUTS.map((t) => t.value).sort()).toEqual(["der", "pem", "pkcs7_der", "pkcs7_pem", "pkipath"]);
-    expect(KEY_OUTPUTS.map((t) => t.value).sort()).toEqual(["jwk", "pkcs8_der", "pkcs8_encrypted_der", "pkcs8_encrypted_pem", "pkcs8_pem", "traditional_der", "traditional_pem"]);
-    expect(PUBLIC_OUTPUTS.map((t) => t.value).sort()).toEqual(["der", "jwk", "openssh", "pem", "pkcs1_pem"]);
+    expect(KEY_OUTPUTS.map((t) => t.value).sort()).toEqual(["jwk", "openssh", "pkcs8_der", "pkcs8_encrypted_3des_pem", "pkcs8_encrypted_der", "pkcs8_encrypted_pem", "pkcs8_pem", "traditional_der", "traditional_pem"]);
+    expect(PUBLIC_OUTPUTS.map((t) => t.value).sort()).toEqual(["der", "jwk", "openssh", "pem", "pkcs1_pem", "ssh2"]);
     expect(KEY_OUTPUTS.every((t) => t.sensitive)).toBe(true);
-    expect(KEY_OUTPUTS.filter((t) => t.needsPassword).map((t) => t.value)).toEqual(["pkcs8_encrypted_pem", "pkcs8_encrypted_der"]);
+    expect(KEY_OUTPUTS.filter((t) => t.needsPassword).map((t) => t.value)).toEqual(["pkcs8_encrypted_pem", "pkcs8_encrypted_3des_pem", "pkcs8_encrypted_der"]);
+    expect(KEY_OUTPUTS.filter((t) => t.optionalPassword).map((t) => t.value)).toEqual(["openssh"]);
+  });
+
+  it("gives keytool the Bouncy Castle provider only when a Bouncy Castle format is involved", () => {
+    expect(cliHint("keystore", "PKCS12", "a.jks")).not.toContain("providerpath");
+    expect(cliHint("keystore", "BCFKS", "a.jks")).toContain("-deststoretype BCFKS -providerpath bcprov.jar");
+    expect(cliHint("keystore", "PKCS12", "old.bks")).toContain("-srcstoretype BKS");
+    expect(cliHint("keystore", "PKCS12", "old.bks")).toContain("providerpath");
+    expect(cliHint("truststore", "JKS", "ca.pem")).toContain("-storetype JKS");
+    expect(cliHint("private_key", "openssh", "k.pem")).toContain("ssh-keygen -p");
+    expect(cliHint("public_key", "ssh2", "k.pub")).toContain("RFC4716");
+    expect(cliHint("pkcs12", "legacy")).toContain("-legacy");
   });
 
   it("suggests an output name from the input file", () => {

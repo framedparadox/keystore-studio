@@ -41,14 +41,36 @@ export function entryIdRemap(before: OpenKeystore[], after: OpenKeystore[]): Rec
   return mapping;
 }
 
-export const FORMAT_EXTENSION: Record<KeystoreFormat, string> = { PKCS12: "p12", JKS: "jks", JCEKS: "jceks", BKS: "bks" };
+export const FORMAT_EXTENSION: Record<KeystoreFormat, string> = { PKCS12: "p12", JKS: "jks", JCEKS: "jceks", BKS: "bks", UBER: "uber", BCFKS: "bcfks" };
 
-export const FORMAT_INFO: Record<KeystoreFormat, { label: string; description: string; secretKeys: boolean }> = {
-  PKCS12: { label: "PKCS#12", description: "Industry standard (.p12/.pfx). Default for Java 9+, OpenSSL, Windows.", secretKeys: true },
-  JKS: { label: "JKS", description: "Legacy Java KeyStore. Key pairs and trusted certificates only.", secretKeys: false },
-  JCEKS: { label: "JCEKS", description: "Java Cryptography Extension KeyStore. Supports secret keys.", secretKeys: true },
-  BKS: { label: "BKS", description: "Bouncy Castle BKS, opened read-only. Save as PKCS#12 to keep the entries.", secretKeys: true },
+export interface FormatInfo {
+  label: string;
+  description: string;
+  secretKeys: boolean;
+  /** "Standard" formats every Java and OpenSSL reads, or "Bouncy Castle" ones that need its provider. */
+  family: "Standard" | "Bouncy Castle";
+  /**
+   * Formats that protect a key the same way. A key still locked by its own password is the source
+   * format's ciphertext, and only a format in the same group can carry it (mirrors
+   * `Format::key_protection` in keystore.rs).
+   */
+  keyProtection: number;
+}
+
+export const FORMAT_INFO: Record<KeystoreFormat, FormatInfo> = {
+  PKCS12: { label: "PKCS#12", description: "Industry standard (.p12/.pfx). Default for Java 9+, OpenSSL, Windows.", secretKeys: true, family: "Standard", keyProtection: 0 },
+  JKS: { label: "JKS", description: "Legacy Java KeyStore. Key pairs and trusted certificates only.", secretKeys: false, family: "Standard", keyProtection: 1 },
+  JCEKS: { label: "JCEKS", description: "Java Cryptography Extension KeyStore. Supports secret keys.", secretKeys: true, family: "Standard", keyProtection: 2 },
+  BKS: { label: "BKS", description: "Bouncy Castle KeyStore (version 2), common on Android. Needs the Bouncy Castle provider in Java.", secretKeys: true, family: "Bouncy Castle", keyProtection: 3 },
+  UBER: { label: "UBER", description: "Bouncy Castle UBER: BKS with the whole file encrypted (Twofish). Needs the Bouncy Castle provider.", secretKeys: true, family: "Bouncy Castle", keyProtection: 3 },
+  BCFKS: { label: "BCFKS", description: "Bouncy Castle FIPS keystore (AES-256-CCM, PBKDF2-HMAC-SHA512), for FIPS-mode Java.", secretKeys: true, family: "Bouncy Castle", keyProtection: 4 },
 };
+
+/** The formats grouped as the pickers list them. */
+export const FORMAT_GROUPS: { label: FormatInfo["family"]; formats: KeystoreFormat[] }[] = (["Standard", "Bouncy Castle"] as const).map((label) => ({
+  label,
+  formats: (Object.keys(FORMAT_INFO) as KeystoreFormat[]).filter((f) => FORMAT_INFO[f].family === label),
+}));
 
 export const canHoldSecretKeys = (format: KeystoreFormat) => FORMAT_INFO[format].secretKeys;
 
@@ -139,6 +161,8 @@ export interface ExportTarget {
   ext: string;
   group: "Certificate" | "Public key" | "Private key" | "Keystore" | "Secret key";
   needsPassword?: boolean;
+  /** Takes a password to encrypt the file, but can be written without one. */
+  optionalPassword?: boolean;
   sensitive?: boolean;
   appliesTo: EntryType[];
 }
@@ -152,10 +176,12 @@ export const EXPORT_TARGETS: ExportTarget[] = [
   { id: "pkipath", label: "PkiPath (.pkipath)", ext: "pkipath", group: "Certificate", appliesTo: ["KeyPair"] },
   { id: "public_pem", label: "Public key (PEM)", ext: "pub.pem", group: "Public key", appliesTo: ["KeyPair", "TrustedCertificate"] },
   { id: "public_openssh", label: "OpenSSH public key", ext: "pub", group: "Public key", appliesTo: ["KeyPair", "TrustedCertificate"] },
+  { id: "public_ssh2", label: "SSH2 public key (RFC 4716)", ext: "pub", group: "Public key", appliesTo: ["KeyPair", "TrustedCertificate"] },
   { id: "public_jwk", label: "JWK (public)", ext: "jwk.json", group: "Public key", appliesTo: ["KeyPair", "TrustedCertificate"] },
   { id: "private_pkcs8_encrypted", label: "Private key, encrypted PKCS#8 (AES-256)", ext: "key", group: "Private key", needsPassword: true, sensitive: true, appliesTo: ["KeyPair"] },
   { id: "private_pkcs8_pem", label: "Private key, unencrypted PKCS#8", ext: "key", group: "Private key", sensitive: true, appliesTo: ["KeyPair"] },
   { id: "private_traditional", label: "Private key, PKCS#1 or SEC1", ext: "key", group: "Private key", sensitive: true, appliesTo: ["KeyPair"] },
+  { id: "private_openssh", label: "Private key, OpenSSH (ssh-keygen format)", ext: "key", group: "Private key", optionalPassword: true, sensitive: true, appliesTo: ["KeyPair"] },
   { id: "private_jwk", label: "JWK (private)", ext: "jwk.json", group: "Private key", sensitive: true, appliesTo: ["KeyPair"] },
   { id: "pkcs12", label: "PKCS#12 with key and chain", ext: "p12", group: "Keystore", needsPassword: true, sensitive: true, appliesTo: ["KeyPair", "TrustedCertificate", "SecretKey"] },
   { id: "secret_hex", label: "Raw key (hex)", ext: "txt", group: "Secret key", sensitive: true, appliesTo: ["SecretKey"] },
@@ -201,8 +227,9 @@ export function saveProblems(entries: { entry_type: string; locked: boolean }[],
   const secrets = entries.filter((e) => e.entry_type === "SecretKey").length;
   if (!canHoldSecretKeys(target) && secrets) problems.push(`${FORMAT_INFO[target].label} cannot store secret keys; ${secrets} secret key(s) would be lost. Choose PKCS#12 or JCEKS.`);
   const locked = entries.filter((e) => e.locked).length;
-  if (locked && target !== source) problems.push(`${locked} entr${locked === 1 ? "y is" : "ies are"} locked by a separate key password and can only be saved back to ${source}. Unlock them first.`);
-  if (target === "BKS") problems.push("BKS is read-only. Choose PKCS#12 to write the entries.");
+  if (locked && FORMAT_INFO[target].keyProtection !== FORMAT_INFO[source].keyProtection) {
+    problems.push(`${locked} entr${locked === 1 ? "y is" : "ies are"} locked by a separate key password and can only be saved as ${FORMAT_INFO[source].label}${source === "BKS" || source === "UBER" ? " or " + (source === "BKS" ? "UBER" : "BKS") : ""}. Unlock them first.`);
+  }
   return problems;
 }
 

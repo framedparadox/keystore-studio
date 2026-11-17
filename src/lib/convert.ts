@@ -5,7 +5,7 @@ import { shellQuote } from "./platform";
  * The conversions themselves run in the engine (src-tauri/src/convert.rs).
  */
 
-export type ConverterId = "certificate" | "private_key" | "public_key" | "keystore" | "pkcs12" | "extract" | "encoding";
+export type ConverterId = "certificate" | "truststore" | "private_key" | "public_key" | "keystore" | "pkcs12" | "extract" | "encoding";
 
 export interface ConverterInfo {
   id: ConverterId;
@@ -26,35 +26,44 @@ export const CONVERTERS: ConverterInfo[] = [
     nav: "Certificate format",
     short: "PEM · DER · PKCS#7",
     description: "Re-encode a certificate or a chain. Bundles are ordered leaf first.",
-    from: "PEM, DER, PKCS#7, PkiPath",
+    from: "PEM, DER, PKCS#7, PkiPath, Netscape sequence",
     to: "PEM, DER, PKCS#7, PkiPath",
+  },
+  {
+    id: "truststore",
+    title: "Certificates → truststore",
+    nav: "Build truststore",
+    short: "CA bundle → keystore",
+    description: "Put every certificate of a bundle into a keystore as trusted certificates, the way keytool -importcert does one at a time.",
+    from: "PEM, DER, PKCS#7, PkiPath",
+    to: "PKCS#12, JKS, JCEKS, BKS, UBER, BCFKS",
   },
   {
     id: "private_key",
     title: "Private key format",
     nav: "Private key format",
-    short: "PKCS#8 · PKCS#1 · JWK",
+    short: "PKCS#8 · PKCS#1 · OpenSSH · JWK",
     description: "Change how a private key is encoded, or add and remove its password.",
-    from: "PKCS#8, encrypted PKCS#8, PKCS#1, SEC1 (PEM or DER)",
-    to: "PKCS#8, encrypted PKCS#8, PKCS#1 / SEC1, JWK",
+    from: "PKCS#8 (incl. scrypt, PBES1), PKCS#1, SEC1, DSA, OpenSSL encrypted PEM, OpenSSH, JWK",
+    to: "PKCS#8, encrypted PKCS#8 (AES or legacy 3DES), PKCS#1 / SEC1, OpenSSH, JWK",
   },
   {
     id: "public_key",
     title: "Public key",
     nav: "Public key",
-    short: "PEM · OpenSSH · JWK",
+    short: "PEM · OpenSSH · SSH2 · JWK",
     description: "Extract the public key from a certificate, CSR or private key, or re-encode one.",
-    from: "Certificate, CSR, private key, PEM, DER, OpenSSH, JWK",
-    to: "PEM, DER, PKCS#1, OpenSSH, JWK",
+    from: "Certificate, CSR, private key, PEM, DER, OpenSSH, SSH2 (RFC 4716), JWK",
+    to: "PEM, DER, PKCS#1, OpenSSH, SSH2, JWK",
   },
   {
     id: "keystore",
     title: "Keystore format",
     nav: "Keystore format",
-    short: "PKCS#12 · JKS · JCEKS",
+    short: "PKCS#12 · JKS · BKS · BCFKS",
     description: "Write a keystore in another format or with a new password. The source file is left unchanged.",
-    from: "PKCS#12, JKS, JCEKS, BKS",
-    to: "PKCS#12, JKS, JCEKS",
+    from: "PKCS#12, JKS, JCEKS, BKS, UBER, BCFKS",
+    to: "PKCS#12, JKS, JCEKS, BKS, UBER, BCFKS",
   },
   {
     id: "pkcs12",
@@ -71,7 +80,7 @@ export const CONVERTERS: ConverterInfo[] = [
     nav: "Keystore → PEM",
     short: "Export keys and certificates",
     description: "Write the certificates and private keys of a keystore to one PEM file, like openssl pkcs12 -nodes.",
-    from: "PKCS#12, JKS, JCEKS, BKS",
+    from: "PKCS#12, JKS, JCEKS, BKS, UBER, BCFKS",
     to: "PEM bundle",
   },
   {
@@ -98,6 +107,8 @@ export interface OutputTarget {
   sensitive?: boolean;
   /** Needs a password to encrypt the output. */
   needsPassword?: boolean;
+  /** Takes a password to encrypt the output, but works without one. */
+  optionalPassword?: boolean;
 }
 
 export const CERT_OUTPUTS: OutputTarget[] = [
@@ -112,6 +123,8 @@ export const KEY_OUTPUTS: OutputTarget[] = [
   { value: "pkcs8_pem", label: "PKCS#8, PEM", hint: "BEGIN PRIVATE KEY. The modern default.", ext: "key", text: true, sensitive: true },
   { value: "pkcs8_encrypted_pem", label: "Encrypted PKCS#8, PEM", hint: "BEGIN ENCRYPTED PRIVATE KEY, AES-256.", ext: "key", text: true, sensitive: true, needsPassword: true },
   { value: "traditional_pem", label: "PKCS#1 / SEC1, PEM", hint: "BEGIN RSA / EC PRIVATE KEY, for older tools.", ext: "key", text: true, sensitive: true },
+  { value: "openssh", label: "OpenSSH", hint: "BEGIN OPENSSH PRIVATE KEY, as ssh-keygen writes it. Encrypted when a password is set.", ext: "key", text: true, sensitive: true, optionalPassword: true },
+  { value: "pkcs8_encrypted_3des_pem", label: "Encrypted PKCS#8, legacy 3DES", hint: "PBE-SHA1-3DES, for Java 8 and readers without PBES2.", ext: "key", text: true, sensitive: true, needsPassword: true },
   { value: "pkcs8_der", label: "PKCS#8, DER", hint: "Binary PKCS#8 (.der / .p8).", ext: "der", text: false, sensitive: true },
   { value: "pkcs8_encrypted_der", label: "Encrypted PKCS#8, DER", hint: "Binary, AES-256.", ext: "der", text: false, sensitive: true, needsPassword: true },
   { value: "traditional_der", label: "PKCS#1 / SEC1, DER", hint: "Binary traditional form.", ext: "der", text: false, sensitive: true },
@@ -121,6 +134,7 @@ export const KEY_OUTPUTS: OutputTarget[] = [
 export const PUBLIC_OUTPUTS: OutputTarget[] = [
   { value: "pem", label: "PEM", hint: "BEGIN PUBLIC KEY (SubjectPublicKeyInfo).", ext: "pub.pem", text: true },
   { value: "openssh", label: "OpenSSH", hint: "One line for authorized_keys.", ext: "pub", text: true },
+  { value: "ssh2", label: "SSH2 (RFC 4716)", hint: "---- BEGIN SSH2 PUBLIC KEY ----, for PuTTY and commercial SSH.", ext: "pub", text: true },
   { value: "jwk", label: "JWK (public)", hint: "JSON Web Key with an RFC 7638 key id.", ext: "jwk.json", text: true },
   { value: "der", label: "DER", hint: "Binary SubjectPublicKeyInfo.", ext: "pub.der", text: false },
   { value: "pkcs1_pem", label: "PKCS#1, PEM (RSA only)", hint: "BEGIN RSA PUBLIC KEY.", ext: "pub.pem", text: true },
@@ -148,6 +162,16 @@ export { shellQuote };
  * The OpenSSL, keytool or ssh-keygen command that does the same conversion, for the terminal
  * hint. Null when no standard tool does it (JWK, PkiPath).
  */
+const KEYSTORE_EXT: Record<string, string> = { PKCS12: "p12", JKS: "jks", JCEKS: "jceks", BKS: "bks", UBER: "uber", BCFKS: "bcfks" };
+const BOUNCY_CASTLE = ["BKS", "UBER", "BCFKS"];
+/** keytool reads and writes the Bouncy Castle formats only with its provider on the command line. */
+const BC_PROVIDER = " -providerpath bcprov.jar -providerclass org.bouncycastle.jce.provider.BouncyCastleProvider";
+const keystoreTypeOf = (path: string): string | null => {
+  const ext = path.split(".").pop()?.toLowerCase() ?? "";
+  const found = Object.entries(KEYSTORE_EXT).find(([, e]) => e === ext || (e === "p12" && ext === "pfx"));
+  return found ? found[0] : null;
+};
+
 export function cliHint(converter: ConverterId, target: string, input?: string | null, output?: string | null): string | null {
   const q = shellQuote;
   switch (converter) {
@@ -186,6 +210,11 @@ export function cliHint(converter: ConverterId, target: string, input?: string |
           return `openssl pkey -in ${src} -traditional -out ${out}`;
         case "traditional_der":
           return `openssl pkey -in ${src} -traditional -outform DER -out ${out}`;
+        case "pkcs8_encrypted_3des_pem":
+          return `openssl pkcs8 -topk8 -v1 PBE-SHA1-3DES -in ${src} -out ${out}`;
+        case "openssh":
+          // ssh-keygen rewrites a key file in its own format when it changes the passphrase.
+          return `cp ${src} ${out} && ssh-keygen -p -f ${out}`;
         default:
           return null;
       }
@@ -202,16 +231,25 @@ export function cliHint(converter: ConverterId, target: string, input?: string |
           return `openssl rsa -in ${src} -RSAPublicKey_out -out ${out}`;
         case "openssh":
           return `ssh-keygen -y -f ${src} > ${out}`;
+        case "ssh2":
+          return `ssh-keygen -e -m RFC4716 -f ${src} > ${out}`;
         default:
           return null;
       }
     }
     case "keystore": {
-      const [type, ext] = target === "JKS" ? ["JKS", "jks"] : target === "JCEKS" ? ["JCEKS", "jceks"] : ["PKCS12", "p12"];
-      return `keytool -importkeystore -srckeystore ${q(input || "source.jks")} -destkeystore ${q(output || `converted.${ext}`)} -deststoretype ${type}`;
+      const [type, ext] = target.includes(":") ? target.split(":") : [target, KEYSTORE_EXT[target] ?? "p12"];
+      const source = input || "source.jks";
+      const sourceType = keystoreTypeOf(source);
+      const bc = BOUNCY_CASTLE.includes(type) || BOUNCY_CASTLE.includes(sourceType ?? "");
+      return `keytool -importkeystore -srckeystore ${q(source)}${sourceType ? ` -srcstoretype ${sourceType}` : ""} -destkeystore ${q(output || `converted.${ext}`)} -deststoretype ${type}${bc ? BC_PROVIDER : ""}`;
+    }
+    case "truststore": {
+      const bc = BOUNCY_CASTLE.includes(target);
+      return `keytool -importcert -noprompt -trustcacerts -alias ca -file ${q(input || "ca.pem")} -keystore ${q(output || `truststore.${KEYSTORE_EXT[target] ?? "p12"}`)} -storetype ${target}${bc ? BC_PROVIDER : ""}`;
     }
     case "pkcs12":
-      return `openssl pkcs12 -export -inkey ${q(input || "key.pem")} -in certificate.pem -out ${q(output || "bundle.p12")}`;
+      return `openssl pkcs12 -export${target === "legacy" ? " -legacy" : ""} -inkey ${q(input || "key.pem")} -in certificate.pem -out ${q(output || "bundle.p12")}`;
     case "extract": {
       const [certs, keys] = target.split(":");
       const flags = [certs === "none" ? "-nocerts" : certs === "leaf" ? "-clcerts" : "", keys === "none" ? "-nokeys" : keys === "encrypted" ? "" : "-nodes"].filter(Boolean).join(" ");
