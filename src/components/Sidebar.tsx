@@ -271,7 +271,7 @@ export const Sidebar: React.FC<{ collapsed: boolean; onCollapse: () => void; onE
           ) : (
             <IconButton icon={PanelLeftClose} label="Collapse sidebar" onClick={onCollapse} className="!w-9 !h-9" data-testid="sidebar-collapse" />
           )}
-          <div inert={collapsed} className={clsx("flex flex-1 items-center justify-between transition-opacity duration-150", collapsed && "opacity-0")}>
+          <div inert={collapsed} className={clsx("flex flex-1 items-center justify-evenly transition-opacity duration-150", collapsed && "opacity-0")}>
             <IconButton
               icon={theme === "dark" ? Sun : Moon}
               label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
