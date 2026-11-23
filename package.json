@@ -40,6 +40,7 @@
     "vite": "^8.0.16",
     "vitest": "^3.2.7"
   },
+  "packageManager": "pnpm@9.15.5",
   "description": "Native keystore and X.509 certificate workbench (Tauri + Rust)",
   "license": "MIT"
 }

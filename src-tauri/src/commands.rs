@@ -912,6 +912,11 @@ pub fn run() {
             if std::env::var_os("KEYSTORE_STUDIO_E2E").is_some() {
                 start_e2e_bridge(app.handle().clone(), data_dir.clone());
             }
+            // Windows only: show just the app logo in the title bar, without the title text.
+            #[cfg(windows)]
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.set_title("");
+            }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
