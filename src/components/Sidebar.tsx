@@ -171,15 +171,15 @@ export const Sidebar: React.FC<{ collapsed: boolean; onCollapse: () => void; onE
         title={shortcutLabel(`${item.label} (Ctrl+${item.shortcut})${item.id === "vault" && vault.exists ? ` — ${vaultStatus}` : ""}`)}
         data-testid={`nav-${item.id}`}
         className={clsx(
-          "w-full h-8 rounded-control flex items-center text-[13px] transition cursor-pointer",
-          collapsed ? "justify-center px-0" : "px-2.5 gap-2.5",
+          "w-full h-8 rounded-control flex items-center text-[13px] transition cursor-pointer overflow-hidden px-3 gap-2.5",
           active ? "bg-surface-3 text-ink font-semibold" : "text-muted font-medium hover:bg-surface-2 hover:text-ink"
         )}
       >
         <Icon className={clsx("w-4 h-4 shrink-0", active ? "text-brand" : "text-subtle")} />
-        {!collapsed && (
-          <>
-            <span className="flex-1 text-left truncate">{item.label}</span>
+        {/* Always mounted: the sidebar's width clips these, so the icon never moves. */}
+        {(
+          <span aria-hidden={collapsed || undefined} className={clsx("flex-1 min-w-0 flex items-center gap-2.5 transition-opacity duration-150", collapsed && "opacity-0")}>
+            <span className="flex-1 text-left whitespace-nowrap overflow-hidden">{item.label}</span>
             {isConvert && (convertOpen ? <ChevronDown className="w-3.5 h-3.5 shrink-0 text-subtle" /> : <ChevronRight className="w-3.5 h-3.5 shrink-0 text-subtle" />)}
             {item.id === "keystores" && unsaved && <span className="w-1.5 h-1.5 rounded-full bg-warning-fill" title="Unsaved changes" />}
             {item.id === "vault" && vault.exists && (
@@ -190,7 +190,7 @@ export const Sidebar: React.FC<{ collapsed: boolean; onCollapse: () => void; onE
             {count && count.value > 0 && (
               <span className={clsx("min-w-5 h-5 px-1.5 rounded-full text-[11px] font-semibold tabular-nums flex items-center justify-center", count.tone === "danger" ? "bg-danger-tint text-danger" : "bg-surface-3 text-faint")}>{count.value}</span>
             )}
-          </>
+          </span>
         )}
       </button>
     );
@@ -224,8 +224,8 @@ export const Sidebar: React.FC<{ collapsed: boolean; onCollapse: () => void; onE
     );
 
   return (
-    <aside className={clsx("shrink-0 h-full flex flex-col bg-chrome border-r border-line transition-all duration-200 overflow-hidden", collapsed ? "w-[64px]" : "w-[240px]")}>
-      <div className={clsx("h-14 flex items-center shrink-0", collapsed ? "justify-center px-0" : "px-5 gap-2.5")}>
+    <aside className={clsx("shrink-0 h-full flex flex-col bg-chrome border-r border-line transition-[width] duration-200 ease-out overflow-hidden", collapsed ? "w-[64px]" : "w-[240px]")}>
+      <div className="h-14 flex items-center shrink-0 px-[18px] gap-2.5 overflow-hidden">
         <button onClick={() => setTab("home")} className="flex items-center gap-2.5 cursor-pointer min-w-0" aria-label="Keystore Studio dashboard" title="Keystore Studio">
           <img
             src="/icon.png"
@@ -237,14 +237,18 @@ export const Sidebar: React.FC<{ collapsed: boolean; onCollapse: () => void; onE
             alt="Keystore Studio"
             className="hidden w-7 h-7 rounded-control object-cover shadow-card shrink-0 dark:block"
           />
-          {!collapsed && <span className="font-semibold text-[15px] tracking-[-0.01em] text-ink truncate">Keystore Studio</span>}
+          <span aria-hidden={collapsed || undefined} className={clsx("font-semibold text-[15px] tracking-[-0.01em] text-ink whitespace-nowrap transition-opacity duration-150", collapsed && "opacity-0")}>Keystore Studio</span>
         </button>
       </div>
-      <nav className={clsx("shell-accent flex-1 min-h-0 overflow-y-auto pt-1 flex flex-col", collapsed ? "px-2" : "px-3")} aria-label="Primary">
+      <nav className={clsx("shell-accent flex-1 min-h-0 overflow-y-auto overflow-x-hidden pt-1 flex flex-col px-3")} aria-label="Primary">
         {NAV_GROUPS.map((g, i) => (
           <div key={i} className="shrink-0">
-            {i > 0 && <div className={clsx("my-3 border-t border-line", collapsed ? "mx-1" : "mx-2.5")} role="separator" />}
-            {g.label && !collapsed && <div className="px-2.5 mb-1.5 text-[11px] font-semibold uppercase tracking-[0.06em] text-faint">{g.label}</div>}
+            {i > 0 && <div className="my-3 border-t border-line mx-1" role="separator" />}
+            {g.label && (
+              <div className={clsx("grid transition-[grid-template-rows,opacity] duration-200", collapsed ? "grid-rows-[0fr] opacity-0" : "grid-rows-[1fr] opacity-100")} aria-hidden={collapsed || undefined}>
+                <div className="overflow-hidden"><div className="px-3 mb-1.5 text-[11px] font-semibold uppercase tracking-[0.06em] text-faint whitespace-nowrap">{g.label}</div></div>
+              </div>
+            )}
             <div className="space-y-0.5">
               {g.items.map((item) =>
                 item.id === "convert" ? (
@@ -260,34 +264,34 @@ export const Sidebar: React.FC<{ collapsed: boolean; onCollapse: () => void; onE
           </div>
         ))}
       </nav>
-      <div className="shell-accent shrink-0 px-3 pb-3">
+      <div className="shell-accent shrink-0 px-3.5 pb-3">
         <div className="w-1/2 mx-auto border-t border-line" role="separator" />
-        <div className={clsx("flex items-center pt-2", collapsed ? "justify-center" : "justify-between")}>
+        <div className="flex items-center pt-2 justify-between overflow-hidden">
           {collapsed ? (
             <IconButton icon={ChevronRight} label="Expand sidebar" onClick={onExpand} className="!w-9 !h-9" data-testid="sidebar-expand" />
           ) : (
-            <>
-              <IconButton icon={PanelLeftClose} label="Collapse sidebar" onClick={onCollapse} className="!w-9 !h-9" data-testid="sidebar-collapse" />
-              <IconButton
-                icon={theme === "dark" ? Sun : Moon}
-                label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
-                onClick={() => updateSettings({ theme: theme === "dark" ? "light" : "dark" })}
-                className="!w-9 !h-9"
-                data-testid="sidebar-theme"
-              />
-              <IconButton
-                icon={Wrench}
-                label="Tools"
-                onClick={() => {
-                  showSettingsSection("tools");
-                  setTab("settings");
-                }}
-                className="!w-9 !h-9"
-                data-testid="sidebar-tools"
-              />
-              <IconButton icon={TerminalSquare} label={shortcutLabel("Terminal (Ctrl+`)")} onClick={toggleTerminal} className="!w-9 !h-9" data-testid="sidebar-terminal" />
-            </>
+            <IconButton icon={PanelLeftClose} label="Collapse sidebar" onClick={onCollapse} className="!w-9 !h-9" data-testid="sidebar-collapse" />
           )}
+          <div inert={collapsed} className={clsx("flex flex-1 items-center justify-between transition-opacity duration-150", collapsed && "opacity-0")}>
+            <IconButton
+              icon={theme === "dark" ? Sun : Moon}
+              label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+              onClick={() => updateSettings({ theme: theme === "dark" ? "light" : "dark" })}
+              className="!w-9 !h-9"
+              data-testid="sidebar-theme"
+            />
+            <IconButton
+              icon={Wrench}
+              label="Tools"
+              onClick={() => {
+                showSettingsSection("tools");
+                setTab("settings");
+              }}
+              className="!w-9 !h-9"
+              data-testid="sidebar-tools"
+            />
+            <IconButton icon={TerminalSquare} label={shortcutLabel("Terminal (Ctrl+`)")} onClick={toggleTerminal} className="!w-9 !h-9" data-testid="sidebar-terminal" />
+          </div>
         </div>
       </div>
     </aside>
