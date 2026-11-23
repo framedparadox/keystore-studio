@@ -19,6 +19,7 @@ import { ScannerView } from "./views/ScannerView";
 import { VaultView } from "./views/VaultView";
 import { SettingsView } from "./views/SettingsView";
 import type { TabType } from "./types/crypto";
+import { api } from "./lib/api";
 
 /** Ctrl+1 … Ctrl+9, then Ctrl+0. Pages added later take the next free key, so older shortcuts keep their numbers. */
 const TAB_ORDER: TabType[] = ["home", "keystores", "workspaces", "examine", "ca_signing", "scanner", "vault", "settings", "convert", "certificates"];
@@ -93,10 +94,14 @@ const Shell: React.FC = () => {
     return () => window.removeEventListener("keydown", onKey);
   }, [store, toggle]);
 
+  const anyDirty = store.keystores.some((k) => k.dirty);
   useEffect(() => {
-    const dirty = store.keystores.some((k) => k.dirty);
-    document.title = `${dirty ? "• " : ""}Keystore Studio${store.activeKeystore && store.tab === "keystores" ? ` — ${store.activeKeystore.name}` : ""}`;
-  }, [store.keystores, store.activeKeystore, store.tab]);
+    document.title = `${anyDirty ? "• " : ""}Keystore Studio${store.activeKeystore && store.tab === "keystores" ? ` — ${store.activeKeystore.name}` : ""}`;
+  }, [anyDirty, store.activeKeystore, store.tab]);
+  // The native window shows no title (see commands.rs), so the unsaved mark goes to the OS cue instead.
+  useEffect(() => {
+    if (store.desktop) api.setDocumentEdited(anyDirty).catch(() => undefined);
+  }, [anyDirty, store.desktop]);
 
   if (!store.ready) {
     return (

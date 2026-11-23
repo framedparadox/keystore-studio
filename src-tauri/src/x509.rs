@@ -603,16 +603,14 @@ pub fn parse_instant(date: &str) -> Res<Option<i64>> {
     if t.is_empty() {
         return Ok(None);
     }
-    if let Ok(d) = chrono::NaiveDate::parse_from_str(t, "%Y-%m-%d") {
-        return Ok(Some(d.and_hms_opt(0, 0, 0).unwrap().and_utc().timestamp()));
+    if let Some(d) = parse_ymd(t) {
+        return Ok(Some(d.ts()));
     }
-    if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(t) {
-        return Ok(Some(dt.timestamp()));
+    if let Some(ts) = parse_rfc3339(t) {
+        return Ok(Some(ts));
     }
-    for fmt in ["%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M", "%Y-%m-%d %H:%M:%S"] {
-        if let Ok(dt) = chrono::NaiveDateTime::parse_from_str(t, fmt) {
-            return Ok(Some(dt.and_utc().timestamp()));
-        }
+    if let Some(dt) = parse_naive_datetime(t) {
+        return Ok(Some(dt.ts()));
     }
     Err(format!("'{date}' is not a YYYY-MM-DD date or a UTC timestamp"))
 }
@@ -945,7 +943,6 @@ pub fn parse_certificate(der: &[u8]) -> Res<CertificateInfo> {
         curve: pk.curve,
         sha256_fingerprint: colon_hex(&sha256(der)),
         sha1_fingerprint: colon_hex(&sha1(der)),
-        md5_fingerprint: String::new(),
         spki_sha256: colon_hex(&sha256(spki)),
         pem: to_pem("CERTIFICATE", der),
         ..Default::default()
@@ -1254,7 +1251,7 @@ pub fn parse_crl(der: &[u8], issuer_spki: Option<&[u8]>) -> Res<CrlInfo> {
         .iter_revoked_certificates()
         .map(|r| RevokedCertEntry {
             serial_number: upper_hex(r.raw_serial()),
-            revocation_date: ts_to_datetime(r.revocation_date.timestamp()).format("%Y-%m-%dT%H:%M:%SZ").to_string(),
+            revocation_date: fmt_rfc3339z(r.revocation_date.timestamp()),
             reason: r.reason_code().map(|(_, c)| reason_name(c.0).to_string()).unwrap_or_else(|| "unspecified".into()),
         })
         .collect();
@@ -1402,9 +1399,16 @@ fn check_name_constraints(parent_der: &[u8], parent_subject: &str, child_info: &
 /// An empty list means a path was built and the checks below passed.
 /// Name constraints are applied to DNS and IP names on the leaf. Revocation is not fetched.
 pub fn validate_chain(leaf: &[u8], intermediates: &[Vec<u8>], anchors: &[Vec<u8>], hostname: Option<&str>) -> Vec<String> {
+    validate_chain_path(leaf, intermediates, anchors, hostname).0
+}
+
+/// [`validate_chain`], plus the path it built: the leaf first, then each issuer it found (ending
+/// with the trust anchor when one was reached). Revocation checking walks this path.
+pub fn validate_chain_path(leaf: &[u8], intermediates: &[Vec<u8>], anchors: &[Vec<u8>], hostname: Option<&str>) -> (Vec<String>, Vec<Vec<u8>>) {
     let mut problems = Vec::new();
+    let mut path = vec![leaf.to_vec()];
     let Ok(leaf_info) = parse_certificate(leaf) else {
-        return vec!["the certificate could not be parsed".into()];
+        return (vec!["the certificate could not be parsed".into()], path);
     };
     let now = now_ts();
     if leaf_info.not_before > now {
@@ -1473,6 +1477,7 @@ pub fn validate_chain(leaf: &[u8], intermediates: &[Vec<u8>], anchors: &[Vec<u8>
             ca_certs_below += 1;
         }
         current = parent.to_vec();
+        path.push(current.clone());
         if parent_info.self_signed {
             break;
         }
@@ -1480,7 +1485,7 @@ pub fn validate_chain(leaf: &[u8], intermediates: &[Vec<u8>], anchors: &[Vec<u8>
     if !reached {
         problems.push("the chain does not reach one of the supplied trust anchors".into());
     }
-    problems
+    (problems, path)
 }
 
 #[cfg(test)]

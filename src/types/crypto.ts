@@ -53,7 +53,6 @@ export interface CertificateInfo {
   authority_key_id?: string | null;
   sha256_fingerprint: string;
   sha1_fingerprint: string;
-  md5_fingerprint: string;
   /** SHA-256 of the subjectPublicKeyInfo, for pinning. */
   spki_sha256?: string;
   crl_distribution_points?: string[];

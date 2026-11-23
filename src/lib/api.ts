@@ -57,7 +57,6 @@ export function errorMessage(err: unknown): string {
   const match = new RegExp(`^(${ERROR_KINDS.join("|")}):\\s*`, "i").exec(raw);
   const text = match ? raw.slice(match[0].length) : raw;
   if (typeof err === "string" || err instanceof Error) return text ? text.charAt(0).toUpperCase() + text.slice(1) : "Something went wrong.";
-  if (err instanceof Error) return err.message;
   try {
     return JSON.stringify(err);
   } catch {
@@ -145,8 +144,9 @@ export const api = {
   readCrl: (data: DataSource) => call<CrlInfo>("read_crl", { data }),
   ledgerSearch: (query: string) => call<{ serial: string; subject: string; ski: string; not_after: string; profile: string; issuer_ski: string }[]>("ledger_search", { query }),
   ledgerDelete: (serial: string) => call<void>("ledger_delete", { serial }),
-  validateChain: (leafPem: string, intermediatesPem: string, anchorsPem: string, hostname?: string | null) =>
-    call<string[]>("validate_chain", { leafPem, intermediatesPem, anchorsPem, hostname: hostname ?? null }),
+  /** Problems with the chain, none when it is trusted. `checkRevocation` asks OCSP responders / CRL servers online. */
+  validateChain: (leafPem: string, intermediatesPem: string, anchorsPem: string, hostname?: string | null, checkRevocation = false) =>
+    call<string[]>("validate_chain", { leafPem, intermediatesPem, anchorsPem, hostname: hostname ?? null, checkRevocation }),
   /** The OS trust store as PEM, for validateChain against the same roots examineTls trusts. */
   systemTrustAnchors: () => call<string>("system_trust_anchors"),
   /** Live revocation check (RFC 6960). `url` defaults to the subject certificate's own OCSP URL when omitted. */
@@ -187,7 +187,12 @@ export const api = {
     call<TerminalOutput>("run_terminal_command", { command, cwd: cwd ?? null, timeoutSecs }),
 
   toolStatus: () => call<ToolStatus[]>("tool_status"),
+  /** The native unsaved-changes cue (macOS: the dot in the close button). */
+  setDocumentEdited: (edited: boolean) => call<void>("set_document_edited", { edited }),
 };
+
+/** Shortest master key for a new vault or a master key change; mirrors vault.rs MIN_MASTER_KEY_LEN. */
+export const MIN_MASTER_KEY_LEN = 12;
 
 /** Vault id under which a keystore's password is remembered. */
 export const passwordSecretId = (path: string) => `keystore:${path}`;

@@ -171,7 +171,7 @@ pub fn encode(entries: &[KeystoreEntry], password: &str, format: Format) -> Res<
 
 fn file_timestamps(path: &Path) -> (String, String) {
     let meta = std::fs::metadata(path).ok();
-    let fmt = |t: Option<std::time::SystemTime>| t.map(|t| chrono::DateTime::<chrono::Utc>::from(t).format("%Y-%m-%d %H:%M").to_string()).unwrap_or_default();
+    let fmt = |t: Option<std::time::SystemTime>| t.map(|t| crate::util::fmt_minute(crate::util::system_time_ts(t))).unwrap_or_default();
     (fmt(meta.as_ref().and_then(|m| m.created().ok())), fmt(meta.as_ref().and_then(|m| m.modified().ok())))
 }
 

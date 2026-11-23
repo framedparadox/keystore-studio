@@ -9,7 +9,7 @@ version = 2
 yanked = "deny"
 
 # Advisories accepted for now. Each needs a reason this app is not exploitable and a plan; an
-# empty list is the goal. Verified against `cargo deny check advisories` on 2026-11-06.
+# empty list is the goal. Verified against `cargo deny check advisories` on 2026-11-23 (zip 9 and url 2.5.9 cleared the zip and url advisories; chrono was replaced by util::Civil).
 ignore = [
   # crypto-bigint 0.5.5: secret-dependent branches in operations meant to be constant-time.
   # This one is real rather than theoretical — crypto-bigint underlies ECDSA on P-256/384/521, so
@@ -25,16 +25,6 @@ ignore = [
   # verifies, never decrypts attacker-supplied ciphertext, so there is no oracle to query. No fixed
   # release of the rsa crate exists; revisit when 0.10 ships.
   { id = "RUSTSEC-2023-0071", reason = "RSA decryption oracle; this app only signs and verifies, and is a local tool" },
-
-  # zip 2.6: four advisories, all in ZipArchive::extract / ZipStreamReader::extract — unpacking an
-  # archive to disk, where a malicious entry can escape the destination via a symlink, preserve
-  # setuid bits, or abort the process. Keystore Studio never extracts: JAR signing reads entries into
-  # memory and rewrites them into a new archive, so these functions are unreachable (verified: no
-  # `.extract(` call anywhere in src/ or tests/).
-  { id = "RUSTSEC-2026-0367", reason = "extract() unused: JARs are read and rewritten, never unpacked to disk" },
-  { id = "RUSTSEC-2026-0368", reason = "extract() unused: JARs are read and rewritten, never unpacked to disk" },
-  { id = "RUSTSEC-2026-0369", reason = "extract() unused: JARs are read and rewritten, never unpacked to disk" },
-  { id = "RUSTSEC-2026-0429", reason = "extract() unused: JARs are read and rewritten, never unpacked to disk" },
 
   # Unmaintained transitive dependencies pulled in by Tauri, not chosen here and not reachable from
   # the engine. They disappear when Tauri updates them.

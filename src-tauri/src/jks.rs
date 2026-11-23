@@ -279,7 +279,7 @@ fn write_cert(buf: &mut Vec<u8>, der: &[u8]) -> Res<()> {
 }
 
 fn entry_millis(entry: &KeystoreEntry) -> i64 {
-    chrono::NaiveDate::parse_from_str(&entry.creation_date, "%Y-%m-%d").map(|d| d.and_hms_opt(0, 0, 0).unwrap().and_utc().timestamp_millis()).unwrap_or_else(|_| chrono::Utc::now().timestamp_millis())
+    crate::util::parse_ymd(&entry.creation_date).map(|d| d.ts() * 1000).unwrap_or_else(crate::util::now_millis)
 }
 
 pub fn encode(entries: &[KeystoreEntry], password: &str, kind: Kind) -> Res<Vec<u8>> {

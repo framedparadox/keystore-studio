@@ -149,7 +149,9 @@ export const Sidebar: React.FC<{ collapsed: boolean; onCollapse: () => void; onE
     scanner: { value: atRisk, tone: "danger" },
   };
 
-  const NavButton: React.FC<{ item: NavItem }> = ({ item }) => {
+  // Render functions, not components: a component declared in here would be a new type on every
+  // render, so React would remount each button, dropping keyboard focus and skipping the collapse fade.
+  const navButton = (item: NavItem) => {
     const isConvert = item.id === "convert";
     // With the conversions listed underneath, the open one is highlighted instead of the parent.
     const active = tab === item.id && !(isConvert && convertMode && convertOpen && !collapsed);
@@ -167,7 +169,10 @@ export const Sidebar: React.FC<{ collapsed: boolean; onCollapse: () => void; onE
         }}
         aria-current={active ? "page" : undefined}
         aria-expanded={isConvert && !collapsed ? convertOpen : undefined}
-        aria-label={item.id === "vault" && collapsed && vault.exists ? vaultStatus : undefined}
+        // Collapsed, the visible label is hidden, so the button is named here (not by its tooltip,
+        // which carries the shortcut text); the shortcut itself is announced from aria-keyshortcuts.
+        aria-label={collapsed ? (item.id === "vault" && vault.exists ? `Vault, ${vault.unlocked ? "unlocked" : "locked"}` : item.label) : undefined}
+        aria-keyshortcuts={`Control+${item.shortcut}`}
         title={shortcutLabel(`${item.label} (Ctrl+${item.shortcut})${item.id === "vault" && vault.exists ? ` — ${vaultStatus}` : ""}`)}
         data-testid={`nav-${item.id}`}
         className={clsx(
@@ -177,8 +182,7 @@ export const Sidebar: React.FC<{ collapsed: boolean; onCollapse: () => void; onE
       >
         <Icon className={clsx("w-4 h-4 shrink-0", active ? "text-brand" : "text-subtle")} />
         {/* Always mounted: the sidebar's width clips these, so the icon never moves. */}
-        {(
-          <span aria-hidden={collapsed || undefined} className={clsx("flex-1 min-w-0 flex items-center gap-2.5 transition-opacity duration-150", collapsed && "opacity-0")}>
+        <span aria-hidden={collapsed || undefined} className={clsx("flex-1 min-w-0 flex items-center gap-2.5 transition-opacity duration-150", collapsed && "opacity-0")}>
             <span className="flex-1 text-left whitespace-nowrap overflow-hidden">{item.label}</span>
             {isConvert && (convertOpen ? <ChevronDown className="w-3.5 h-3.5 shrink-0 text-subtle" /> : <ChevronRight className="w-3.5 h-3.5 shrink-0 text-subtle" />)}
             {item.id === "keystores" && unsaved && <span className="w-1.5 h-1.5 rounded-full bg-warning-fill" title="Unsaved changes" />}
@@ -190,14 +194,13 @@ export const Sidebar: React.FC<{ collapsed: boolean; onCollapse: () => void; onE
             {count && count.value > 0 && (
               <span className={clsx("min-w-5 h-5 px-1.5 rounded-full text-[11px] font-semibold tabular-nums flex items-center justify-center", count.tone === "danger" ? "bg-danger-tint text-danger" : "bg-surface-3 text-faint")}>{count.value}</span>
             )}
-          </span>
-        )}
+        </span>
       </button>
     );
   };
 
   /** The conversions, listed under Convert so each one is a click away. */
-  const ConvertItems: React.FC = () =>
+  const convertItems = () =>
     collapsed || !convertOpen ? null : (
       <div className="mt-0.5 mb-1 ml-[18px] pl-2 border-l border-line space-y-0.5" role="group" aria-label="Conversions">
         {CONVERTERS.map((c) => {
@@ -250,16 +253,12 @@ export const Sidebar: React.FC<{ collapsed: boolean; onCollapse: () => void; onE
               </div>
             )}
             <div className="space-y-0.5">
-              {g.items.map((item) =>
-                item.id === "convert" ? (
-                  <React.Fragment key={item.id}>
-                    <NavButton item={item} />
-                    <ConvertItems />
-                  </React.Fragment>
-                ) : (
-                  <NavButton key={item.id} item={item} />
-                )
-              )}
+              {g.items.map((item) => (
+                <React.Fragment key={item.id}>
+                  {navButton(item)}
+                  {item.id === "convert" && convertItems()}
+                </React.Fragment>
+              ))}
             </div>
           </div>
         ))}

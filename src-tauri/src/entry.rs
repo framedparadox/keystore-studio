@@ -202,20 +202,22 @@ pub fn chain_der(entry: &KeystoreEntry) -> Res<Vec<Vec<u8>>> {
     entry.certificate_chain.iter().map(|c| pem::parse(c.pem.as_bytes()).map(|p| p.contents().to_vec()).map_err(|err| format!("entry '{}': invalid certificate PEM: {err}", entry.alias))).collect()
 }
 
-pub fn private_key_der(entry: &KeystoreEntry) -> Res<Vec<u8>> {
+/// The entry's PKCS#8 DER, wiped from memory when dropped.
+pub fn private_key_der(entry: &KeystoreEntry) -> Res<zeroize::Zeroizing<Vec<u8>>> {
     let pem_text = entry
         .private_key_pem
         .as_deref()
         .ok_or_else(|| if entry.locked { format!("the private key of '{}' is locked by a separate key password", entry.alias) } else { format!("'{}' has no private key", entry.alias) })?;
     let parsed = pem::parse(pem_text.as_bytes()).map_err(|err| format!("entry '{}': invalid private key PEM: {err}", entry.alias))?;
-    Ok(parsed.contents().to_vec())
+    Ok(zeroize::Zeroizing::new(parsed.into_contents()))
 }
 
 pub fn private_key(entry: &KeystoreEntry) -> Res<PrivateKey> {
     PrivateKey::from_pkcs8_der(&private_key_der(entry)?)
 }
 
-pub fn secret_bytes(entry: &KeystoreEntry) -> Res<Vec<u8>> {
+/// The secret key bytes, wiped from memory when dropped.
+pub fn secret_bytes(entry: &KeystoreEntry) -> Res<zeroize::Zeroizing<Vec<u8>>> {
     let hex_str = entry.secret_key_hex.as_deref().ok_or_else(|| format!("'{}' has no secret key material", entry.alias))?;
-    hex::decode(hex_str.replace([':', ' '], "")).map_err(|_| format!("entry '{}': invalid secret key hex", entry.alias))
+    hex::decode(hex_str.replace([':', ' '], "")).map(zeroize::Zeroizing::new).map_err(|_| format!("entry '{}': invalid secret key hex", entry.alias))
 }

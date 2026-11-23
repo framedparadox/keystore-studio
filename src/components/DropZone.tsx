@@ -52,7 +52,11 @@ export const DropZone: React.FC<{ onClick: () => void; className?: string }> = (
     role="button"
     tabIndex={0}
     onClick={onClick}
-    onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && onClick()}
+    onKeyDown={(e) => {
+      if (e.key !== "Enter" && e.key !== " ") return;
+      e.preventDefault(); // Space would otherwise scroll the page as well.
+      onClick();
+    }}
     data-testid="dropzone"
     className={clsx(
       "rounded-card border border-dashed px-5 py-6 flex flex-col items-center justify-center text-center transition cursor-pointer border-line-strong bg-surface-2 hover:border-brand hover:bg-brand-tint/60",

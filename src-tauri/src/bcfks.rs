@@ -426,14 +426,13 @@ fn time_der(text: &str) -> Vec<u8> {
 
 /// The time Bouncy Castle writes: to the second, in UTC.
 fn time_of(seconds: i64) -> Vec<u8> {
-    let t = chrono::DateTime::<chrono::Utc>::from_timestamp(seconds, 0).unwrap_or_else(chrono::Utc::now);
-    time_der(&t.format("%Y%m%d%H%M%SZ").to_string())
+    time_der(&format!("{}Z", crate::util::Civil::from_ts(seconds).compact()))
 }
 
 fn seconds_of(der: &[u8]) -> Option<i64> {
     let text = std::str::from_utf8(der.get(2..)?).ok()?;
     let digits = text.get(..14)?;
-    chrono::NaiveDateTime::parse_from_str(digits, "%Y%m%d%H%M%S").ok().map(|t| t.and_utc().timestamp())
+    crate::util::parse_compact(digits).map(|t| t.ts())
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -669,7 +668,7 @@ fn write_store(store: &StoreData, encryption: Option<&Pbes2Params>, mac_alg: &Al
 }
 
 fn entry_seconds(e: &KeystoreEntry) -> i64 {
-    chrono::NaiveDate::parse_from_str(&e.creation_date, "%Y-%m-%d").map(|d| d.and_hms_opt(0, 0, 0).unwrap().and_utc().timestamp()).unwrap_or_else(|_| now_ts())
+    crate::util::parse_ymd(&e.creation_date).map(|d| d.ts()).unwrap_or_else(now_ts)
 }
 
 fn object_of(e: &KeystoreEntry, password: &str) -> Res<RawObject> {

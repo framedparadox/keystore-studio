@@ -127,20 +127,26 @@ fn secret_algorithm_oid(name: &str) -> Res<&'static [u64]> {
     })
 }
 
+/// Moves the key out of its wiping buffer without copying it: the bytes become the entry's key,
+/// so they live on in the entry rather than in a second, unwiped copy.
+fn take_plain(mut plain: zeroize::Zeroizing<Vec<u8>>) -> Vec<u8> {
+    std::mem::take(&mut *plain)
+}
+
 fn decrypt_bag(encrypted: &[u8], password: &str, key_passwords: &std::collections::HashMap<String, String>, attrs: &Attrs) -> Option<(Vec<u8>, Option<String>)> {
     if let Some(name) = attrs.friendly_name.as_deref()
         && let Some(kp) = key_passwords.get(name).or_else(|| key_passwords.iter().find(|(k, _)| k.eq_ignore_ascii_case(name)).map(|(_, v)| v)).map(String::as_str).filter(|p| !p.is_empty())
         && let Ok(plain) = pbe::decrypt_pkcs8(kp, encrypted)
     {
         let diff = if kp != password { Some(kp.to_string()) } else { None };
-        return Some((plain, diff));
+        return Some((take_plain(plain), diff));
     }
     for kp in key_passwords.values().map(String::as_str).filter(|p| !p.is_empty() && *p != password) {
         if let Ok(plain) = pbe::decrypt_pkcs8(kp, encrypted) {
-            return Some((plain, Some(kp.to_string())));
+            return Some((take_plain(plain), Some(kp.to_string())));
         }
     }
-    pbe::decrypt_pkcs8(password, encrypted).ok().map(|plain| (plain, None))
+    pbe::decrypt_pkcs8(password, encrypted).ok().map(|plain| (take_plain(plain), None))
 }
 
 fn collect_bags(bags: Vec<RawBag>, password: &str, key_passwords: &std::collections::HashMap<String, String>, mac_verified: bool, out: &mut Collected, depth: usize) -> Res<()> {

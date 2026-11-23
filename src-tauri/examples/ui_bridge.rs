@@ -219,8 +219,14 @@ fn handle(cmd: &str, args: &serde_json::Value) -> Result<serde_json::Value, Stri
             };
             let leaf = pems("leafPem")?.into_iter().next().ok_or("no leaf certificate")?;
             let hostname = args.get("hostname").and_then(|v| v.as_str());
-            to_json(keystore_studio_lib::x509::validate_chain(&leaf, &pems("intermediatesPem")?, &pems("anchorsPem")?, hostname))
+            let (mut problems, path) = keystore_studio_lib::x509::validate_chain_path(&leaf, &pems("intermediatesPem")?, &pems("anchorsPem")?, hostname);
+            if args.get("checkRevocation").and_then(|v| v.as_bool()).unwrap_or(false) && problems.is_empty() {
+                problems.extend(keystore_studio_lib::revocation::check_path(&path, &keystore_studio_lib::revocation::network()));
+            }
+            to_json(problems)
         }
+        // A browser has no native window to mark.
+        "set_document_edited" => to_json(()),
         "system_trust_anchors" => to_json(keystore_studio_lib::tls::system_trust_anchors_pem()),
         "check_ocsp" => {
             let subject = keystore_studio_lib::x509::certificates_from_bytes(s("subjectPem").as_bytes())?.into_iter().next().ok_or("no subject certificate")?;

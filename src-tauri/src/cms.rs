@@ -296,8 +296,7 @@ fn parse_time_der(der: &[u8]) -> Option<String> {
     } else {
         body.to_string()
     };
-    let dt = chrono::NaiveDateTime::parse_from_str(full.trim_end_matches('Z'), "%Y%m%d%H%M%S").ok()?;
-    Some(dt.format("%Y-%m-%d %H:%M:%S UTC").to_string())
+    Some(crate::util::parse_compact(full.trim_end_matches('Z'))?.display())
 }
 
 /// Reads the RFC 3161 token from a signer's unsigned attributes, if it carries one, and checks it
@@ -449,9 +448,8 @@ pub fn verify_with_trust(cms_der: &[u8], detached_content: Option<&[u8]>, extra_
             } else if info.signature_valid && now > cert_info.not_after {
                 let covered_by_ts = info.timestamp.as_ref().is_some_and(|ts| {
                     ts.valid
-                        && chrono::NaiveDateTime::parse_from_str(ts.time.trim_end_matches(" UTC"), "%Y-%m-%d %H:%M:%S")
-                            .ok()
-                            .map(|dt| dt.and_utc().timestamp())
+                        && crate::util::parse_naive_datetime(ts.time.trim_end_matches(" UTC"))
+                            .map(|dt| dt.ts())
                             .is_some_and(|t| t >= cert_info.not_before && t <= cert_info.not_after)
                 });
                 if !covered_by_ts {

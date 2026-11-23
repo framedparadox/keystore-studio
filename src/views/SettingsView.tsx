@@ -318,8 +318,10 @@ export const SettingsView: React.FC = () => {
               />
             </Card>
             <Card className="space-y-4 self-stretch">
-              <CardHeader title="Vault" subtitle="When the encrypted vault locks itself." icon={Clock} />
-              <Select label="Lock the vault after inactivity" value={settings.autoLockMinutes} onChange={(e) => updateSettings({ autoLockMinutes: Number(e.target.value) })}>
+              <CardHeader title="Auto-lock" subtitle="When the vault and unlocked key pairs lock themselves." icon={Clock} />
+              <Select
+                label="Lock the vault and unlocked keys after inactivity"
+                hint="Key pairs unlocked this session need their key password again afterwards." value={settings.autoLockMinutes} onChange={(e) => updateSettings({ autoLockMinutes: Number(e.target.value) })}>
                 {[5, 15, 30, 60, 240].map((m) => (
                   <option key={m} value={m}>
                     {m} minutes

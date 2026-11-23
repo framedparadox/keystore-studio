@@ -23,6 +23,10 @@ const MARKER: &str = "__XKS_CWD__";
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 const MAX_OUTPUT: usize = 512 * 1024;
+/// The last bytes of stdout, kept even past `MAX_OUTPUT`: the wrapper's working-directory (and on
+/// Windows exit status) trailer is printed last, so a command with long output would otherwise
+/// lose it, and a `cd` in that command would be forgotten.
+const TAIL_KEEP: usize = 8 * 1024;
 /// How long to keep reading output after the shell has exited. A command left running in the
 /// background (`server &`) keeps the pipes open; its later output is not waited for.
 const DRAIN_GRACE: Duration = Duration::from_millis(1500);
@@ -41,6 +45,8 @@ pub struct TerminalOutput {
 #[derive(Default)]
 struct Captured {
     bytes: Vec<u8>,
+    /// Up to `TAIL_KEEP` bytes that arrived after `bytes` filled up.
+    tail: Vec<u8>,
     truncated: bool,
     done: bool,
 }
@@ -60,9 +66,11 @@ fn read_capped<R: Read + Send + 'static>(mut r: R) -> Arc<Mutex<Captured>> {
                 out.bytes.extend_from_slice(&buf[..n.min(room)]);
                 if n > room {
                     out.truncated = true;
+                    keep_tail(&mut out.tail, &buf[room..n]);
                 }
             } else {
                 out.truncated = true;
+                keep_tail(&mut out.tail, &buf[..n]);
             }
         }
         if let Ok(mut out) = sink.lock() {
@@ -70,6 +78,13 @@ fn read_capped<R: Read + Send + 'static>(mut r: R) -> Arc<Mutex<Captured>> {
         }
     });
     shared
+}
+
+fn keep_tail(tail: &mut Vec<u8>, more: &[u8]) {
+    tail.extend_from_slice(more);
+    if tail.len() > TAIL_KEEP {
+        tail.drain(..tail.len() - TAIL_KEEP);
+    }
 }
 
 /// Waits until both readers reached end of file, or until `deadline`.
@@ -82,8 +97,8 @@ fn drain(readers: [&Arc<Mutex<Captured>>; 2], deadline: Instant) {
     }
 }
 
-fn take(r: &Arc<Mutex<Captured>>) -> (Vec<u8>, bool) {
-    r.lock().map(|mut c| (std::mem::take(&mut c.bytes), c.truncated)).unwrap_or_default()
+fn take(r: &Arc<Mutex<Captured>>) -> (Vec<u8>, Vec<u8>, bool) {
+    r.lock().map(|mut c| (std::mem::take(&mut c.bytes), std::mem::take(&mut c.tail), c.truncated)).unwrap_or_default()
 }
 
 /// Stops the command and everything it started.
@@ -210,11 +225,16 @@ pub fn run(command: &str, cwd: Option<String>, timeout_secs: u64) -> Res<Termina
         }
     };
     drain([&out, &err], Instant::now() + DRAIN_GRACE);
-    let (stdout_bytes, out_trunc) = take(&out);
-    let (stderr_bytes, err_trunc) = take(&err);
+    let (stdout_bytes, stdout_overflow, out_trunc) = take(&out);
+    let (stderr_bytes, _, err_trunc) = take(&err);
 
     let mut stdout = String::from_utf8_lossy(&stdout_bytes).to_string();
-    let tail = split_tail(&mut stdout, cfg!(windows));
+    let mut tail = split_tail(&mut stdout, cfg!(windows));
+    if tail.cwd.is_none() && !stdout_overflow.is_empty() {
+        // The trailer was past the cap: read it from the overflow, whose text is not shown.
+        let mut overflow = String::from_utf8_lossy(&stdout_overflow).to_string();
+        tail = split_tail(&mut overflow, cfg!(windows));
+    }
     let new_cwd = tail.cwd.unwrap_or(start_dir);
     let mut stderr = String::from_utf8_lossy(&stderr_bytes).to_string();
     if timed_out {
@@ -272,6 +292,15 @@ mod tests {
         let r = run("head -c 600000 /dev/zero | tr '\\0' a", None, 20).unwrap();
         assert!(r.truncated);
         assert_eq!(r.stdout.len(), MAX_OUTPUT);
+    }
+
+    #[test]
+    fn a_cd_is_kept_when_the_output_is_capped() {
+        let r = run("cd /tmp && head -c 600000 /dev/zero | tr '\\0' a; false", Some("/".into()), 20).unwrap();
+        assert!(r.truncated);
+        assert_eq!(r.cwd, "/tmp");
+        assert_eq!(r.code, 1);
+        assert!(!r.stdout.contains(MARKER));
     }
 }
 

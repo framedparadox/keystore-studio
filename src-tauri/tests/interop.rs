@@ -606,7 +606,17 @@ fn signed_jars_verify_with_jarsigner() {
         jar::sign_jar(out.to_str().unwrap(), again.to_str().unwrap(), e).unwrap();
         let v = must(d.path(), "jarsigner", &["-verify", again.to_str().unwrap()]);
         assert!(v.contains("jar verified"), "{v}");
+        assert!(!d.path().join(format!("resigned-{}.jar.xks-tmp", e.alias)).exists(), "the temp file must be renamed away");
     }
+    // A failed write removes its temp file instead of leaving it beside the output.
+    let missing_dir = d.path().join("no-such-dir").join("out.jar");
+    assert!(jar::sign_jar(jar_path.to_str().unwrap(), missing_dir.to_str().unwrap(), &p.rsa).is_err());
+    // A missing input is reported as missing, not as "same file as the output".
+    let gone = d.path().join("gone.jar");
+    let err = jar::sign_jar(gone.to_str().unwrap(), d.path().join("gone-out.jar").to_str().unwrap(), &p.rsa).unwrap_err();
+    assert!(err.contains("cannot open"), "{err}");
+    // Signing in place is refused: the original is never modified.
+    assert!(jar::sign_jar(jar_path.to_str().unwrap(), jar_path.to_str().unwrap(), &p.rsa).is_err());
 }
 
 /// A minimal RFC 3161 HTTP timestamp authority backed by `openssl ts -reply`, so timestamping can

@@ -948,7 +948,11 @@ const Overview: React.FC = () => {
           const spanMd = last && CONVERTERS.length % 2 === 1;
           const spanXl = last && CONVERTERS.length % 3 === 1;
           return (
-            <Card key={c.id} interactive onClick={() => openConverter(c.id)} data-testid={`convert-tile-${c.id}`} className={clsx("flex flex-col gap-3", spanMd && "md:col-span-2", spanXl && "xl:col-span-3 xl:flex-row xl:items-center xl:gap-8")} role="button" tabIndex={0} onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && openConverter(c.id)}>
+            <Card key={c.id} interactive onClick={() => openConverter(c.id)} data-testid={`convert-tile-${c.id}`} className={clsx("flex flex-col gap-3", spanMd && "md:col-span-2", spanXl && "xl:col-span-3 xl:flex-row xl:items-center xl:gap-8")} role="button" tabIndex={0} onKeyDown={(e) => {
+              if (e.key !== "Enter" && e.key !== " ") return;
+              e.preventDefault(); // Space would also scroll the page.
+              openConverter(c.id);
+            }}>
               <div className={clsx("flex items-start gap-3", spanXl && "xl:flex-1")}>
                 <span className="w-9 h-9 rounded-card bg-brand-tint text-brand flex items-center justify-center shrink-0">
                   <Icon className="w-[18px] h-[18px]" />

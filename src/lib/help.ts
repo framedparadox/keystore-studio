@@ -86,7 +86,7 @@ export const HELP_GROUPS: HelpGroup[] = [
         question: "What does the vault do?",
         answer: [
           "The vault remembers keystore passwords so you do not have to type them again. They are encrypted with AES-256-GCM under a key derived from your master key with Argon2id. The master key itself is never written to disk.",
-          "The vault locks itself after a period of inactivity, which you can change under Settings → Security.",
+          "The vault, and any key pairs unlocked this session, lock themselves after a period of inactivity, which you can change under Settings → Security.",
         ],
         link: { label: "Open the vault", tab: "vault" },
       },

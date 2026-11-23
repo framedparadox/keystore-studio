@@ -949,7 +949,7 @@ async function run() {
       const btn = [...document.querySelectorAll('[data-testid="diff-dialog"] button')].pop();
       const r = btn.getBoundingClientRect();
       const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
-      const toasts = document.querySelector('[aria-live="polite"]');
+      const toasts = document.querySelector('[role="region"][aria-label="Notifications"]');
       return { onTop: btn.contains(hit), toastZ: getComputedStyle(toasts).zIndex };`);
     if (!covered.onTop) throw new Error("something covers the dialog's footer button");
     if (Number(covered.toastZ) >= 50) throw new Error(`toasts (z-index ${covered.toastZ}) are above dialogs`);

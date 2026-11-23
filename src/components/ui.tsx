@@ -1109,7 +1109,10 @@ export const ToastProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           open after an action show the outcome inline instead. */}
       <div
         className="fixed bottom-5 right-5 z-[45] flex flex-col gap-2 w-[min(420px,calc(100vw-40px))]"
-        aria-live="polite"
+        // Not a live region itself: each toast is one (status, or alert for errors). A live region
+        // around them made screen readers announce every toast twice.
+        role="region"
+        aria-label="Notifications"
         onMouseEnter={pause}
         onMouseLeave={resume}
         onFocus={pause}

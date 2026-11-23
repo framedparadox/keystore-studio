@@ -96,16 +96,20 @@ rustls-native-certs = "0.8"
 ureq = { version = "3.5.1", default-features = false, features = ["rustls"] }
 
 # JAR signing
-zip = { version = "2", default-features = false, features = ["deflate"] }
+zip = { version = "9", default-features = false, features = ["deflate"] }
 
 dirs = "6"
-chrono = { version = "0.4", features = ["serde"] }
 uuid = { version = "1", features = ["v4"] }
 
 # The built-in terminal kills a timed-out command's whole process group (killpg). Already in the
 # dependency tree through Tauri and ring; listed so the engine can call it directly.
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
+
+# The unsaved-changes dot in the window's close button (NSWindow.documentEdited). Tauri already
+# links objc2 on macOS; this only names it.
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
 
 [dev-dependencies]
 tempfile = "3"

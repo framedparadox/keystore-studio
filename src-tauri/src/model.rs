@@ -41,7 +41,6 @@ pub struct CertificateInfo {
     pub authority_key_id: Option<String>,
     pub sha256_fingerprint: String,
     pub sha1_fingerprint: String,
-    pub md5_fingerprint: String,
     /// SHA-256 of the subjectPublicKeyInfo. This is the value operators pin.
     #[serde(default)]
     pub spki_sha256: String,

@@ -78,7 +78,6 @@ function entry(alias: string, opts: Partial<KeystoreEntry> & { daysLeft?: number
             extensions: [],
             sha256_fingerprint: "",
             sha1_fingerprint: "",
-            md5_fingerprint: "",
             pem: "",
           },
         ];

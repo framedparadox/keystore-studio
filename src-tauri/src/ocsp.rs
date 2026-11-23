@@ -137,8 +137,7 @@ fn parse_generalized_time(body: &[u8]) -> Option<String> {
     let text = std::str::from_utf8(body).ok()?;
     let trimmed = text.trim_end_matches('Z');
     let whole = trimmed.split('.').next()?;
-    let dt = chrono::NaiveDateTime::parse_from_str(whole, "%Y%m%d%H%M%S").ok()?;
-    Some(dt.format("%Y-%m-%d %H:%M:%S UTC").to_string())
+    Some(crate::util::parse_compact(whole)?.display())
 }
 
 /// Reads a `Time` (GeneralizedTime, tag+length included) and formats it, or "" if unreadable.

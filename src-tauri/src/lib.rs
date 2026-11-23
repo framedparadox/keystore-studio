@@ -30,6 +30,7 @@ pub mod openssh;
 pub mod ops;
 pub mod pbe;
 pub mod pkcs12;
+pub mod revocation;
 pub mod terminal;
 pub mod tls;
 pub mod tools;

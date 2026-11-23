@@ -987,10 +987,11 @@ pub fn parse_encrypted_pkcs8(der: &[u8]) -> Res<(AlgorithmId, Vec<u8>)> {
     .map_err(|err| format!("invalid: malformed EncryptedPrivateKeyInfo: {err}"))
 }
 
-/// Parses an `EncryptedPrivateKeyInfo` and decrypts it to the inner PKCS#8 DER.
-pub fn decrypt_pkcs8(password: &str, der: &[u8]) -> Res<Vec<u8>> {
+/// Parses an `EncryptedPrivateKeyInfo` and decrypts it to the inner PKCS#8 DER. The plaintext key
+/// is wiped from memory when the returned buffer is dropped.
+pub fn decrypt_pkcs8(password: &str, der: &[u8]) -> Res<zeroize::Zeroizing<Vec<u8>>> {
     let (alg, data) = parse_encrypted_pkcs8(der)?;
-    decrypt(&alg, password, &data)
+    decrypt(&alg, password, &data).map(zeroize::Zeroizing::new)
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1092,7 +1093,7 @@ mod tests {
     fn pbes2_round_trip() {
         let pkcs8 = b"pretend this is a private key".to_vec();
         let enc = encrypt_pkcs8("pässwörd", &pkcs8, 2048).unwrap();
-        assert_eq!(decrypt_pkcs8("pässwörd", &enc).unwrap(), pkcs8);
+        assert_eq!(*decrypt_pkcs8("pässwörd", &enc).unwrap(), pkcs8);
         assert!(decrypt_pkcs8("wrong", &enc).is_err());
     }
 
@@ -1102,7 +1103,7 @@ mod tests {
         let enc = encrypt_pkcs8_3des("pässwörd", &pkcs8, LEGACY_ITERATIONS).unwrap();
         let (alg, _) = parse_encrypted_pkcs8(&enc).unwrap();
         assert_eq!(describe_algorithm(&alg), "PBE-SHA1-3DES");
-        assert_eq!(decrypt_pkcs8("pässwörd", &enc).unwrap(), pkcs8);
+        assert_eq!(*decrypt_pkcs8("pässwörd", &enc).unwrap(), pkcs8);
         assert!(decrypt_pkcs8("wrong", &enc).is_err());
     }
 

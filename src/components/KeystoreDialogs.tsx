@@ -1,7 +1,7 @@
 import React, { useLayoutEffect, useMemo, useState } from "react";
 import { FilePlus2, FolderOpen, Lock, Save, ShieldCheck } from "lucide-react";
 import { useStore } from "../state/store";
-import { api, errorMessage } from "../lib/api";
+import { api, errorMessage, MIN_MASTER_KEY_LEN } from "../lib/api";
 import { FILTERS, baseName, pickSavePath, safeFileStem, withExtension } from "../lib/files";
 import { FORMAT_EXTENSION, FORMAT_GROUPS, FORMAT_INFO, saveProblems } from "../lib/keystore";
 import type { GenerateKeyPairInput, KeystoreFormat, Pkcs12Profile } from "../types/crypto";
@@ -400,7 +400,7 @@ export const VaultPromptDialog: React.FC = () => {
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
-    if (setup && key.length < 8) return setError("The master key must be at least 8 characters.");
+    if (setup && [...key].length < MIN_MASTER_KEY_LEN) return setError(`The master key must be at least ${MIN_MASTER_KEY_LEN} characters.`);
     if (setup && key !== confirmKey) return setError("The keys do not match.");
     setBusy(true);
     try {

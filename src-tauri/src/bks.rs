@@ -473,7 +473,7 @@ fn java_key_algorithm(pkcs8: &[u8]) -> Res<String> {
 }
 
 fn entry_millis(e: &KeystoreEntry) -> i64 {
-    chrono::NaiveDate::parse_from_str(&e.creation_date, "%Y-%m-%d").map(|d| d.and_hms_opt(0, 0, 0).unwrap().and_utc().timestamp_millis()).unwrap_or_else(|_| chrono::Utc::now().timestamp_millis())
+    crate::util::parse_ymd(&e.creation_date).map(|d| d.ts() * 1000).unwrap_or_else(crate::util::now_millis)
 }
 
 fn from_model(entries: &[KeystoreEntry], password: &str) -> Res<Vec<RawEntry>> {
@@ -506,14 +506,15 @@ fn from_model(entries: &[KeystoreEntry], password: &str) -> Res<Vec<RawEntry>> {
                 let payload = if e.locked {
                     still_sealed()?
                 } else {
-                    let pkcs8 = entry::private_key_der(e)?;
-                    sealed(KeyBlob { key_type: KEY_PRIVATE, format: "PKCS#8".into(), algorithm: java_key_algorithm(&pkcs8)?, encoded: pkcs8 })?
+                    let mut pkcs8 = entry::private_key_der(e)?;
+                    let algorithm = java_key_algorithm(&pkcs8)?;
+                    sealed(KeyBlob { key_type: KEY_PRIVATE, format: "PKCS#8".into(), algorithm, encoded: std::mem::take(&mut *pkcs8) })?
                 };
                 (chain, payload)
             }
             "SecretKey" => {
                 let payload =
-                    if e.locked { still_sealed()? } else { sealed(KeyBlob { key_type: KEY_SECRET, format: "RAW".into(), algorithm: e.algorithm.clone(), encoded: entry::secret_bytes(e)? })? };
+                    if e.locked { still_sealed()? } else { sealed(KeyBlob { key_type: KEY_SECRET, format: "RAW".into(), algorithm: e.algorithm.clone(), encoded: std::mem::take(&mut *entry::secret_bytes(e)?) })? };
                 (Vec::new(), payload)
             }
             other => return Err(format!("unsupported: entry type '{other}'")),
