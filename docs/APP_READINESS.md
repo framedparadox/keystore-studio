@@ -59,3 +59,13 @@ tables share column order; dialogs trap focus and restore it; dark theme is toke
 Ship a **developer / internal** build once CI is green on this branch. Hold a public macOS
 release until signing and notarization secrets are wired. Treat the app as a powerful local
 agent (filesystem + shell IPC), not a high-assurance HSM substitute.
+
+## Update 2026-11-17 — format coverage
+
+Keystores: PKCS#12, JKS, JCEKS, BKS, UBER and BCFKS all open, edit, save and convert. Keys:
+OpenSSH, JWK, legacy OpenSSL PEM, scrypt and PBES1 PKCS#8 added. Certificates: PkiPath, Netscape
+sequences and OpenSSL `TRUSTED CERTIFICATE` read; truststores can be built in any format. Settings
+→ Tools covers every external tool the app mentions. Verified by 149 unit, 25 interop, 6
+robustness, 77 frontend and 73 headless UI tests on macOS. Open: `cargo deny` reports three newer
+advisories on existing dependencies (`chrono` unmaintained, two in `zip`), and the Bouncy Castle
+keytool round trip has not run anywhere yet (no `bcprov.jar` on the development machine).

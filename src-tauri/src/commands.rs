@@ -913,7 +913,8 @@ pub fn run() {
                 start_e2e_bridge(app.handle().clone(), data_dir.clone());
             }
             // Windows only: show just the app logo in the title bar, without the title text.
-            #[cfg(windows)]
+            // macOS: same, so only the traffic lights remain.
+            #[cfg(any(windows, target_os = "macos"))]
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.set_title("");
             }
