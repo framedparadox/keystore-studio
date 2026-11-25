@@ -30,10 +30,11 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "publisher": "ajaykontham",
     "category": "DeveloperTool",
     "shortDescription": "Keystore and X.509 certificate workbench",
     "longDescription": "Create, open, edit and convert PKCS#12, JKS and JCEKS keystores; issue certificates, sign CSRs, CRLs, JARs, CMS payloads and JWTs; inspect live TLS servers and certificate files.",
-    "copyright": "© Keystore Studio contributors. MIT License.",
+    "copyright": "© Ajay Kontham. MIT License.",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

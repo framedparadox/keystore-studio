@@ -2,7 +2,7 @@
 name = "keystore-studio"
 version = "1.0.0"
 description = "Keystore Studio — native keystore and X.509 certificate workbench"
-authors = ["Keystore Studio contributors"]
+authors = ["Ajay Kontham"]
 license = "MIT"
 edition = "2024"
 

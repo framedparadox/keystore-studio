@@ -167,7 +167,7 @@ Shortcuts use `Ctrl` on Windows and Linux and `⌘` on macOS (`Ctrl` works there
 
 | OS | Versions | Installer | Webview |
 | --- | --- | --- | --- |
-| Windows | 10 and 11 (x64) | `.msi` | WebView2, installed by the setup if missing |
+| Windows | 10 and 11 (x64) | `-setup.exe` or `.msi` | WebView2, installed by the setup if missing |
 | macOS | 11 Big Sur or later, with Safari 16.4 or later | `.dmg` | WKWebView (system) |
 | Linux | Ubuntu 22.04+, Debian 12+, Fedora 38+ or similar | `.deb`, `.rpm`, `.AppImage` | WebKitGTK 4.1, 2.40 or later |
 
@@ -225,6 +225,36 @@ pnpm tauri build        # release bundles (.deb/.AppImage, .dmg, .msi …)
 
 `pnpm dev` serves the UI in a browser for layout work only; the native engine is unavailable there.
 UI conventions (tokens, components, layout, contrast) are documented in [DESIGN.md](DESIGN.md).
+
+### Signed Windows installer
+
+```powershell
+az login
+pnpm build:windows:signed                       # setup .exe in src-tauri/target/release/bundle/nsis/
+pnpm build:windows:signed -Bundles "nsis,msi"   # setup .exe and .msi
+pnpm build:windows:signed -Store                # offline installer for the Microsoft Store
+```
+
+This signs with [Azure Artifact Signing](https://learn.microsoft.com/azure/artifact-signing/). It
+needs the Windows SDK signing tools, the .NET 8 runtime, the Azure CLI and the signing client tools
+(`winget install -e --id Microsoft.Azure.ArtifactSigningClientTools`). Your account needs the
+**Artifact Signing Certificate Profile Signer** role. The account and certificate profile are set in
+[scripts/artifact-signing.json](scripts/artifact-signing.json). Ordinary `pnpm tauri build` runs
+stay unsigned.
+
+#### Microsoft Store
+
+`-Store` embeds the WebView2 offline installer, because the Store rejects installers that download
+anything. It writes to the same file name as an ordinary build, so copy the one you want to keep.
+
+1. Upload the setup `.exe` to a direct HTTPS link that includes the version. Never replace the file
+   behind a submitted link; each release needs a new one.
+2. In Partner Center, create an **EXE or MSI app** and reserve its name.
+3. Add the package link, architecture `x64` and the silent install parameter `/S`.
+
+The publisher name in [src-tauri/tauri.conf.json](src-tauri/tauri.conf.json) (`bundle.publisher`)
+should match the one on your Partner Center account. See Microsoft's
+[package requirements](https://learn.microsoft.com/windows/apps/publish/publish-your-app/msi/app-package-requirements).
 
 ### Regenerating the screenshots
 
