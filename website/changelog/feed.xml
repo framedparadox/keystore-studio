@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en">
+  <title>Keystore Studio releases</title>
+  <subtitle>New versions of Keystore Studio, a native workbench for Java keystores, PKCS#12 files and X.509 certificates.</subtitle>
+  <id>https://keystore-studio.app/changelog/</id>
+  <link rel="self" type="application/atom+xml" href="https://keystore-studio.app/changelog/feed.xml" />
+  <link rel="alternate" type="text/html" href="https://keystore-studio.app/changelog/" />
+  <updated>2026-11-25T06:04:53Z</updated>
+  <author>
+    <name>Keystore Studio contributors</name>
+    <uri>https://github.com/framedparadox/keystore-studio</uri>
+  </author>
+  <icon>https://keystore-studio.app/assets/img/favicon-64.png</icon>
+  <logo>https://keystore-studio.app/assets/img/icon.png</logo>
+  <rights>MIT License</rights>
+
+  <entry>
+    <title>Keystore Studio 1.0.0: first public release</title>
+    <id>https://keystore-studio.app/changelog/#v1.0.0</id>
+    <link rel="alternate" type="text/html" href="https://keystore-studio.app/changelog/#v1.0.0" />
+    <link rel="related" type="text/html" href="https://github.com/framedparadox/keystore-studio/releases/tag/v1.0.0" />
+    <published>2026-11-25T06:04:53Z</published>
+    <updated>2026-11-25T06:04:53Z</updated>
+    <summary>The first public release: a Windows installer, with macOS and Linux built from source. No accounts, no telemetry, MIT licensed.</summary>
+    <content type="html"><![CDATA[
+<p>The first public release of Keystore Studio, a native workbench for Java keystores, PKCS#12 files and X.509 certificates. Windows 10 and 11 (x64) installer; macOS and Linux build from source.</p>
+<ul>
+<li><b>Keystores.</b> Open, create, edit and save PKCS#12, JKS, JCEKS, BKS, UBER and BCFKS side by side, convert between all six, undo and redo.</li>
+<li><b>Certificates.</b> PEM, DER, chains and PKCS#7 bundles on their own page; inspect, export, add to a keystore or workspace.</li>
+<li><b>Examine.</b> Live TLS inspection with a trust and hostname verdict, a connection test, decode and compare, OCSP and CRL revocation checks.</li>
+<li><b>CA &amp; Signing.</b> Sign CSRs, issue CRLs, CMS/PKCS#7 and JWT sign and verify, JAR signing, RFC 3161 timestamps, DH parameters.</li>
+<li><b>Convert.</b> Every format conversion in one place, each showing the equivalent openssl, ssh-keygen or keytool command.</li>
+<li><b>Security audit.</b> A health score with findings, one-click key rotation and renewal, CSV report.</li>
+<li><b>Vault and Workspaces.</b> Passwords under one master key (Argon2id, AES-256-GCM); entries and certificates grouped by project.</li>
+<li><b>Productivity.</b> Command palette, built-in terminal, tool detection, drag and drop, session restore, light, dark and system themes.</li>
+</ul>
+<p>Security and quality: interop tests against keytool, jarsigner, openssl and ssh-keygen; fuzzed parsers; a strict Content Security Policy; cargo deny in CI.</p>
+<p><a href="https://keystore-studio.app/changelog/#v1.0.0">Full release notes</a> · <a href="https://keystore-studio.app/downloads/">Download</a></p>
+]]></content>
+  </entry>
+</feed>

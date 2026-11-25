@@ -1,0 +1,7 @@
+# Keystore Studio website
+User-agent: *
+Allow: /
+Disallow: /og.html
+Disallow: /iso-lab.html
+
+Sitemap: https://keystore-studio.app/sitemap.xml

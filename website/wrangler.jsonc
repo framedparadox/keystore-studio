@@ -1,0 +1,18 @@
+// Cloudflare Worker serving the website as static assets (no Worker script).
+// Deploy from this folder: `npx wrangler deploy` (CI does it in .github/workflows/website.yml).
+// Installers are not part of the deploy (Workers assets cap files at 25 MiB, see .assetsignore);
+// they are served from the R2 bucket below through downloads.keystore-studio.app.
+{
+  "$schema": "https://unpkg.com/wrangler/config-schema.json",
+  "name": "keystore-studio",
+  "compatibility_date": "2026-11-01",
+  "assets": {
+    "directory": ".",
+    "html_handling": "auto-trailing-slash",
+    "not_found_handling": "404-page"
+  },
+  "routes": [
+    { "pattern": "keystore-studio.app", "custom_domain": true },
+    { "pattern": "www.keystore-studio.app", "custom_domain": true }
+  ]
+}

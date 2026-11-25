@@ -1,0 +1,400 @@
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Privacy — Keystore Studio</title>
+    <meta
+      name="description"
+      content="Keystore Studio has no accounts and no telemetry. Keystore contents and passwords stay in memory; the only network requests are the TLS inspections, connection tests, timestamp requests and revocation checks you start."
+    />
+    <meta name="theme-color" content="#fbfbfd" />
+    <meta name="color-scheme" content="light dark" />
+    <link rel="canonical" href="https://keystore-studio.app/privacy/" />
+    <link rel="icon" type="image/png" href="../assets/img/favicon-64.png" />
+    <link rel="apple-touch-icon" href="../assets/img/icon-180.png" />
+    <link rel="manifest" href="../site.webmanifest" />
+    <meta property="og:url" content="https://keystore-studio.app/privacy/" />
+    <meta property="og:type" content="article" />
+    <meta property="og:site_name" content="Keystore Studio" />
+    <meta property="og:title" content="Privacy — Keystore Studio" />
+    <meta
+      property="og:description"
+      content="No accounts, no telemetry. What Keystore Studio keeps in memory, what it writes to disk, and the only four kinds of network request it makes."
+    />
+    <meta property="og:image" content="https://keystore-studio.app/assets/img/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="Keystore Studio app icon with the words: Keystore Studio. Java keystores and certificates, in one native app." />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Privacy — Keystore Studio" />
+    <meta name="twitter:description" content="No accounts, no telemetry. What stays in memory, what reaches disk, and every network request." />
+    <meta name="twitter:image" content="https://keystore-studio.app/assets/img/og.png" />
+    <script src="../assets/js/theme-init.js"></script>
+    <link rel="stylesheet" href="../assets/css/base.css" />
+    <link rel="stylesheet" href="../assets/css/pages.css" />
+  </head>
+  <body class="page-privacy">
+    <a class="skip-link" href="#main">Skip to content</a>
+
+    <!-- ============ NAV (shared) ============ -->
+    <header class="nav" role="banner">
+      <div class="container nav-inner">
+        <a class="brand" href="../" aria-label="Keystore Studio home">
+          <img class="brand-mark app-icon" src="../assets/img/icon-180.png" alt="" width="26" height="26" />
+          <span>Keystore Studio</span>
+        </a>
+        <nav aria-label="Primary">
+          <ul class="nav-links" id="nav-links">
+            <li><a href="../#features">Features</a></li>
+            <li><a href="./" aria-current="page">Privacy</a></li>
+            <li><a href="../#specs">Specs</a></li>
+            <li><a href="../changelog/">Changelog</a></li>
+            <li><a href="../apps/">More apps</a></li>
+            <li><a href="https://github.com/framedparadox/keystore-studio" rel="noopener">GitHub</a></li>
+          </ul>
+        </nav>
+        <div class="nav-actions">
+          <button class="icon-btn theme-toggle" type="button" aria-label="Switch theme">
+            <svg class="i-auto" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 3.5v17" /><path d="M12 3.5a8.5 8.5 0 0 1 0 17z" fill="currentColor" stroke="none"/></svg>
+            <svg class="i-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.3 5.3l1.4 1.4M17.3 17.3l1.4 1.4M5.3 18.7l1.4-1.4M17.3 6.7l1.4-1.4"/></svg>
+            <svg class="i-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5z"/></svg>
+          </button>
+          <a class="btn btn-sm" href="../downloads/">Download</a>
+          <button class="icon-btn nav-menu-btn" type="button" aria-label="Menu" aria-expanded="false" aria-controls="nav-links">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M4 8h16M4 16h16"/></svg>
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+      <symbol id="g-tls" viewBox="0 0 24 24"><rect x="5" y="10.5" width="14" height="10" rx="2.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M8.5 10.5V8a3.5 3.5 0 0 1 7 0v2.5" fill="none" stroke="currentColor" stroke-width="1.8"/></symbol>
+      <symbol id="g-plug" viewBox="0 0 24 24"><path d="M3.5 12h4m9 0h4M7.5 8.5h3a3.5 3.5 0 0 1 0 7h-3zM16.5 8.5h-2a3.5 3.5 0 0 0 0 7h2z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+      <symbol id="g-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 7.5V12l3 2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+      <symbol id="g-term" viewBox="0 0 24 24"><rect x="2.75" y="4.25" width="18.5" height="15.5" rx="3" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M7 10l3 2.5L7 15M12.5 15.5h4.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+      <symbol id="g-shield" viewBox="0 0 24 24"><path d="M12 3l7.5 3v5.5c0 4.6-3.2 8.3-7.5 9.5-4.3-1.2-7.5-4.9-7.5-9.5V6L12 3z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M8.8 12.2l2.2 2.2 4.2-4.4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    </svg>
+
+    <main id="main">
+      <header class="doc-hero">
+        <div class="container">
+          <div class="doc-hero-inner">
+            <p class="eyebrow reveal">Privacy</p>
+            <h1 class="display-l reveal" style="--i: 1">Your keys never leave your computer.</h1>
+            <p class="lede reveal" style="--i: 2">
+              Keystore Studio has <strong>no accounts, no analytics, no advertising, no crash reporting and no
+              automatic update checks.</strong> Here is exactly what it keeps, where, and when it talks to the network.
+            </p>
+          </div>
+          <div class="promise-grid">
+            <div class="promise reveal" style="--i: 2"><span class="promise-v">0</span><p>accounts, sign-ins or licence servers</p></div>
+            <div class="promise reveal" style="--i: 3"><span class="promise-v">0</span><p>telemetry, analytics or crash reports</p></div>
+            <div class="promise reveal" style="--i: 4"><span class="promise-v">4</span><p>kinds of network request, each one started by you</p></div>
+            <div class="promise reveal" style="--i: 5"><span class="promise-v">RAM</span><p>is where keystore contents and passwords live</p></div>
+          </div>
+        </div>
+      </header>
+
+      <div class="container doc-layout">
+        <nav class="toc" aria-label="Contents">
+          <p class="toc-title">On this page</p>
+          <ol>
+            <li><a href="#no-accounts">No accounts, no telemetry</a></li>
+            <li><a href="#memory">What stays in memory</a></li>
+            <li><a href="#disk">What's written to disk</a></li>
+            <li><a href="#vault">The vault</a></li>
+            <li><a href="#network">Network requests</a></li>
+            <li><a href="#clipboard">Clipboard</a></li>
+            <li><a href="#hardening">Hardening</a></li>
+            <li><a href="#control">Your control</a></li>
+            <li><a href="#website">This website</a></li>
+            <li><a href="#contact">Questions</a></li>
+          </ol>
+          <div class="toc-progress" aria-hidden="true"><span></span></div>
+        </nav>
+
+        <article class="prose">
+          <section id="no-accounts" aria-labelledby="h-no-accounts">
+            <h2 id="h-no-accounts"><span class="sec-n">01</span>No accounts, no telemetry.</h2>
+            <p>
+              Keystore Studio collects no personal data. You don't sign in, and nothing reports back: the app
+              contains no analytics, no advertising, no crash reporting and no update checker.
+            </p>
+            <ul class="never-grid" aria-label="Things the app never does">
+              <li>Accounts</li>
+              <li>Analytics</li>
+              <li>Telemetry</li>
+              <li>Crash reports</li>
+              <li>Update checks</li>
+              <li>Advertising</li>
+            </ul>
+            <p>The app reads and writes only the files you open, save or export.</p>
+          </section>
+
+          <section id="memory" aria-labelledby="h-memory">
+            <h2 id="h-memory"><span class="sec-n">02</span>What stays in memory.</h2>
+            <p>
+              <strong>Keystore contents and passwords are held in memory only.</strong> They reach disk solely in the
+              keystore files you save. Passwords you don't store in the vault are forgotten when the app quits.
+            </p>
+            <p>
+              Saves are written atomically, then read back to verify them before they replace the original. Edits
+              can be undone, and unsaved changes are guarded when you close a keystore or quit.
+            </p>
+          </section>
+
+          <section id="disk" aria-labelledby="h-disk">
+            <h2 id="h-disk"><span class="sec-n">03</span>What's written to disk.</h2>
+            <p>
+              The app keeps its own session state in an app data folder. <strong>No key material is stored there.</strong>
+              It holds:
+            </p>
+            <ul class="list">
+              <li>Settings, workspaces, labels, and the paths of recent and open files.</li>
+              <li>The certificates listed on the Certificates page (public certificates only).</li>
+              <li>The vault, if you set one up: remembered keystore passwords, encrypted (see below).</li>
+              <li>
+                A record of the certificates you issue as a CA (serial number, subject, key identifiers and expiry
+                date) and the last CRL number of each CA, so later CRLs can revoke them.
+              </li>
+            </ul>
+            <div class="table-wrap">
+              <table class="spec-table">
+                <caption class="visually-hidden">App data folder by operating system</caption>
+                <thead><tr><th scope="col">Operating system</th><th scope="col">Data folder</th></tr></thead>
+                <tbody>
+                  <tr><th scope="row">Windows</th><td><code>%APPDATA%\keystore-studio</code></td></tr>
+                  <tr><th scope="row">macOS</th><td><code>~/Library/Application Support/keystore-studio</code></td></tr>
+                  <tr><th scope="row">Linux</th><td><code>~/.local/share/keystore-studio</code></td></tr>
+                </tbody>
+              </table>
+            </div>
+            <p>
+              Set the environment variable <code>KEYSTORE_STUDIO_DATA_DIR</code> to keep this state somewhere else. A
+              data folder left by the app under its former name, <code>xkeystore</code>, is moved to the new location on
+              first start, so your vault, session and settings carry over.
+            </p>
+          </section>
+
+          <section id="vault" aria-labelledby="h-vault">
+            <h2 id="h-vault"><span class="sec-n">04</span>The vault.</h2>
+            <p>
+              The vault remembers keystore passwords under one master key, so keystores from your last session can
+              reopen once you unlock it. It auto-locks after a period of inactivity.
+            </p>
+            <div class="vault-flow" role="img" aria-label="Your master key is stretched with Argon2id into the vault key. Each remembered password is sealed separately with AES-256-GCM, bound to its ID as associated data, and only the ciphertext is stored.">
+              <div class="vf-node is-secret"><span class="vf-k">You type</span><span class="vf-v">Master key</span><span class="vf-s">Never stored</span></div>
+              <div class="vf-node"><span class="vf-k">Derive</span><span class="vf-v">Argon2id</span><span class="vf-s">Produces the vault key</span></div>
+              <div class="vf-node"><span class="vf-k">Seal each secret</span><span class="vf-v">AES-256-GCM</span><span class="vf-s">Its ID bound as associated data</span></div>
+              <div class="vf-node"><span class="vf-k">On disk</span><span class="vf-v">Ciphertext</span><span class="vf-s">In the app data folder</span></div>
+            </div>
+            <ul class="list">
+              <li><strong>The master key itself is never stored.</strong> The vault key is derived from it with Argon2id each time you unlock.</li>
+              <li><strong>Each password is sealed on its own</strong> with AES-256-GCM, bound to its ID as associated data, so one sealed secret can't be swapped in for another.</li>
+              <li><strong>Changing the master key</strong> re-encrypts every secret. If you forget it, you can reset the vault, which deletes the remembered passwords.</li>
+            </ul>
+          </section>
+
+          <section id="network" aria-labelledby="h-network">
+            <h2 id="h-network"><span class="sec-n">05</span>Network requests.</h2>
+            <p>
+              Keystore Studio makes network requests in exactly four situations, and only when you start them.
+              It makes no others.
+            </p>
+            <ul class="net-list">
+              <li class="net-item">
+                <span class="os-badge os-badge-quiet"><svg aria-hidden="true"><use href="#g-tls" /></svg></span>
+                <div>
+                  <h3>Inspecting a TLS server</h3>
+                  <p>In Examine, the app connects to the host and port you enter and performs a TLS handshake, the same way a browser or <code>openssl s_client</code> would, to show the protocol, cipher, chain and trust verdict.</p>
+                  <div class="net-meta"><span>To the server you name</span><span>When you start an inspection</span></div>
+                </div>
+              </li>
+              <li class="net-item">
+                <span class="os-badge os-badge-quiet"><svg aria-hidden="true"><use href="#g-plug" /></svg></span>
+                <div>
+                  <h3>Testing a connection</h3>
+                  <p>Also in Examine, a TCP connection test says whether a server port can be reached from your machine, and why not if it can't.</p>
+                  <div class="net-meta"><span>To the host and port you name</span><span>When you run the test</span></div>
+                </div>
+              </li>
+              <li class="net-item">
+                <span class="os-badge os-badge-quiet"><svg aria-hidden="true"><use href="#g-clock" /></svg></span>
+                <div>
+                  <h3>Requesting an RFC 3161 timestamp</h3>
+                  <p>When you turn on trusted timestamps for CMS or JAR signatures, the app sends a <strong>hash</strong> of what you signed to the timestamp authority you chose, with the app name and version as the user agent. The content itself and your keys are not sent.</p>
+                  <div class="net-meta"><span>To the TSA you configure</span><span>Only when timestamps are on</span></div>
+                </div>
+              </li>
+              <li class="net-item">
+                <span class="os-badge os-badge-quiet"><svg aria-hidden="true"><use href="#g-shield" /></svg></span>
+                <div>
+                  <h3>Checking revocation online</h3>
+                  <p>When you click <strong>Check revocation (OCSP)</strong> on a certificate chain, or tick <strong>Also check revocation online</strong> when validating one, the app asks the certificate's OCSP responder or downloads its CRL. That tells the CA which certificate is being checked (its serial number, for OCSP); your keys are not sent.</p>
+                  <div class="net-meta"><span>To the CA's OCSP or CRL server</span><span>Only when you ask</span></div>
+                </div>
+              </li>
+            </ul>
+            <div class="callout callout-info">
+              <svg aria-hidden="true"><use href="#g-term" /></svg>
+              <p>
+                <strong>Commands in the built-in terminal</strong> run on your computer with your permissions. Anything
+                they send over the network is up to the command you run, as in any other terminal.
+              </p>
+            </div>
+            <p>
+              Servers, timestamp authorities and CAs you contact handle those requests under their own privacy policies.
+              On Windows, if WebView2 is missing, the installer downloads it from Microsoft during setup; the app
+              itself never does.
+            </p>
+          </section>
+
+          <section id="clipboard" aria-labelledby="h-clipboard">
+            <h2 id="h-clipboard"><span class="sec-n">06</span>Clipboard.</h2>
+            <p>
+              The app writes to the clipboard only when you copy something. <b>Copy diagnostics</b> includes the app
+              version, platform, data folder, and the names and aliases of open keystores. Never passwords or key
+              material.
+            </p>
+          </section>
+
+          <section id="hardening" aria-labelledby="h-hardening">
+            <h2 id="h-hardening"><span class="sec-n">07</span>Hardening.</h2>
+            <h3>A strict Content Security Policy</h3>
+            <p>
+              The interface runs in a webview that may load only the app's own scripts and styles, and may talk only to
+              the Rust engine over Tauri's IPC channel. It cannot reach the internet. The policy, as shipped:
+            </p>
+            <code class="csp" aria-label="Content Security Policy">
+              <b>default-src</b> 'self'; <b>script-src</b> 'self'; <b>style-src</b> 'self' 'unsafe-inline';
+              <b>img-src</b> 'self' data:; <b>font-src</b> 'self' data:; <b>connect-src</b> ipc: http://ipc.localhost;
+              <b>object-src</b> 'none'; <b>base-uri</b> 'self'; <b>form-action</b> 'none'; <b>frame-ancestors</b> 'none'
+            </code>
+            <h3>Fuzzed parsers</h3>
+            <p>
+              Every parser is fed malformed input in the test suite (truncations, bit flips, forged length headers of
+              real keystores, deep nesting) and must return an error rather than crash. Coverage-guided fuzz targets
+              run as a smoke test in CI.
+            </p>
+            <h3>Dependency checks</h3>
+            <p>
+              <code>cargo deny</code> checks every Rust dependency for security advisories, licences and sources in CI.
+            </p>
+            <h3>Every crypto operation is local</h3>
+            <p>
+              Keys are generated, parsed, signed with and converted in the bundled Rust engine. Java and OpenSSL are
+              not needed; the app only refers to them for the terminal and the equivalent commands it shows you.
+            </p>
+          </section>
+
+          <section id="control" aria-labelledby="h-control">
+            <h2 id="h-control"><span class="sec-n">08</span>Your control.</h2>
+            <ul class="list">
+              <li><b>Settings → Data → Reset app data</b> clears settings, workspaces, labels, recent files and the Certificates list.</li>
+              <li><b>Records of issued certificates</b> are deleted one by one in CA &amp; Signing.</li>
+              <li><b>Resetting the vault</b> on the Vault page deletes the remembered passwords.</li>
+              <li><b>Deleting the data folder</b> removes everything Keystore Studio keeps. Uninstalling the app leaves it in place.</li>
+            </ul>
+          </section>
+
+          <section id="website" aria-labelledby="h-website">
+            <h2 id="h-website"><span class="sec-n">09</span>This website.</h2>
+            <p>
+              This site is a set of static pages. It sets <strong>no cookies</strong>, runs <strong>no analytics</strong>,
+              and makes <strong>no requests to third parties</strong>: no web fonts, no CDNs, no embeds, no trackers.
+              Every file it loads comes from the same place as the page.
+            </p>
+            <p>
+              If you pick a light or dark theme with the toggle in the header, your browser's local storage remembers
+              that one choice under the key <code>ks-theme</code>. It never leaves your browser, and choosing the
+              automatic theme removes it.
+            </p>
+            <p>
+              The server that hosts the site may keep standard access logs, as web servers do. Links to GitHub,
+              rustup and other sites take you to services with their own privacy policies.
+            </p>
+          </section>
+
+          <section id="contact" aria-labelledby="h-contact">
+            <h2 id="h-contact"><span class="sec-n">10</span>Questions.</h2>
+            <p>
+              Keystore Studio is open source, so you can check every statement on this page against the code. The app's
+              own privacy policy, in Settings, changes in the same release as any code that changes what it stores or
+              sends.
+            </p>
+            <p>
+              Questions or concerns:
+              <a href="https://github.com/framedparadox/keystore-studio/issues" rel="noopener">open an issue on GitHub</a>, or
+              <a href="../feedback/">send us a message</a>.
+            </p>
+            <p class="doc-actions">
+              <a class="btn" href="../downloads/">Download Keystore Studio</a>
+              <a class="btn btn-secondary" href="https://github.com/framedparadox/keystore-studio" rel="noopener">Read the source</a>
+            </p>
+          </section>
+        </article>
+      </div>
+    </main>
+
+    <!-- ============ FOOTER (shared) ============ -->
+    <footer class="footer" role="contentinfo">
+      <div class="container">
+        <div class="footer-grid">
+          <div class="footer-brand">
+            <a class="brand" href="../">
+              <img class="brand-mark app-icon" src="../assets/img/icon-180.png" alt="" width="26" height="26" />
+              <span>Keystore Studio</span>
+            </a>
+            <p>A native workbench for Java keystores, PKCS#12 files and X.509 certificates. Built with Rust and Tauri.</p>
+          </div>
+          <div>
+            <h4>Product</h4>
+            <ul>
+              <li><a href="../#features">Features</a></li>
+              <li><a href="../#formats">Formats</a></li>
+              <li><a href="../#specs">Tech specs</a></li>
+              <li><a href="../#faq">FAQ</a></li>
+              <li><a href="../changelog/">Changelog</a></li>
+            </ul>
+          </div>
+          <div>
+            <h4>Get it</h4>
+            <ul>
+              <li><a href="../downloads/">Downloads</a></li>
+              <li><a href="../downloads/#windows">Windows</a></li>
+              <li><a href="../downloads/#macos">macOS</a></li>
+              <li><a href="../downloads/#linux">Linux</a></li>
+              <li><a href="../downloads/#source">Build from source</a></li>
+            </ul>
+          </div>
+          <div>
+            <h4>Trust</h4>
+            <ul>
+              <li><a href="./">Privacy</a></li>
+              <li><a href="../#privacy">Network activity</a></li>
+              <li><a href="../downloads/#verify">Verify a download</a></li>
+            </ul>
+          </div>
+          <div>
+            <h4>Open source</h4>
+            <ul>
+              <li><a href="https://github.com/framedparadox/keystore-studio" rel="noopener">GitHub</a></li>
+              <li><a href="https://github.com/framedparadox/keystore-studio/issues" rel="noopener">Report an issue</a></li>
+              <li><a href="../feedback/">Send feedback</a></li>
+              <li><a href="../apps/">More apps</a></li>
+              <li><a href="https://github.com/framedparadox/keystore-studio/blob/main/LICENSE" rel="noopener">MIT License</a></li>
+            </ul>
+          </div>
+        </div>
+        <div class="footer-bottom">
+          <span>© <span data-year>2026</span> Keystore Studio contributors. Released under the MIT License.</span>
+          <span>Java is a trademark of Oracle. OpenSSL is a trademark of the OpenSSL Software Foundation. Keystore Studio is not affiliated with either.</span>
+        </div>
+      </div>
+    </footer>
+
+    <script src="../assets/js/site.js" defer></script>
+    <script src="../assets/js/pages.js" defer></script>
+  </body>
+</html>

@@ -1,0 +1,1473 @@
+/* Keystore Studio website — isometric scenes (built by assets/js/iso.js).
+   Faces are coloured only with theme tokens, so light/dark switches are instant.
+   Each scene sets its own aspect ratio; the page controls width only. */
+
+/* ---------- Scene-local tokens (extend base.css; same theming pattern) ---------- */
+:root {
+  --iso-ink-edge: rgba(255, 255, 255, 0.09);
+  --iso-paper-edge: rgba(0, 0, 0, 0.34);
+  --iso-shadow: rgba(0, 0, 0, 0.13);
+  --iso-shadow-2: rgba(0, 0, 0, 0.05);
+  --iso-engrave: rgba(0, 0, 0, 0.34);
+  --iso-engrave-ink: rgba(255, 255, 255, 0.4);
+  --iso-glass-0: rgba(255, 255, 255, 0.55);
+  --iso-glass-1: rgba(255, 255, 255, 0.12);
+  --iso-glass-2: rgba(0, 0, 0, 0.04);
+  --iso-glass-edge: rgba(0, 0, 0, 0.2);
+  --iso-glass-hi: rgba(255, 255, 255, 0.95);
+  --iso-groove: rgba(0, 0, 0, 0.09);
+  --iso-screen: #f4f4f6;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --iso-ink-edge: rgba(0, 0, 0, 0.14);
+    --iso-paper-edge: rgba(255, 255, 255, 0.36);
+    --iso-shadow: rgba(255, 255, 255, 0.07);
+    --iso-shadow-2: rgba(255, 255, 255, 0.025);
+    --iso-engrave: rgba(255, 255, 255, 0.36);
+    --iso-engrave-ink: rgba(0, 0, 0, 0.46);
+    --iso-glass-0: rgba(255, 255, 255, 0.1);
+    --iso-glass-1: rgba(255, 255, 255, 0.03);
+    --iso-glass-2: rgba(255, 255, 255, 0.015);
+    --iso-glass-edge: rgba(255, 255, 255, 0.26);
+    --iso-glass-hi: rgba(255, 255, 255, 0.5);
+    --iso-groove: rgba(255, 255, 255, 0.08);
+    --iso-screen: #0c0c0d;
+  }
+}
+:root[data-theme="dark"] {
+  --iso-ink-edge: rgba(0, 0, 0, 0.14);
+  --iso-paper-edge: rgba(255, 255, 255, 0.36);
+  --iso-shadow: rgba(255, 255, 255, 0.07);
+  --iso-shadow-2: rgba(255, 255, 255, 0.025);
+  --iso-engrave: rgba(255, 255, 255, 0.36);
+  --iso-engrave-ink: rgba(0, 0, 0, 0.46);
+  --iso-glass-0: rgba(255, 255, 255, 0.1);
+  --iso-glass-1: rgba(255, 255, 255, 0.03);
+  --iso-glass-2: rgba(255, 255, 255, 0.015);
+  --iso-glass-edge: rgba(255, 255, 255, 0.26);
+  --iso-glass-hi: rgba(255, 255, 255, 0.5);
+  --iso-groove: rgba(255, 255, 255, 0.08);
+  --iso-screen: #0c0c0d;
+}
+
+/* ---------- Scene container ---------- */
+.iso-scene {
+  position: relative;
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  aspect-ratio: 4 / 3;
+  overflow-x: clip;
+  overflow-y: visible;
+  isolation: isolate;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  font-family: var(--font-sans);
+  font-style: normal;
+  color: var(--ink);
+}
+.iso-scene[data-scene="hero"] { aspect-ratio: 720 / 640; }
+.iso-scene[data-scene="formats"] { aspect-ratio: 720 / 470; }
+.iso-scene[data-scene="convert"] { aspect-ratio: 720 / 500; }
+.iso-scene[data-scene="audit"] { aspect-ratio: 720 / 520; }
+.iso-scene[data-scene="vault"] { aspect-ratio: 640 / 540; }
+.iso-scene[data-scene="local"] { aspect-ratio: 760 / 520; }
+.iso-scene[data-scene="platforms"] { aspect-ratio: 780 / 460; }
+/* Narrow: the convert terminal sits under the track instead of over it. */
+.iso-scene[data-scene="convert"].is-compact { aspect-ratio: 720 / 760; }
+.iso-scene * {
+  font-style: normal;
+}
+/* Offscreen: pause CSS loops too. */
+.iso-scene.is-off *,
+.iso-scene.is-off *::before,
+.iso-scene.is-off *::after {
+  animation-play-state: paused !important;
+}
+
+.iso-stage {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform-origin: 0 0;
+  pointer-events: none;
+}
+.iso-cam {
+  position: absolute;
+  width: 0;
+  height: 0;
+  transform-style: preserve-3d;
+}
+.iso-g {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 0;
+  height: 0;
+  transform-style: preserve-3d;
+  transform-origin: 0 0;
+}
+.iso-plane {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform-origin: 0 0;
+  pointer-events: none;
+}
+
+/* ---------- Faces ---------- */
+.iso-box {
+  --t: var(--iso-top);
+  --l: var(--iso-left);
+  --r: var(--iso-right);
+  --e: var(--iso-edge);
+  --tx: var(--ink);
+}
+.iso-box.is-ink {
+  --t: var(--iso-ink-top);
+  --l: var(--iso-ink-left);
+  --r: var(--iso-ink-right);
+  --e: var(--iso-ink-edge);
+  --tx: var(--on-brand);
+}
+.iso-box.is-paper {
+  --e: var(--iso-paper-edge);
+}
+.iso-box.is-paper-soft {
+  --e: var(--line-strong);
+}
+.iso-f {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform-origin: 0 0;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+  box-shadow: inset 0 0 0 1px var(--e);
+  opacity: var(--o, 1);
+  pointer-events: auto;
+  overflow: hidden;
+  color: var(--tx);
+}
+.iso-f.f-top {
+  background: var(--t);
+}
+.iso-f.f-front,
+.iso-f.f-back {
+  background: var(--l);
+}
+.iso-f.f-right,
+.iso-f.f-left {
+  background: var(--r);
+}
+.iso-f.f-bottom {
+  background: var(--r);
+}
+
+/* Text printed on a face */
+.iso-ft {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  text-align: center;
+  white-space: nowrap;
+  line-height: 1;
+  pointer-events: none;
+}
+.iso-ft > span {
+  display: block;
+}
+.iso-engrave {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  color: var(--iso-engrave);
+}
+.iso-engrave.is-onink,
+.is-ink .iso-engrave {
+  color: var(--iso-engrave-ink);
+}
+.iso-tl {
+  font-family: var(--font-display);
+  font-size: 21px;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+  color: var(--tx);
+}
+.iso-tl.is-long {
+  font-size: 17px;
+}
+
+/* Soft floor shadows (light: ink; dark: a faint lift of light) */
+.iso-shadow {
+  background: radial-gradient(closest-side, var(--iso-shadow), var(--iso-shadow-2) 55%, transparent 100%);
+  opacity: var(--o, 1);
+}
+
+/* ---------- UI layer: cards, chips, tooltips (unscaled, real px text) ---------- */
+.iso-ui {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 2;
+}
+.iso-pin {
+  position: absolute;
+  left: 0;
+  top: 0;
+  will-change: transform;
+}
+.iso-card {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  padding: 9px 13px 10px;
+  border-radius: 14px;
+  background: var(--glass-strong);
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow-md);
+  -webkit-backdrop-filter: saturate(180%) blur(20px);
+  backdrop-filter: saturate(180%) blur(20px);
+  white-space: nowrap;
+  font-size: 13px;
+  line-height: 1.35;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+  opacity: 0;
+  transform: translate3d(0, 6px, 0) scale(0.97);
+  transform-origin: 0 100%;
+  transition: opacity var(--dur-2) var(--ease-out), transform var(--dur-3) var(--ease-spring);
+}
+.iso-pin.is-on .iso-card {
+  opacity: 1;
+  transform: none;
+}
+.iso-card-k {
+  font-weight: 600;
+  color: var(--ink);
+}
+.iso-card-v {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--muted);
+  font-size: 12.5px;
+}
+.iso-card .dot {
+  flex: none;
+}
+
+/* Small label chips */
+.iso-chip {
+  display: grid;
+  gap: 1px;
+  padding: 7px 11px 8px;
+  border-radius: 11px;
+  transform-origin: 50% 100%;
+}
+.iso-chip-k {
+  font-size: 11px;
+  color: var(--muted);
+  letter-spacing: 0;
+}
+.iso-chip-v {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+/* State pill */
+.iso-state {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--ink-2);
+  transform-origin: 50% 0;
+}
+.iso-state-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--muted);
+  box-shadow: 0 0 0 3px var(--line);
+  transition: background-color var(--dur-2) var(--ease-out), box-shadow var(--dur-2) var(--ease-out);
+}
+.iso-state.is-open .iso-state-dot {
+  background: var(--ok);
+  box-shadow: 0 0 0 3px var(--ok-soft);
+}
+
+/* ---------- 1. Hero ---------- */
+.iso-hero-ring {
+  border-radius: 50%;
+  border: 1px solid var(--line);
+  opacity: calc(var(--o, 1) * 0.9);
+}
+.is-beam .iso-f {
+  pointer-events: none;
+}
+.is-beam .iso-f.f-front {
+  background: linear-gradient(90deg, var(--l) 0%, var(--r) 70%, var(--l) 100%);
+}
+.is-beam .iso-f.f-right {
+  background: linear-gradient(180deg, var(--l) 0%, var(--r) 45%, var(--r) 100%);
+}
+.is-beam .iso-f.f-top {
+  background: linear-gradient(90deg, var(--t), var(--l) 160%);
+}
+.iso-slab {
+  outline: none;
+  cursor: pointer;
+}
+.iso-slab .iso-f {
+  transition: box-shadow var(--dur-2) var(--ease-out);
+}
+.iso-slab:focus-visible .iso-f {
+  box-shadow: inset 0 0 0 2px var(--link);
+}
+.iso-hit {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform-origin: 0 0;
+  backface-visibility: hidden;
+  pointer-events: auto;
+}
+.iso-slab-rule {
+  position: absolute;
+  left: 14px;
+  right: 14px;
+  top: 14px;
+  height: 0;
+  border-top: 1px solid var(--e);
+}
+.iso-slab-rule::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 6px;
+  width: 38%;
+  border-top: 1px solid var(--e);
+}
+.iso-slab-tag {
+  position: absolute;
+  left: 14px;
+  bottom: 12px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  color: var(--tx);
+  opacity: 0.55;
+}
+.iso-slab.is-out .iso-slab-tag {
+  opacity: 0.85;
+}
+.iso-slab-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--ok);
+}
+.iso-card-hero {
+  min-width: 168px;
+}
+
+/* ---------- 2. Formats ---------- */
+.iso-plinth {
+  --e: var(--line);
+}
+.iso-groove {
+  position: absolute;
+  inset: 11px;
+  border: 1px solid var(--iso-groove);
+  border-radius: 3px;
+}
+.iso-tile {
+  cursor: default;
+}
+.iso-lift {
+  transition: transform 520ms var(--ease-spring);
+}
+.iso-tile.is-hot .iso-lift,
+.iso-ped.is-hot .iso-lift {
+  transform: translate3d(0, 0, 18px);
+}
+.iso-tile .iso-tl {
+  opacity: 0.72;
+  transition: opacity var(--dur-2) var(--ease-out);
+}
+.iso-tile .is-paper-soft .iso-tl {
+  color: var(--ink-2);
+}
+.iso-tile.is-hot .iso-tl {
+  opacity: 1;
+}
+.iso-tile.is-hot .is-paper-soft .iso-tl {
+  color: var(--ink);
+}
+.iso-tile .iso-f {
+  transition: box-shadow var(--dur-2) var(--ease-out);
+}
+.iso-tile.is-hot .is-paper-soft .iso-f {
+  box-shadow: inset 0 0 0 1px var(--iso-paper-edge);
+}
+.iso-pip {
+  position: absolute;
+  right: 10px;
+  bottom: 10px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--tx);
+  opacity: 0.28;
+}
+.iso-socket {
+  border-radius: 4px;
+  border: 1.5px dashed var(--line-strong);
+  background: var(--iso-groove);
+}
+
+/* ---------- 3. Convert ---------- */
+.iso-rail {
+  --e: var(--line);
+}
+.iso-bolts {
+  position: absolute;
+  inset: 0;
+  background-image: radial-gradient(circle, var(--iso-groove) 0 1.6px, transparent 2.2px);
+  background-size: 40px 100%;
+  background-position: 20px 50%;
+  background-repeat: repeat-x;
+}
+.iso-bolts.is-onink {
+  background-image: radial-gradient(circle, var(--iso-engrave-ink) 0 1.6px, transparent 2.2px);
+}
+.iso-guard {
+  --e: var(--line);
+}
+.iso-belt .f-top {
+  background: var(--t);
+}
+.iso-belt-strip {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: calc(100% + 80px);
+  background-image: repeating-linear-gradient(90deg, transparent 0 34px, var(--iso-ink-edge) 34px 40px);
+  will-change: transform;
+}
+.iso-gate {
+  --e: var(--line-strong);
+}
+.iso-gate.is-ink {
+  --e: var(--iso-ink-edge);
+}
+.iso-gate-led {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 6px;
+  height: 6px;
+  margin: -3px 0 0 -3px;
+  border-radius: 50%;
+  background: var(--muted);
+  transition: background-color 160ms linear, box-shadow 160ms linear;
+}
+.is-flash .iso-gate-led {
+  background: var(--ok);
+  box-shadow: 0 0 0 3px var(--ok-soft);
+}
+.iso-gate-light {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform-origin: 0 0;
+  pointer-events: none;
+  background: linear-gradient(180deg, var(--info-soft), transparent 92%);
+  border-top: 2px solid var(--info);
+  opacity: 0.22;
+}
+.iso-blk-file {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.02em;
+  color: var(--tx);
+  opacity: 0.55;
+}
+.iso-blk-tl {
+  font-size: 22px;
+}
+.iso-blk-tl.is-long {
+  font-size: 15px;
+}
+.iso-term {
+  position: absolute;
+  left: 3%;
+  bottom: 3%;
+  width: min(60%, 470px);
+  border-radius: 14px;
+  background: var(--glass-strong);
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow-md);
+  -webkit-backdrop-filter: saturate(180%) blur(20px);
+  backdrop-filter: saturate(180%) blur(20px);
+  overflow: hidden;
+  font-family: var(--font-mono);
+}
+.iso-term-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--line);
+  font-family: var(--font-sans);
+  font-size: 11px;
+  color: var(--muted);
+}
+.iso-term-bar i {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--line-strong);
+}
+.iso-term-bar span {
+  margin-left: 6px;
+}
+.iso-term-body {
+  padding: 10px 12px 11px;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--ink);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  min-height: calc(1.55em * 4 + 21px);
+}
+.iso-term-p {
+  color: var(--muted);
+}
+.iso-term-caret {
+  display: inline-block;
+  width: 7px;
+  height: 1.1em;
+  margin-left: 1px;
+  vertical-align: -0.18em;
+  background: var(--ink);
+  opacity: 0.7;
+  animation: iso-caret 1.05s steps(1) infinite;
+}
+.iso-term.is-typing .iso-term-caret {
+  animation: none;
+}
+@keyframes iso-caret {
+  50% {
+    opacity: 0;
+  }
+}
+.iso-term-ok {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+  color: var(--ok);
+  font-size: 12px;
+  opacity: 0;
+  transform: translate3d(0, 4px, 0);
+  transition: opacity var(--dur-2) var(--ease-out), transform var(--dur-2) var(--ease-out);
+}
+.iso-term-ok.is-on {
+  opacity: 1;
+  transform: none;
+}
+.iso-term-ok .iso-term-okt {
+  color: var(--ink-2);
+}
+.iso-compact-only,
+.iso-short {
+  display: none;
+}
+.is-compact .iso-term {
+  left: 0;
+  bottom: 0;
+  width: 100%;
+  border-radius: 12px;
+}
+.is-compact .iso-term-bar {
+  padding: 6px 10px;
+}
+.is-compact .iso-term-body {
+  padding: 8px 10px 9px;
+  font-size: 11px;
+  min-height: calc(1.55em * 4 + 19px);
+}
+.is-compact .iso-formats .iso-tl {
+  font-size: 27px;
+}
+.is-compact .iso-formats .iso-tl.is-long {
+  font-size: 21px;
+}
+
+/* ---------- 4. Audit ---------- */
+.iso-grid {
+  position: absolute;
+  inset: 14px;
+  background-image: linear-gradient(var(--iso-groove) 1px, transparent 1px),
+    linear-gradient(90deg, var(--iso-groove) 1px, transparent 1px);
+  background-size: 64px 64px;
+  background-position: -1px -1px;
+  border: 1px solid var(--iso-groove);
+}
+.iso-scan {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 46px;
+  background: linear-gradient(90deg, transparent, var(--info-soft) 70%, var(--info) 96%, transparent);
+  opacity: 0.55;
+  animation: iso-scan 6.5s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+  will-change: transform;
+}
+@keyframes iso-scan {
+  0% {
+    transform: translate3d(-60px, 0, 0);
+    opacity: 0;
+  }
+  10% {
+    opacity: 0.55;
+  }
+  85% {
+    opacity: 0.55;
+  }
+  100% {
+    transform: translate3d(360px, 0, 0);
+    opacity: 0;
+  }
+}
+.iso-col {
+  cursor: default;
+}
+.iso-colbox .iso-f {
+  transition: box-shadow var(--dur-2) var(--ease-out);
+}
+.iso-colbox.is-warn .f-top {
+  background: var(--warn);
+}
+.iso-colbox.is-bad .f-top {
+  background: var(--bad);
+}
+.iso-colbox.is-warn,
+.iso-colbox.is-bad {
+  --e: rgba(0, 0, 0, 0.12);
+}
+.iso-col.is-hot .iso-f {
+  box-shadow: inset 0 0 0 1.5px var(--ink);
+}
+.iso-col.is-hot .iso-colbox.is-ok .f-top {
+  background: var(--iso-top);
+}
+.iso-halo {
+  position: absolute;
+  width: 58px;
+  height: 58px;
+  margin: -29px 0 0 -29px;
+  border-radius: 50%;
+  border: 1.5px solid var(--bad);
+  opacity: 0;
+  animation: iso-halo 2.4s var(--ease-out) infinite;
+}
+.iso-halo.is-warn {
+  border-color: var(--warn);
+  animation-duration: 3.2s;
+  animation-delay: 0.8s;
+}
+@keyframes iso-halo {
+  0% {
+    transform: scale(0.6);
+    opacity: 0.9;
+  }
+  100% {
+    transform: scale(1.5);
+    opacity: 0;
+  }
+}
+.iso-tip .iso-card-k {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  font-weight: 600;
+}
+.iso-tip {
+  transform-origin: 50% 100%;
+}
+.iso-tip-st {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 3px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--ink-2);
+}
+.iso-score {
+  position: absolute;
+  z-index: -1;
+  left: 3%;
+  top: 4%;
+  display: grid;
+  grid-template-columns: 58px auto;
+  align-items: center;
+  column-gap: 12px;
+  padding: 10px 16px 10px 10px;
+  border-radius: 18px;
+  background: var(--glass-strong);
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow-md);
+  -webkit-backdrop-filter: saturate(180%) blur(20px);
+  backdrop-filter: saturate(180%) blur(20px);
+}
+.iso-score svg {
+  grid-row: 1;
+  grid-column: 1;
+  width: 58px;
+  height: 58px;
+  transform: rotate(-90deg);
+}
+.iso-score-track {
+  fill: none;
+  stroke: var(--line-strong);
+  stroke-width: 5;
+}
+.iso-score-arc {
+  fill: none;
+  stroke: var(--ink);
+  stroke-width: 5;
+  stroke-linecap: round;
+}
+.iso-score-n {
+  grid-row: 1;
+  grid-column: 1;
+  text-align: center;
+  font-family: var(--font-display);
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  font-variant-numeric: tabular-nums;
+}
+.iso-score-t {
+  display: grid;
+  gap: 1px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.iso-score-t b {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+}
+/* Narrow scenes (< 560px wide, set by iso.js): tighter chips, no secondary lines. */
+.is-compact .iso-chip {
+  padding: 5px 9px 6px;
+  border-radius: 9px;
+}
+.is-compact .iso-chip-k {
+  display: none;
+}
+.is-compact .iso-chip-v {
+  font-size: 11.5px;
+}
+.is-compact .iso-long {
+  display: none;
+}
+.is-compact .iso-short {
+  display: inline;
+}
+.is-compact .iso-card {
+  padding: 7px 10px 8px;
+  border-radius: 11px;
+  font-size: 12px;
+}
+.is-compact .iso-card-hero {
+  min-width: 0;
+}
+.is-compact .iso-card-v,
+.is-compact .iso-tip-st {
+  font-size: 11.5px;
+}
+.is-compact .iso-state {
+  padding: 4px 10px;
+  font-size: 11px;
+}
+.is-compact .iso-score {
+  left: 0;
+  top: 0;
+}
+.is-compact .iso-score {
+  grid-template-columns: 44px auto;
+  padding: 7px 12px 7px 7px;
+  border-radius: 14px;
+}
+.is-compact .iso-score svg {
+  width: 44px;
+  height: 44px;
+}
+.is-compact .iso-score-n {
+  font-size: 15px;
+}
+.is-compact .iso-score-t span {
+  display: none;
+}
+
+/* ---------- 5. Vault ---------- */
+.iso-vault-ctl {
+  outline: none;
+  cursor: pointer;
+}
+.iso-vault-ctl:focus-visible .iso-vwall .iso-f {
+  box-shadow: inset 0 0 0 2px var(--link);
+}
+.iso-vwall {
+  --e: var(--line-strong);
+}
+.iso-vfloor .f-top {
+  background: var(--iso-right);
+  box-shadow: inset 0 0 18px var(--iso-groove);
+}
+.iso-vframe {
+  position: absolute;
+  inset: 10px;
+  border: 1px solid var(--iso-groove);
+  border-radius: 6px;
+}
+.iso-vframe::before,
+.iso-vframe::after {
+  content: "";
+  position: absolute;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--iso-engrave);
+  opacity: 0.6;
+  top: 7px;
+  left: 7px;
+  box-shadow: 0 calc(100% + 0px) 0 transparent;
+}
+.iso-vframe::after {
+  left: auto;
+  right: 7px;
+}
+.iso-dial {
+  position: absolute;
+  left: 30px;
+  top: 34px;
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  background: var(--iso-ink-left);
+  box-shadow: inset 0 0 0 1px var(--iso-ink-edge), 0 0 0 5px var(--iso-groove);
+}
+.iso-dial-face {
+  position: absolute;
+  inset: 7px;
+  border-radius: 50%;
+  background: repeating-conic-gradient(var(--iso-engrave-ink) 0 1.2deg, transparent 1.2deg 10deg);
+  -webkit-mask: radial-gradient(circle, transparent 62%, #000 63%);
+  mask: radial-gradient(circle, transparent 62%, #000 63%);
+}
+.iso-dial::after {
+  content: "";
+  position: absolute;
+  inset: 26px;
+  border-radius: 50%;
+  background: var(--iso-ink-top);
+  box-shadow: inset 0 0 0 1px var(--iso-ink-edge);
+}
+.iso-dial-mark {
+  position: absolute;
+  left: 50%;
+  top: -12px;
+  width: 2px;
+  height: 8px;
+  margin-left: -1px;
+  background: var(--ink);
+  border-radius: 1px;
+}
+.iso-handle {
+  position: absolute;
+  right: 24px;
+  top: 42px;
+  width: 14px;
+  height: 64px;
+  border-radius: 7px;
+  background: var(--iso-ink-left);
+  box-shadow: inset 0 0 0 1px var(--iso-ink-edge);
+}
+.iso-handle i {
+  position: absolute;
+  left: 5px;
+  top: 10px;
+  bottom: 10px;
+  width: 4px;
+  border-radius: 2px;
+  background: var(--iso-ink-top);
+}
+.iso-hinge {
+  position: absolute;
+  right: 0;
+  width: 10px;
+  height: 26px;
+  border-radius: 3px 0 0 3px;
+  background: var(--iso-ink-right);
+}
+.iso-hinge.a {
+  top: 14px;
+}
+.iso-hinge.b {
+  bottom: 14px;
+}
+.iso-vlabel {
+  font-size: 12px;
+  letter-spacing: 0.4em;
+}
+.iso-lid {
+  --e: var(--iso-ink-edge);
+}
+.iso-lid-groove {
+  position: absolute;
+  inset: 16px;
+  border: 1px solid var(--iso-engrave-ink);
+  border-radius: 6px;
+  opacity: 0.5;
+}
+.iso-lid-groove::after {
+  content: "";
+  position: absolute;
+  inset: 22px;
+  border: 1px solid var(--iso-engrave-ink);
+  border-radius: 4px;
+  opacity: 0.7;
+}
+.iso-lid-scan {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 34px;
+  background: linear-gradient(90deg, transparent, var(--iso-engrave-ink) 85%, transparent);
+  opacity: 0;
+  animation: iso-lidscan 5.5s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+  will-change: transform;
+}
+.iso-scene.is-open .iso-lid-scan {
+  animation-play-state: paused;
+}
+@keyframes iso-lidscan {
+  0% {
+    transform: translate3d(-70px, 0, 0);
+    opacity: 0;
+  }
+  15% {
+    opacity: 0.45;
+  }
+  80% {
+    opacity: 0.45;
+  }
+  100% {
+    transform: translate3d(220px, 0, 0);
+    opacity: 0;
+  }
+}
+.iso-lid-grip {
+  position: absolute;
+  left: 34%;
+  right: 34%;
+  top: 50%;
+  height: 3px;
+  margin-top: -1.5px;
+  border-radius: 2px;
+  opacity: 0.6;
+  background: var(--iso-engrave-ink);
+}
+.iso-lid-under {
+  position: absolute;
+  inset: 18px;
+  border-radius: 4px;
+  border: 1px solid var(--iso-ink-edge);
+}
+.iso-keyglyph {
+  position: absolute;
+  left: 50%;
+  top: 7px;
+  width: 12px;
+  height: 12px;
+  margin-left: -6px;
+  border-radius: 50%;
+  border: 2px solid var(--tx);
+  opacity: 0.5;
+}
+.iso-keylab {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--tx);
+  justify-items: start;
+  padding-left: 7px;
+}
+
+/* ---------- 6. Local ---------- */
+.iso-ring {
+  position: absolute;
+  border-radius: 50%;
+  pointer-events: none;
+}
+.iso-ring.is-boundary {
+  border: 2px dashed var(--line-strong);
+}
+.iso-ring.is-faint {
+  border: 1px solid var(--iso-groove);
+}
+.iso-lapbase {
+  --e: var(--line-strong);
+}
+.iso-keys {
+  position: absolute;
+  left: 14px;
+  right: 14px;
+  top: 10px;
+  height: 40px;
+  background-image: radial-gradient(circle, var(--iso-engrave) 0 1px, transparent 1.6px);
+  background-size: 9px 9px;
+  opacity: 0.7;
+}
+.iso-pad {
+  position: absolute;
+  left: 50%;
+  bottom: 9px;
+  width: 44px;
+  height: 26px;
+  margin-left: -22px;
+  border-radius: 3px;
+  border: 1px solid var(--iso-groove);
+}
+.iso-screen {
+  position: absolute;
+  inset: 6px 6px 7px;
+  border-radius: 2px;
+  background: var(--iso-screen);
+  overflow: hidden;
+}
+.iso-screen i {
+  position: absolute;
+  height: 5px;
+  border-radius: 2.5px;
+  background: var(--line-strong);
+}
+.iso-screen i.a {
+  left: 8px;
+  top: 10px;
+  width: 22px;
+  height: 60px;
+  border-radius: 3px;
+  background: var(--line);
+}
+.iso-screen i.b {
+  left: 38px;
+  top: 12px;
+  width: 70px;
+}
+.iso-screen i.c {
+  left: 38px;
+  top: 26px;
+  width: 52px;
+}
+.iso-screen i.d {
+  left: 38px;
+  top: 40px;
+  width: 60px;
+}
+.iso-screen b {
+  position: absolute;
+  right: 10px;
+  bottom: 9px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--ok);
+}
+.iso-epbox {
+  --e: var(--line-strong);
+}
+.iso-ep {
+  cursor: default;
+}
+.iso-ep-led {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 8px;
+  height: 8px;
+  margin: -4px 0 0 -4px;
+  border-radius: 50%;
+  background: var(--line-strong);
+  transition: background-color var(--dur-2) var(--ease-out), box-shadow var(--dur-2) var(--ease-out);
+}
+.iso-ep.is-on .iso-ep-led {
+  background: var(--info);
+  box-shadow: 0 0 0 4px var(--info-soft);
+}
+.iso-wire {
+  position: absolute;
+  left: 0;
+  top: -1px;
+  height: 0;
+  border-top: 2px dashed var(--line-strong);
+  transform-origin: 0 0;
+  transition: border-color var(--dur-2) var(--ease-out);
+}
+.iso-wire.is-on {
+  border-top-color: var(--info);
+}
+.iso-wire-dot {
+  position: absolute;
+  left: -4px;
+  top: -5px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--info);
+  box-shadow: 0 0 0 4px var(--info-soft);
+  opacity: 0;
+}
+.iso-wire.is-on .iso-wire-dot {
+  animation: iso-wire 1.4s var(--ease-in-out) infinite;
+}
+@keyframes iso-wire {
+  0% {
+    transform: translate3d(0, 0, 0);
+    opacity: 0;
+  }
+  15% {
+    opacity: 1;
+  }
+  85% {
+    opacity: 1;
+  }
+  100% {
+    transform: translate3d(var(--len, 100px), 0, 0);
+    opacity: 0;
+  }
+}
+.iso-ep-chip {
+  transition: opacity var(--dur-2) var(--ease-out), transform var(--dur-3) var(--ease-spring), border-color var(--dur-2);
+}
+.iso-pin.is-interactive {
+  pointer-events: auto;
+}
+.iso-pin.is-interactive .iso-card {
+  cursor: default;
+}
+.iso-pin.is-live .iso-card {
+  border-color: var(--info);
+}
+.iso-pin.is-live .iso-chip-v {
+  color: var(--info);
+}
+.iso-dome {
+  position: absolute;
+  left: 0;
+  top: 0;
+  overflow: visible;
+  pointer-events: none;
+}
+.iso-dome-s0 {
+  stop-color: var(--iso-glass-0);
+}
+.iso-dome-s1 {
+  stop-color: var(--iso-glass-1);
+}
+.iso-dome-s2 {
+  stop-color: var(--iso-glass-2);
+}
+.iso-dome-edge {
+  fill: none;
+  stroke: var(--iso-glass-edge);
+  stroke-width: 1.4;
+}
+.iso-dome-hi {
+  fill: none;
+  stroke: var(--iso-glass-hi);
+  stroke-width: 3;
+  stroke-linecap: round;
+  opacity: 0.7;
+}
+.iso-dome-lat {
+  fill: none;
+  stroke: var(--iso-glass-edge);
+  stroke-width: 1;
+  stroke-dasharray: 2 5;
+  opacity: 0.6;
+}
+
+/* ---------- 7. Platforms ---------- */
+.iso-ped {
+  cursor: default;
+}
+.iso-pedbox {
+  --e: var(--line-strong);
+}
+.iso-pedname {
+  font-family: var(--font-display);
+  font-size: 22px;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+  color: var(--ink);
+}
+.iso-pedplate.is-ink {
+  --e: var(--iso-ink-edge);
+}
+.iso-pedplate .iso-groove {
+  inset: 12px;
+}
+.iso-glow {
+  position: absolute;
+  inset: -10%;
+  background: radial-gradient(closest-side, color-mix(in srgb, var(--ok) 38%, transparent), transparent 100%);
+  animation: iso-glow 3.6s ease-in-out infinite;
+}
+@keyframes iso-glow {
+  50% {
+    opacity: 0.45;
+  }
+}
+.iso-inst-tl {
+  font-size: 16px;
+}
+.iso-inst-f {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-2);
+}
+.iso-inst .iso-f {
+  box-shadow: inset 0 0 0 1px var(--iso-paper-edge);
+}
+.iso-inst .iso-f.f-top::after {
+  content: "";
+  position: absolute;
+  inset: 9px;
+  border-radius: 4px;
+  border: 1.5px solid var(--ok);
+  opacity: 0.55;
+}
+.iso-ghost .iso-f {
+  background: transparent;
+  box-shadow: none;
+  border: 1.5px dashed var(--line-strong);
+  backface-visibility: visible;
+  -webkit-backface-visibility: visible;
+}
+.iso-ped-chip.is-ready .iso-chip-v {
+  color: var(--ink);
+}
+.iso-ped-chip:not(.is-ready) .iso-chip-v {
+  font-weight: 500;
+  color: var(--ink-2);
+}
+.iso-ped.is-active .iso-pedbox {
+  --e: var(--ink);
+}
+.iso-ped.is-active .iso-pedname {
+  color: var(--ink);
+}
+.has-active .iso-ped:not(.is-active) .iso-pedname {
+  color: var(--muted);
+}
+.iso-pin.is-active .iso-card {
+  border-color: var(--ink);
+}
+.has-active .iso-pin:not(.is-active) .iso-card {
+  opacity: 0.72;
+}
+
+/* ---------- Reduced motion / testing override ---------- */
+@media (prefers-reduced-motion: reduce) {
+  .iso-scene *,
+  .iso-scene *::before,
+  .iso-scene *::after {
+    animation: none !important;
+  }
+  .iso-wire.is-on .iso-wire-dot {
+    opacity: 1;
+    transform: translate3d(var(--len, 100px), 0, 0);
+  }
+}
+:root[data-iso-motion="reduce"] .iso-scene *,
+:root[data-iso-motion="reduce"] .iso-scene *::before,
+:root[data-iso-motion="reduce"] .iso-scene *::after {
+  animation: none !important;
+  transition-duration: 0s !important;
+}
+
+/* ---------- 8. Apps (More apps page) ---------- */
+.iso-scene[data-scene="apps"] { aspect-ratio: 600 / 470; }
+.iso-shelf {
+  --e: var(--line-strong);
+}
+.iso-appblk {
+  cursor: pointer;
+}
+.iso-appblk .iso-f {
+  transition: opacity var(--dur-2) var(--ease-out);
+}
+.iso-appblk.is-hot .iso-lift {
+  transform: translate3d(0, 0, 20px);
+}
+.iso-appglyph {
+  position: absolute;
+  inset: 13px;
+  border-radius: 12px;
+  border: 1.5px solid var(--e);
+}
+.iso-appglyph::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 10px;
+  height: 10px;
+  margin: -5px 0 0 -5px;
+  border-radius: 3px;
+  background: var(--tx);
+  opacity: 0.32;
+  transform: rotate(45deg);
+}
+.iso-appblk.is-hot .iso-appglyph::after {
+  opacity: 0.7;
+}
+.iso-app-chip,
+.iso-log-chip {
+  min-width: 132px;
+}
+
+/* ---------- 9. Changelog (milestone stack) ---------- */
+.iso-scene[data-scene="changelog"] { aspect-ratio: 420 / 380; }
+.iso-mout {
+  transition: transform 620ms var(--ease-spring);
+}
+.iso-mslab.is-active .iso-mout {
+  transform: translate3d(58px, 0, 0);
+}
+.iso-mslab .iso-f {
+  transition: opacity var(--dur-2) var(--ease-out), box-shadow var(--dur-2) var(--ease-out);
+}
+.iso-mslab.is-active .iso-box {
+  --t: var(--iso-ink-top);
+  --l: var(--iso-ink-left);
+  --r: var(--iso-ink-right);
+  --e: var(--iso-ink-edge);
+  --tx: var(--on-brand);
+}
+.iso-mslab.is-active .iso-engrave {
+  color: var(--iso-engrave-ink);
+}
+.iso-mslab.is-top.is-active .iso-box {
+  --t: var(--iso-top);
+  --l: var(--iso-left);
+  --r: var(--iso-right);
+  --e: var(--iso-paper-edge);
+  --tx: var(--ink);
+}
+.iso-mslab.is-top.is-active .iso-engrave {
+  color: var(--iso-engrave);
+}
+.iso-mdate {
+  font-size: 7.5px;
+  letter-spacing: 0.16em;
+}
+
+/* ---------- 10. Feedback (envelope) ---------- */
+.iso-scene[data-scene="feedback"] { aspect-ratio: 480 / 340; }
+.iso-env-floor,
+.iso-env-wall {
+  --e: var(--iso-ink-edge);
+}
+.iso-env-addr {
+  font-size: 8px;
+  letter-spacing: 0.12em;
+}
+.iso-letter {
+  --e: var(--iso-paper-edge);
+}
+.iso-letter-lift {
+  transition: transform 720ms var(--ease-spring), opacity 420ms var(--ease-out) 220ms;
+}
+.iso-letter-lines {
+  position: absolute;
+  top: 22px;
+  bottom: 22px;
+  left: 18px;
+  width: 34px;
+  background: repeating-linear-gradient(90deg, var(--iso-groove) 0 2px, transparent 2px 11px);
+  opacity: 0.9;
+}
+.iso-letter-type {
+  font-size: 18px;
+}
+.iso-stamp {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  width: 24px;
+  height: 28px;
+  border-radius: 3px;
+  border: 1.5px dashed var(--e);
+}
+.iso-flap {
+  transition: transform 820ms var(--ease-spring);
+}
+.iso-flap-face {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform-origin: 0 0;
+  transform: translateZ(0.8px);
+  clip-path: polygon(0 0, 100% 50%, 0 100%);
+  background: linear-gradient(90deg, var(--iso-ink-top) 0%, var(--iso-ink-left) 120%);
+  backface-visibility: visible;
+  -webkit-backface-visibility: visible;
+}
+.iso-scene[data-scene="feedback"]:hover .iso-flap,
+.iso-scene[data-scene="feedback"].is-tapped .iso-flap,
+.iso-scene[data-scene="feedback"][data-state] .iso-flap {
+  transform: rotateY(-166deg);
+}
+.iso-scene[data-scene="feedback"]:hover .iso-letter-lift,
+.iso-scene[data-scene="feedback"].is-tapped .iso-letter-lift,
+.iso-scene[data-scene="feedback"][data-state="open"] .iso-letter-lift {
+  transform: translate3d(0, 0, 54px);
+  transition-delay: 120ms, 0ms;
+}
+.iso-scene[data-scene="feedback"][data-state="sent"] .iso-letter-lift {
+  transform: translate3d(-40px, -150px, 280px) rotateZ(-6deg);
+  opacity: 0;
+  transition: transform 1100ms cubic-bezier(0.55, 0, 0.75, 0.2) 150ms, opacity 600ms ease-in 650ms;
+}
+@media (prefers-reduced-motion: reduce) {
+  .iso-scene[data-scene="feedback"][data-state="sent"] .iso-letter-lift {
+    transform: translate3d(0, 0, 54px);
+    opacity: 1;
+  }
+}
