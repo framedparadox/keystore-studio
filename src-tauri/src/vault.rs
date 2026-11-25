@@ -26,7 +26,9 @@ use zeroize::Zeroize;
 const CHECK_VALUE: &[u8] = b"xkeystore-vault-check-v1";
 /// The data folder's name before the app was renamed to Keystore Studio.
 const LEGACY_DIR_NAME: &str = "xkeystore";
-pub const MIN_MASTER_KEY_LEN: usize = 8;
+/// Raised from 8 on 2026-11-23: the master key guards every remembered keystore password. Only new
+/// vaults and master key changes are held to it; an existing shorter key still unlocks.
+pub const MIN_MASTER_KEY_LEN: usize = 12;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Argon2ParamsRecord {
@@ -213,7 +215,13 @@ impl VaultState {
         let (new_file, new_key) = new_vault_file(new_master_key)?;
         let mut secrets = self.read_secrets()?;
         for (id, sealed) in secrets.iter_mut() {
-            let mut plain = open(&old_key, id, sealed)?;
+            let mut plain = match open(&old_key, id, sealed) {
+                Ok(p) => p,
+                Err(err) => {
+                    old_key.zeroize();
+                    return Err(err);
+                }
+            };
             // Re-encrypting is not an update of the secret: keep when it was last stored.
             let updated_at = std::mem::take(&mut sealed.updated_at);
             *sealed = seal(&new_key, id, &sealed.label, &plain)?;
@@ -327,7 +335,17 @@ impl VaultState {
     }
 }
 
+/// Upper bounds for Argon2 parameters read from `vault.json`. The file is trusted only as far as
+/// its own contents: an edited file asking for, say, 64 GiB would otherwise make every unlock try
+/// to allocate it. Far above the defaults, so no vault this app wrote is affected.
+const MAX_M_COST_KIB: u32 = 1024 * 1024;
+const MAX_T_COST: u32 = 64;
+const MAX_P_COST: u32 = 16;
+
 fn derive_key(master_key: &str, salt: &[u8], p: &Argon2ParamsRecord) -> Res<[u8; 32]> {
+    if p.m_cost > MAX_M_COST_KIB || p.t_cost > MAX_T_COST || p.p_cost > MAX_P_COST {
+        return Err("the vault file asks for Argon2 parameters beyond what Keystore Studio accepts; it may have been tampered with".into());
+    }
     let params = Params::new(p.m_cost, p.t_cost, p.p_cost, Some(32)).map_err(|err| format!("invalid Argon2 parameters: {err}"))?;
     let mut key = [0u8; 32];
     Argon2::new(Algorithm::Argon2id, Version::V0x13, params).hash_password_into(master_key.as_bytes(), salt, &mut key).map_err(|err| format!("key derivation failed: {err}"))?;
@@ -361,7 +379,7 @@ fn derive_and_check(master_key: &str, file: &VaultFile) -> Res<[u8; 32]> {
 fn seal(key: &[u8; 32], id: &str, label: &str, plain: &[u8]) -> Res<SealedSecret> {
     let nonce = random_bytes(12);
     let ct = Aes256Gcm::new(Key::<Aes256Gcm>::from_slice(key)).encrypt(Nonce::from_slice(&nonce), Payload { msg: plain, aad: id.as_bytes() }).map_err(|_| "failed to encrypt secret".to_string())?;
-    Ok(SealedSecret { label: label.to_string(), nonce: B64.encode(nonce), ciphertext: B64.encode(ct), updated_at: chrono::Utc::now().format("%Y-%m-%d %H:%M").to_string() })
+    Ok(SealedSecret { label: label.to_string(), nonce: B64.encode(nonce), ciphertext: B64.encode(ct), updated_at: crate::util::fmt_minute(crate::util::now_ts()) })
 }
 
 fn open(key: &[u8; 32], id: &str, sealed: &SealedSecret) -> Res<Vec<u8>> {
@@ -508,6 +526,17 @@ mod tests {
         v.change_master_key("old master key", "new master key").unwrap();
         assert_eq!(v.list_secrets().unwrap()[0].updated_at, "2001-02-03 04:05");
         assert_eq!(v.get_secret("a").unwrap().as_deref(), Some("pw-a"));
+    }
+
+    #[test]
+    fn oversized_argon2_parameters_are_refused_before_allocating() {
+        let (_d, v) = vault();
+        v.init("master-key-123").unwrap();
+        let mut file = v.read_vault().unwrap();
+        file.argon2_params.m_cost = u32::MAX;
+        v.commit_vault_file(&file).unwrap();
+        v.lock().unwrap();
+        assert!(v.unlock("master-key-123").unwrap_err().contains("tampered"));
     }
 
     #[test]

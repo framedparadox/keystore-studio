@@ -8,6 +8,7 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "tauri": "tauri",
+    "build:windows:signed": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-windows-signed.ps1",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:rust": "cargo test --manifest-path src-tauri/Cargo.toml",
@@ -35,11 +36,13 @@
     "@types/react": "^19.1.8",
     "@types/react-dom": "^19.1.6",
     "@vitejs/plugin-react": "^6.0.2",
+    "jsdom": "25.0.1",
     "selenium-webdriver": "^4.52.0",
     "typescript": "~6.0.3",
     "vite": "^8.0.16",
     "vitest": "^3.2.7"
   },
+  "packageManager": "pnpm@9.15.5",
   "description": "Native keystore and X.509 certificate workbench (Tauri + Rust)",
   "license": "MIT"
 }

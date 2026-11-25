@@ -8,11 +8,10 @@
 use crate::keys::{self, PrivateKey};
 use crate::model::KeystoreEntry;
 use crate::util::{Res, e, looks_textual, pem_blocks, sha256, to_pem, unb64, write_atomic};
-use crate::{cms, entry, pbe, x509};
+use crate::{cms, entry, keystore, openssh, pbe, x509};
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD as B64URL};
-use rsa::pkcs1::{DecodeRsaPrivateKey, DecodeRsaPublicKey, EncodeRsaPublicKey};
-use rsa::pkcs8::{DecodePublicKey, EncodePublicKey};
-use rsa::{BigUint, RsaPrivateKey, RsaPublicKey};
+use rsa::pkcs1::{DecodeRsaPrivateKey, EncodeRsaPublicKey};
+use rsa::{BigUint, RsaPrivateKey};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
@@ -150,17 +149,16 @@ pub fn certificates(data: &[u8], target: &str, order: bool) -> Res<Output> {
 // ------------------------------------------------------------------------------------------------
 
 /// Target identifiers accepted by [`private_key`].
-pub const KEY_TARGETS: &[&str] = &["pkcs8_pem", "pkcs8_der", "pkcs8_encrypted_pem", "pkcs8_encrypted_der", "traditional_pem", "traditional_der", "jwk"];
+pub const KEY_TARGETS: &[&str] = &["pkcs8_pem", "pkcs8_der", "pkcs8_encrypted_pem", "pkcs8_encrypted_der", "pkcs8_encrypted_3des_pem", "traditional_pem", "traditional_der", "openssh", "jwk"];
 
 /// Re-encodes a private key. `password` decrypts the input; `out_password` encrypts the output
-/// for the encrypted targets.
-pub fn private_key(data: &[u8], password: Option<&str>, target: &str, out_password: Option<&str>) -> Res<Output> {
+/// for the encrypted targets (and, when given, the OpenSSH one). `comment` labels an OpenSSH key.
+pub fn private_key(data: &[u8], password: Option<&str>, target: &str, out_password: Option<&str>, comment: &str) -> Res<Output> {
     let key = PrivateKey::from_bytes(data, password)?;
     let pkcs8 = key.to_pkcs8_der()?;
-    let encrypt = || -> Res<Vec<u8>> {
-        let pw = out_password.filter(|p| !p.is_empty()).ok_or("enter a password to encrypt the converted key")?;
-        pbe::encrypt_pkcs8(pw, &pkcs8, pbe::DEFAULT_ITERATIONS)
-    };
+    let out_password = out_password.filter(|p| !p.is_empty());
+    let need_password = || out_password.ok_or("enter a password to encrypt the converted key");
+    let encrypt = || -> Res<Vec<u8>> { pbe::encrypt_pkcs8(need_password()?, &pkcs8, pbe::DEFAULT_ITERATIONS) };
     let traditional = || -> Res<(String, Vec<u8>)> {
         let text = key.to_traditional_pem()?;
         let der = pem::parse(text.as_bytes()).map_err(e)?.contents().to_vec();
@@ -171,6 +169,12 @@ pub fn private_key(data: &[u8], password: Option<&str>, target: &str, out_passwo
         "pkcs8_der" => (pkcs8.clone(), false, "PKCS#8 private key (DER)", "der", false),
         "pkcs8_encrypted_pem" => (to_pem("ENCRYPTED PRIVATE KEY", &encrypt()?).into_bytes(), true, "Encrypted PKCS#8 private key (PEM, AES-256)", "key", true),
         "pkcs8_encrypted_der" => (encrypt()?, false, "Encrypted PKCS#8 private key (DER, AES-256)", "der", true),
+        // What `openssl pkcs8 -topk8 -v1 PBE-SHA1-3DES` writes, for Java 8 and other readers that predate PBES2.
+        "pkcs8_encrypted_3des_pem" => {
+            let der = pbe::encrypt_pkcs8_3des(need_password()?, &pkcs8, pbe::LEGACY_ITERATIONS)?;
+            (to_pem("ENCRYPTED PRIVATE KEY", &der).into_bytes(), true, "Encrypted PKCS#8 private key (PEM, legacy 3DES)", "key", true)
+        }
+        "openssh" => (openssh::encode_private_key(&key, comment, out_password)?.into_bytes(), true, "OpenSSH private key", "key", out_password.is_some()),
         "traditional_pem" => (traditional()?.0.into_bytes(), true, "PKCS#1 / SEC1 private key (PEM)", "key", false),
         "traditional_der" => (traditional()?.1, false, "PKCS#1 / SEC1 private key (DER)", "der", false),
         "jwk" => (serde_json::to_string_pretty(&key.private_jwk()?).map_err(e)?.into_bytes(), true, "JSON Web Key (private)", "jwk.json", false),
@@ -188,7 +192,7 @@ pub fn private_key(data: &[u8], password: Option<&str>, target: &str, out_passwo
 // ------------------------------------------------------------------------------------------------
 
 /// Target identifiers accepted by [`public_key`].
-pub const PUBLIC_TARGETS: &[&str] = &["pem", "der", "pkcs1_pem", "openssh", "jwk"];
+pub const PUBLIC_TARGETS: &[&str] = &["pem", "der", "pkcs1_pem", "openssh", "ssh2", "jwk"];
 
 /// Extracts the public key from `data` and encodes it. `comment` ends an OpenSSH line.
 pub fn public_key(data: &[u8], password: Option<&str>, target: &str, comment: &str) -> Res<Output> {
@@ -201,12 +205,16 @@ pub fn public_key(data: &[u8], password: Option<&str>, target: &str, comment: &s
             if info.algorithm != "RSA" {
                 return Err(format!("PKCS#1 is an RSA format; this is a {} key. Choose PEM instead.", info.algorithm));
             }
-            let key = RsaPublicKey::from_public_key_der(&spki).map_err(e)?;
+            let key = keys::rsa_public_from_spki(&spki)?;
             (to_pem("RSA PUBLIC KEY", key.to_pkcs1_der().map_err(e)?.as_bytes()).into_bytes(), true, "RSA public key (PKCS#1 PEM)", "pub.pem")
         }
         "openssh" => {
             let (line, _) = keys::openssh_public_key(&spki, comment)?;
             (format!("{line}\n").into_bytes(), true, "OpenSSH public key", "pub")
+        }
+        "ssh2" => {
+            let (_, blob) = keys::openssh_public_blob(&spki)?;
+            (openssh::format_ssh2_public_key(&blob, comment).into_bytes(), true, "SSH2 public key (RFC 4716)", "pub")
         }
         "jwk" => (serde_json::to_string_pretty(&keys::public_jwk_from_spki(&spki)?).map_err(e)?.into_bytes(), true, "JSON Web Key (public)", "jwk.json"),
         other => return Err(format!("unknown public key format '{other}'")),
@@ -231,6 +239,8 @@ pub fn spki_from_any(data: &[u8], password: Option<&str>) -> Res<(Vec<u8>, &'sta
                 t if t.contains("CERTIFICATE REQUEST") => return Ok((x509::csr_parts(&block.der)?.spki, "the certificate request")),
                 "PUBLIC KEY" => return Ok((block.der, "the public key")),
                 "RSA PUBLIC KEY" => return Ok((rsa_spki(&block.der)?, "the RSA public key")),
+                // The public half sits in the clear, so an encrypted key needs no password here.
+                "OPENSSH PRIVATE KEY" => return Ok((openssh::spki_from_blob(openssh::Envelope::parse(&block.der)?.public_blob)?, "the OpenSSH private key")),
                 t if t.contains("PRIVATE KEY") => return Ok((PrivateKey::from_bytes(trimmed.as_bytes(), password)?.public_key_der()?, "the private key")),
                 "PKCS7" | "CMS" => {
                     let first = cms::certificates_from_pkcs7(&block.der)?.into_iter().next().ok_or("the PKCS#7 bundle holds no certificate")?;
@@ -244,8 +254,11 @@ pub fn spki_from_any(data: &[u8], password: Option<&str>) -> Res<(Vec<u8>, &'sta
     if trimmed.starts_with('{') {
         return Ok((spki_from_jwk(trimmed)?, "the JWK"));
     }
+    if openssh::looks_like_ssh2_public_key(trimmed) {
+        return Ok((openssh::spki_from_blob(&openssh::parse_ssh2_public_key(trimmed)?.0)?, "the SSH2 public key"));
+    }
     if let Some(line) = trimmed.lines().map(str::trim).find(|l| is_openssh_line(l)) {
-        return Ok((spki_from_openssh(line)?, "the OpenSSH public key"));
+        return Ok((openssh::spki_from_line(line)?.0, "the OpenSSH public key"));
     }
     match unb64(&trimmed.split_whitespace().collect::<String>()) {
         Ok(der) => spki_from_der(&der, password),
@@ -276,69 +289,12 @@ fn spki_from_der(der: &[u8], password: Option<&str>) -> Res<(Vec<u8>, &'static s
 }
 
 fn rsa_spki(pkcs1: &[u8]) -> Res<Vec<u8>> {
-    let key = RsaPublicKey::from_pkcs1_der(pkcs1).map_err(e)?;
-    Ok(key.to_public_key_der().map_err(e)?.as_bytes().to_vec())
+    Ok(keys::rsa_spki(&keys::rsa_public_from_pkcs1(pkcs1)?))
 }
 
+/// A line of an `authorized_keys` or `.pub` file, options in front of the key included.
 fn is_openssh_line(line: &str) -> bool {
-    line.starts_with("ssh-rsa ") || line.starts_with("ssh-ed25519 ") || line.starts_with("ecdsa-sha2-nistp")
-}
-
-/// Reader over the length-prefixed fields of an OpenSSH public key blob.
-struct SshReader<'a>(&'a [u8]);
-
-impl<'a> SshReader<'a> {
-    fn string(&mut self) -> Res<&'a [u8]> {
-        let bad = || "invalid OpenSSH public key: truncated".to_string();
-        let len_bytes: [u8; 4] = self.0.get(..4).ok_or_else(bad)?.try_into().map_err(|_| bad())?;
-        let len = u32::from_be_bytes(len_bytes) as usize;
-        let value = self.0.get(4..4 + len).ok_or_else(bad)?;
-        self.0 = &self.0[4 + len..];
-        Ok(value)
-    }
-}
-
-fn spki_from_openssh(line: &str) -> Res<Vec<u8>> {
-    let mut parts = line.split_whitespace();
-    let kind = parts.next().unwrap_or_default();
-    let blob = unb64(parts.next().ok_or("invalid OpenSSH public key: missing key data")?).map_err(|_| "invalid OpenSSH public key: the key data is not base64".to_string())?;
-    let mut r = SshReader(&blob);
-    let inner = r.string()?;
-    if inner != kind.as_bytes() {
-        return Err("invalid OpenSSH public key: the key type does not match its data".into());
-    }
-    match kind {
-        "ssh-rsa" => {
-            let exp = r.string()?;
-            let modulus = r.string()?;
-            let key = RsaPublicKey::new(BigUint::from_bytes_be(modulus), BigUint::from_bytes_be(exp)).map_err(e)?;
-            Ok(key.to_public_key_der().map_err(e)?.as_bytes().to_vec())
-        }
-        "ssh-ed25519" => ed25519_spki(r.string()?),
-        "ecdsa-sha2-nistp256" | "ecdsa-sha2-nistp384" | "ecdsa-sha2-nistp521" => {
-            let _ident = r.string()?;
-            ec_spki(&kind["ecdsa-sha2-nist".len()..], r.string()?)
-        }
-        other => Err(format!("OpenSSH {other} keys are not supported (RSA, ECDSA and Ed25519 are)")),
-    }
-}
-
-fn ed25519_spki(raw: &[u8]) -> Res<Vec<u8>> {
-    let bytes: [u8; 32] = raw.try_into().map_err(|_| "invalid Ed25519 public key: expected 32 bytes".to_string())?;
-    let key = ed25519_dalek::VerifyingKey::from_bytes(&bytes).map_err(e)?;
-    Ok(key.to_public_key_der().map_err(e)?.as_bytes().to_vec())
-}
-
-/// SPKI for an uncompressed or compressed SEC1 point. `curve` is `p256`, `p384` or `p521`
-/// (`P-256` etc. are accepted too).
-fn ec_spki(curve: &str, point: &[u8]) -> Res<Vec<u8>> {
-    let der = match curve.to_ascii_lowercase().replace('-', "").as_str() {
-        "p256" => p256::PublicKey::from_sec1_bytes(point).map_err(|_| "invalid P-256 public key".to_string())?.to_public_key_der(),
-        "p384" => p384::PublicKey::from_sec1_bytes(point).map_err(|_| "invalid P-384 public key".to_string())?.to_public_key_der(),
-        "p521" => p521::PublicKey::from_sec1_bytes(point).map_err(|_| "invalid P-521 public key".to_string())?.to_public_key_der(),
-        other => return Err(format!("unsupported EC curve '{other}' (P-256, P-384 and P-521 are supported)")),
-    };
-    Ok(der.map_err(e)?.as_bytes().to_vec())
+    line.split_whitespace().any(openssh::is_key_type)
 }
 
 /// SPKI from a public (or private) JWK, or the first key of a JWK set.
@@ -356,8 +312,8 @@ fn spki_from_jwk(text: &str) -> Res<Vec<u8>> {
     let crv = jwk.get("crv").and_then(|v| v.as_str()).unwrap_or_default();
     match kty {
         "RSA" => {
-            let key = RsaPublicKey::new(BigUint::from_bytes_be(&field("n")?), BigUint::from_bytes_be(&field("e")?)).map_err(e)?;
-            Ok(key.to_public_key_der().map_err(e)?.as_bytes().to_vec())
+            let key = rsa::RsaPublicKey::new_with_max_size(BigUint::from_bytes_be(&field("n")?), BigUint::from_bytes_be(&field("e")?), 16384).map_err(e)?;
+            Ok(keys::rsa_spki(&key))
         }
         "EC" => {
             let len = match crv {
@@ -373,9 +329,9 @@ fn spki_from_jwk(text: &str) -> Res<Vec<u8>> {
                 Ok([vec![0u8; len - v.len()], v].concat())
             };
             let point = [vec![0x04], pad(field("x")?)?, pad(field("y")?)?].concat();
-            ec_spki(crv, &point)
+            keys::ec_spki(crv, &point)
         }
-        "OKP" if crv == "Ed25519" => ed25519_spki(&field("x")?),
+        "OKP" if crv == "Ed25519" => keys::ed25519_spki(&field("x")?),
         "OKP" => Err(format!("unsupported JWK curve '{crv}'")),
         "oct" => Err("this is a symmetric (oct) JWK; it has no public key".into()),
         other => Err(format!("unsupported JWK key type '{other}'")),
@@ -429,20 +385,6 @@ fn der_extension(tag: &str) -> &'static str {
     }
 }
 
-fn is_encrypted_pkcs8(der: &[u8]) -> bool {
-    const PKCS5: &[u64] = &[1, 2, 840, 113549, 1, 5];
-    const PKCS12_PBE: &[u64] = &[1, 2, 840, 113549, 1, 12, 1];
-    yasna::parse_der(der, |r| {
-        r.read_sequence(|r| {
-            let alg = pbe::read_algorithm_id(r.next())?;
-            r.next().read_bytes()?;
-            Ok(alg.oid)
-        })
-    })
-    .map(|oid| oid.starts_with(PKCS5) || oid.starts_with(PKCS12_PBE))
-    .unwrap_or(false)
-}
-
 /// The PEM label matching a DER object, when it is one Keystore Studio recognises.
 pub fn detect_der_label(der: &[u8]) -> Option<&'static str> {
     if x509::cert_summary(der).is_ok() {
@@ -460,23 +402,62 @@ pub fn detect_der_label(der: &[u8]) -> Option<&'static str> {
     if PrivateKey::from_pkcs8_der(der).is_ok() {
         return Some("PRIVATE KEY");
     }
-    if is_encrypted_pkcs8(der) {
+    if keys::is_encrypted_pkcs8(der) {
         return Some("ENCRYPTED PRIVATE KEY");
     }
     if RsaPrivateKey::from_pkcs1_der(der).is_ok() {
         return Some("RSA PRIVATE KEY");
     }
-    if RsaPublicKey::from_pkcs1_der(der).is_ok() {
+    if keys::rsa_public_from_pkcs1(der).is_ok() {
         return Some("RSA PUBLIC KEY");
     }
-    // PKCS#8 and PKCS#1 were ruled out above, so a key that still parses is SEC1.
-    if PrivateKey::from_bytes(der, None).is_ok() {
-        return Some("EC PRIVATE KEY");
+    if let Some(label) = keys::traditional_label(der) {
+        return Some(label);
     }
     if cms::certificates_from_pkcs7(der).is_ok() {
         return Some("PKCS7");
     }
     None
+}
+
+// ------------------------------------------------------------------------------------------------
+// Certificates -> truststore
+// ------------------------------------------------------------------------------------------------
+
+/// An alias for a certificate: its common name, lower-cased with spaces as hyphens.
+fn alias_for(der: &[u8], fallback: usize) -> String {
+    let cn = x509::parse_certificate(der).map(|c| x509::cn_of(&c.subject)).unwrap_or_default();
+    let alias: String = cn.trim().to_lowercase().chars().map(|c| if c.is_whitespace() { '-' } else { c }).collect();
+    if alias.is_empty() { format!("cert-{fallback}") } else { alias }
+}
+
+/// A truststore holding every certificate in `data` as a trusted certificate entry, in any
+/// keystore format: what `keytool -importcert -trustcacerts` does once per certificate.
+/// `alias` names the first entry (the others get their common names); empty means "use the
+/// common names".
+pub fn truststore(data: &[u8], format: &str, password: &str, alias: &str) -> Res<Output> {
+    let format = keystore::Format::parse(format)?;
+    let certs = x509::order_bundle(&read_certificates(data)?);
+    let mut used = std::collections::HashSet::new();
+    let mut entries = Vec::with_capacity(certs.len());
+    for (i, der) in certs.iter().enumerate() {
+        let base = if i == 0 && !alias.trim().is_empty() { alias.trim().to_string() } else { alias_for(der, i + 1) };
+        // keytool folds JKS and JCEKS aliases to lower case; two that differ only in case collide.
+        let fold = |a: &str| if matches!(format, keystore::Format::Jks | keystore::Format::Jceks) { a.to_lowercase() } else { a.to_string() };
+        let (mut candidate, mut n) = (fold(&base), 2);
+        while !used.insert(candidate.to_lowercase()) {
+            candidate = fold(&format!("{base}-{n}"));
+            n += 1;
+        }
+        entries.push(entry::trusted_cert_entry(&candidate, der, None)?);
+    }
+    let bytes = keystore::encode(&entries, password, format)?;
+    let n = entries.len();
+    let mut notes = vec![format!("{} as trusted certificate entries: {}.", plural(n, "certificate", "certificates"), entries.iter().map(|e| e.alias.as_str()).collect::<Vec<_>>().join(", "))];
+    if format == keystore::Format::Jks {
+        notes.push("JKS protects its integrity with SHA-1. PKCS#12 is the better choice unless a reader needs JKS.".into());
+    }
+    Ok(Output { bytes, text: false, sensitive: false, format: format!("{} truststore", format.name()), extension: format.extension(), count: n, notes })
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -649,7 +630,7 @@ mod tests {
             let src = e.private_key_pem.clone().unwrap();
             let original = PrivateKey::from_bytes(src.as_bytes(), None).unwrap().to_pkcs8_der().unwrap();
             for target in KEY_TARGETS {
-                let r = private_key(src.as_bytes(), None, target, Some("out-pw-1"));
+                let r = private_key(src.as_bytes(), None, target, Some("out-pw-1"), "me@host");
                 if alg == "Ed25519" && target.starts_with("traditional") {
                     assert!(r.is_err(), "Ed25519 has no traditional form");
                     continue;
@@ -659,7 +640,7 @@ mod tests {
                 if *target == "jwk" {
                     continue;
                 }
-                let pw = target.contains("encrypted").then_some("out-pw-1");
+                let pw = (target.contains("encrypted") || *target == "openssh").then_some("out-pw-1");
                 let back = PrivateKey::from_bytes(&out.bytes, pw).unwrap_or_else(|err| panic!("{alg} {target} does not read back: {err}"));
                 assert_eq!(back.to_pkcs8_der().unwrap(), original, "{alg} {target}");
             }
@@ -669,11 +650,11 @@ mod tests {
     #[test]
     fn encrypted_key_input_and_output_need_passwords() {
         let src = key_pair("ECDSA").private_key_pem.unwrap();
-        let enc = private_key(src.as_bytes(), None, "pkcs8_encrypted_pem", Some("secret-1")).unwrap();
-        assert!(private_key(&enc.bytes, None, "pkcs8_pem", None).is_err());
-        assert!(private_key(&enc.bytes, Some("wrong"), "pkcs8_pem", None).is_err());
-        assert!(private_key(&enc.bytes, Some("secret-1"), "pkcs8_pem", None).is_ok());
-        assert!(private_key(src.as_bytes(), None, "pkcs8_encrypted_pem", None).is_err());
+        let enc = private_key(src.as_bytes(), None, "pkcs8_encrypted_pem", Some("secret-1"), "").unwrap();
+        assert!(private_key(&enc.bytes, None, "pkcs8_pem", None, "").is_err());
+        assert!(private_key(&enc.bytes, Some("wrong"), "pkcs8_pem", None, "").is_err());
+        assert!(private_key(&enc.bytes, Some("secret-1"), "pkcs8_pem", None, "").is_ok());
+        assert!(private_key(src.as_bytes(), None, "pkcs8_encrypted_pem", None, "").is_err());
     }
 
     #[test]
@@ -718,7 +699,7 @@ mod tests {
         let set = serde_json::json!({ "keys": [jwk] }).to_string();
         assert_eq!(spki_from_any(set.as_bytes(), None).unwrap().0, spki);
         let (_, _, bits) = keys::split_spki(&spki).unwrap();
-        assert_eq!(ec_spki("P-256", &bits).unwrap(), spki);
+        assert_eq!(keys::ec_spki("P-256", &bits).unwrap(), spki);
         assert!(spki_from_any(br#"{"kty":"oct","k":"AAAA"}"#, None).is_err());
         assert!(spki_from_any(b"ssh-rsa AAAA", None).is_err());
     }
@@ -735,11 +716,11 @@ mod tests {
         let key_der = encoding(e.private_key_pem.as_ref().unwrap().as_bytes(), None).unwrap();
         assert!(key_der.sensitive);
         assert_eq!(detect_der_label(&key_der.bytes), Some("PRIVATE KEY"));
-        let traditional = private_key(e.private_key_pem.as_ref().unwrap().as_bytes(), None, "traditional_der", None).unwrap();
+        let traditional = private_key(e.private_key_pem.as_ref().unwrap().as_bytes(), None, "traditional_der", None, "").unwrap();
         assert_eq!(detect_der_label(&traditional.bytes), Some("RSA PRIVATE KEY"));
-        let ec = private_key(key_pair("ECDSA").private_key_pem.unwrap().as_bytes(), None, "traditional_der", None).unwrap();
+        let ec = private_key(key_pair("ECDSA").private_key_pem.unwrap().as_bytes(), None, "traditional_der", None, "").unwrap();
         assert_eq!(detect_der_label(&ec.bytes), Some("EC PRIVATE KEY"));
-        let enc = private_key(e.private_key_pem.as_ref().unwrap().as_bytes(), None, "pkcs8_encrypted_der", Some("pw")).unwrap();
+        let enc = private_key(e.private_key_pem.as_ref().unwrap().as_bytes(), None, "pkcs8_encrypted_der", Some("pw"), "").unwrap();
         assert_eq!(detect_der_label(&enc.bytes), Some("ENCRYPTED PRIVATE KEY"));
         let spki = pem::parse(e.public_key_pem.as_ref().unwrap()).unwrap().contents().to_vec();
         assert_eq!(detect_der_label(&spki), Some("PUBLIC KEY"));
@@ -794,6 +775,49 @@ mod tests {
     }
 
     #[test]
+    fn ssh_formats_are_read_and_written() {
+        for alg in ["RSA", "ECDSA", "Ed25519"] {
+            let e = key_pair(alg);
+            let expected = pem::parse(e.public_key_pem.as_ref().unwrap()).unwrap().contents().to_vec();
+            let src = e.private_key_pem.clone().unwrap();
+            // An encrypted OpenSSH key gives up its public half without the password.
+            let ssh = private_key(src.as_bytes(), None, "openssh", Some("ssh-pw"), "me@host").unwrap();
+            assert!(String::from_utf8_lossy(&ssh.bytes).starts_with("-----BEGIN OPENSSH PRIVATE KEY-----"));
+            assert_eq!(spki_from_any(&ssh.bytes, None).unwrap().0, expected, "{alg}");
+            assert!(ssh.notes.iter().all(|n| !n.contains("not encrypted")), "{alg}: {:?}", ssh.notes);
+            let back = private_key(&ssh.bytes, Some("ssh-pw"), "pkcs8_pem", None, "").unwrap();
+            assert_eq!(PrivateKey::from_bytes(&back.bytes, None).unwrap().to_pkcs8_der().unwrap(), PrivateKey::from_bytes(src.as_bytes(), None).unwrap().to_pkcs8_der().unwrap());
+            // RFC 4716 out and back in, and an authorized_keys line with options in front.
+            let ssh2 = public_key(src.as_bytes(), None, "ssh2", "a comment").unwrap();
+            assert!(String::from_utf8_lossy(&ssh2.bytes).starts_with("---- BEGIN SSH2 PUBLIC KEY ----"));
+            assert_eq!(spki_from_any(&ssh2.bytes, None).unwrap().0, expected, "{alg}");
+            let line = String::from_utf8(public_key(src.as_bytes(), None, "openssh", "c").unwrap().bytes).unwrap();
+            let with_options = format!("from=\"10.0.0.0/8\",no-pty {line}");
+            assert_eq!(spki_from_any(with_options.as_bytes(), None).unwrap().0, expected, "{alg}");
+        }
+    }
+
+    #[test]
+    fn certificates_become_a_truststore_in_every_format() {
+        let (ca, leaf) = ca_and_leaf();
+        let pem = format!("{}{}", chain_pem(&leaf), chain_pem(&ca));
+        for format in keystore::Format::ALL {
+            let out = truststore(pem.as_bytes(), format.name(), "trust-pw", "").unwrap_or_else(|err| panic!("{}: {err}", format.name()));
+            assert!(!out.sensitive && !out.text);
+            let store = keystore::decode(&out.bytes, "trust-pw", &Default::default()).unwrap();
+            assert_eq!(store.format, format);
+            // The CA appears twice in the input and once in the store.
+            assert_eq!(store.entries.len(), 2, "{}", format.name());
+            assert!(store.entries.iter().all(|e| e.entry_type == "TrustedCertificate"));
+        }
+        let named = truststore(pem.as_bytes(), "JKS", "trust-pw", "Partner Root").unwrap();
+        let aliases: Vec<String> = keystore::decode(&named.bytes, "trust-pw", &Default::default()).unwrap().entries.into_iter().map(|e| e.alias).collect();
+        assert!(aliases.contains(&"partner root".to_string()), "{aliases:?}");
+        assert!(truststore(pem.as_bytes(), "PKCS12", "", "").is_err(), "a truststore needs a password");
+        assert!(truststore(b"not a certificate", "PKCS12", "pw", "").is_err());
+    }
+
+    #[test]
     fn deliver_writes_and_withholds_secrets() {
         let dir = std::env::temp_dir().join(format!("xks-convert-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
@@ -801,7 +825,7 @@ mod tests {
         let preview = deliver(public_key(e.public_key_pem.as_ref().unwrap().as_bytes(), None, "openssh", "c").unwrap(), None).unwrap();
         assert!(preview.path.is_none() && preview.text.unwrap().starts_with("ecdsa-sha2-nistp256 "));
         let key_path = dir.join("k.pem");
-        let saved = deliver(private_key(e.private_key_pem.as_ref().unwrap().as_bytes(), None, "pkcs8_pem", None).unwrap(), key_path.to_str()).unwrap();
+        let saved = deliver(private_key(e.private_key_pem.as_ref().unwrap().as_bytes(), None, "pkcs8_pem", None, "").unwrap(), key_path.to_str()).unwrap();
         assert!(saved.text.is_none(), "private key text must not be returned");
         assert_eq!(std::fs::read(&key_path).unwrap().len(), saved.byte_length);
         std::fs::remove_dir_all(dir).ok();

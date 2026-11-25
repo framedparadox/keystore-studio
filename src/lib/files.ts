@@ -7,9 +7,9 @@ export interface FileFilter {
 }
 
 export const FILTERS = {
-  keystores: { name: "Keystores", extensions: ["p12", "pfx", "jks", "jceks", "keystore", "ks", "truststore"] },
-  certificates: { name: "Certificates", extensions: ["pem", "crt", "cer", "der", "p7b", "p7c", "txt"] },
-  keys: { name: "Private keys", extensions: ["pem", "key", "der", "p8", "txt"] },
+  keystores: { name: "Keystores", extensions: ["p12", "pfx", "jks", "jceks", "bks", "uber", "bcfks", "keystore", "ks", "truststore"] },
+  certificates: { name: "Certificates", extensions: ["pem", "crt", "cer", "der", "p7b", "p7c", "pkipath", "txt"] },
+  keys: { name: "Private keys", extensions: ["pem", "key", "der", "p8", "jwk", "json", "txt", "pub"] },
   csr: { name: "Certificate requests", extensions: ["csr", "pem", "req", "der", "txt"] },
   crl: { name: "CRLs", extensions: ["crl", "pem", "der"] },
   cms: { name: "Signatures", extensions: ["p7s", "p7m", "pem", "der", "sig"] },

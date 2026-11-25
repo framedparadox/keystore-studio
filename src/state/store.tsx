@@ -7,7 +7,7 @@ import { setThresholds } from "../lib/metrics";
 import { applyTheme, cachedThemePreference, isThemePreference, watchSystemTheme, type ThemePreference } from "../lib/theme";
 import { isCertificateBundle, isCertificateProbe, mergeCertificates, persistCertificates, toOpenCertificates, type PersistedCertificate } from "../lib/certificates";
 import { useConfirm, useToast } from "../components/ui";
-import type { AppInfo, DataSource, KeystoreEntry, KeystoreFile, KeystoreFormat, OpenCertificate, OpenKeystore, TabType, VaultStatus, Workspace } from "../types/crypto";
+import type { AppInfo, DataSource, KeystoreEntry, KeystoreFile, KeystoreFormat, OpenCertificate, OpenKeystore, Pkcs12Profile, TabType, VaultStatus, Workspace } from "../types/crypto";
 
 export interface Settings {
   /** Light, dark (black) or follow the operating system. */
@@ -164,7 +164,7 @@ interface Store {
   setBuildPkcs12Open: (open: boolean) => void;
   save: (keystoreId: string, opts?: { saveAs?: boolean; then?: () => void }) => Promise<void>;
   pendingSave: PendingSave | null;
-  completeSave: (args: { path: string; password: string; format: KeystoreFormat; remember: boolean; mac?: "pkcs12" | "pbmac1"; force?: boolean }) => Promise<boolean>;
+  completeSave: (args: { path: string; password: string; format: KeystoreFormat; remember: boolean; mac?: Pkcs12Profile; force?: boolean }) => Promise<boolean>;
   cancelSave: () => void;
   closeKeystore: (keystoreId: string) => Promise<boolean>;
   recentFiles: RecentFile[];
@@ -263,6 +263,8 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const rememberOnSave = useRef(new Set<string>());
   // Key pairs unlocked this session, by entry id. Never persisted.
   const [unlockedKeys, setUnlockedKeys] = useState<ReadonlySet<string>>(() => new Set());
+  const unlockedKeysRef = useRef(unlockedKeys);
+  unlockedKeysRef.current = unlockedKeys;
   const [pendingKeyUnlock, setPendingKeyUnlock] = useState<PendingKeyUnlock | null>(null);
   const markUnlocked = useCallback((ids: string[]) => {
     if (ids.length) setUnlockedKeys((cur) => new Set([...cur, ...ids]));
@@ -277,8 +279,16 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     });
   }, []);
 
-  const [pendingOpen, setPendingOpen] = useState<PendingOpen | null>(null);
+  const [pendingOpen, setPendingOpenState] = useState<PendingOpen | null>(null);
+  // Read synchronously by openFiles: files dropped while a password prompt is up wait their turn
+  // instead of replacing the prompt (which would lose the file it was asking about).
+  const pendingOpenRef = useRef<PendingOpen | null>(null);
+  const setPendingOpen = useCallback((p: PendingOpen | null) => {
+    pendingOpenRef.current = p;
+    setPendingOpenState(p);
+  }, []);
   const openQueue = useRef<string[]>([]);
+  const opening = useRef(false);
   const [pendingSave, setPendingSave] = useState<PendingSave | null>(null);
   const [newKeystoreOpen, setNewKeystoreOpen] = useState(false);
   const [buildPkcs12Open, setBuildPkcs12Open] = useState(false);
@@ -554,19 +564,25 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       setAll(place(keystoresRef.current), historyRef.current.map(place), redoRef.current.map(place));
       setActiveKeystoreId(id);
       addRecent(file.path, file.format);
+      // Entries the app cannot model are not silently dropped: say so once, when the file opens.
+      if (file.omitted_entries) {
+        toast.info(`${file.name}: ${file.omitted_entries} ${file.omitted_entries === 1 ? "entry is" : "entries are"} not shown. Saving over this file would drop ${file.omitted_entries === 1 ? "it" : "them"}; the Keystores page explains why.`);
+      }
       return opened;
     },
-    [applyLabels, addRecent, setAll, forgetUnlocked]
+    [applyLabels, addRecent, setAll, forgetUnlocked, toast]
   );
 
   const openPathRef = useRef<(path: string, sealedId?: string) => Promise<void>>(async () => undefined);
   const showNextQueued = useCallback(() => {
+    opening.current = false;
     const next = openQueue.current.shift();
     if (next) void openPathRef.current(next);
   }, []);
 
   const openPath = useCallback(
     async (path: string, sealedId?: string): Promise<void> => {
+      opening.current = true;
       try {
         const probe = await api.probeFile(path);
         if (probe.kind === "keystore") {
@@ -595,11 +611,10 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             }
           }
           setPendingOpen({ path, name: probe.name, format: probe.keystore_format ?? "", sealedId: sealedId ?? keystoresRef.current.find((k) => k.path === path)?.id });
+          opening.current = false;
           return;
         }
-        if (probe.kind === "unsupported_keystore") {
-          toast.error(`${probe.name}: this Bouncy Castle keystore cannot be opened here. UBER and BCFKS still need conversion with keytool -importkeystore.`);
-        } else if (probe.kind === "apk") {
+        if (probe.kind === "apk") {
           toast.error(`${probe.name} is an Android APK. APK Signature Scheme v2/v3 is not a JAR signature, so it is not opened for signing.`);
         } else if (probe.kind === "jar") {
           setJarRequest({ path, nonce: Date.now() });
@@ -634,6 +649,10 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         list = [picked];
       }
       if (!list.length) return;
+      if (pendingOpenRef.current || opening.current) {
+        openQueue.current.push(...list);
+        return;
+      }
       openQueue.current.push(...list.slice(1));
       await openPath(list[0]);
     },
@@ -671,7 +690,10 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const unlockSealed = useCallback(
     (keystoreId: string) => {
       const ks = keystoresRef.current.find((k) => k.id === keystoreId);
-      if (ks?.path) void openPath(ks.path, ks.id);
+      if (!ks?.path) return;
+      // Another file is being opened or waits for its password: this one follows it.
+      if (pendingOpenRef.current || opening.current) openQueue.current.push(ks.path);
+      else void openPath(ks.path, ks.id);
     },
     [openPath]
   );
@@ -723,8 +745,12 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       // the old file, where the next Ctrl+S would write.
       const rebase = (snap: OpenKeystore[]) =>
         snap.map((k) => (k.id === ks.id ? normalizeEntries({ ...k, path, name, format, source_mtime_ms: updated.source_mtime_ms, dirty: true }) : k));
+      // An edit made while the save was running is not in the file: keep it, still unsaved, rather
+      // than replacing it with the snapshot that was written.
+      const current = keystoresRef.current.find((k) => k.id === ks.id);
+      const editedMeanwhile = !!current && current !== ks;
       setAll(
-        keystoresRef.current.map((k) => (k.id === ks.id ? updated : k)),
+        editedMeanwhile ? rebase(keystoresRef.current) : keystoresRef.current.map((k) => (k.id === ks.id ? updated : k)),
         historyRef.current.map(rebase),
         redoRef.current.map(rebase)
       );
@@ -778,7 +804,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   );
 
   const completeSave = useCallback(
-    async ({ path, password, format, remember, mac, force }: { path: string; password: string; format: KeystoreFormat; remember: boolean; mac?: "pkcs12" | "pbmac1"; force?: boolean }) => {
+    async ({ path, password, format, remember, mac, force }: { path: string; password: string; format: KeystoreFormat; remember: boolean; mac?: Pkcs12Profile; force?: boolean }) => {
       const req = pendingSave;
       const ks = req && keystoresRef.current.find((k) => k.id === req.keystoreId);
       if (!req || !ks) return false;
@@ -1065,21 +1091,32 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }, 400);
   }, [ready, desktop, version, activeKeystoreId, recentFiles, workspaces, activeWorkspaceId, labels, settings, certificates]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ------------------------------------------------------- vault auto-lock
+  // ------------------------------------------------- auto-lock on inactivity
+  // One timer locks both the vault and the key pairs unlocked this session: a key unlocked hours
+  // ago must not keep signing without its password just because the vault was never opened.
   const lastActivity = useRef(Date.now());
   useEffect(() => {
     const bump = () => (lastActivity.current = Date.now());
-    window.addEventListener("mousemove", bump);
-    window.addEventListener("keydown", bump);
+    const events = ["mousemove", "keydown", "pointerdown", "wheel"] as const;
+    events.forEach((e) => window.addEventListener(e, bump, { passive: true }));
     const timer = window.setInterval(() => {
       const mins = settingsRef.current.autoLockMinutes;
-      if (mins > 0 && vaultRef.current.unlocked && Date.now() - lastActivity.current > mins * 60_000) {
-        void lockVault().then(() => toast.info("The vault was locked after a period of inactivity."));
+      if (mins <= 0 || Date.now() - lastActivity.current <= mins * 60_000) return;
+      const vaultOpen = vaultRef.current.unlocked;
+      const keysOpen = settingsRef.current.requireKeyUnlock && unlockedKeysRef.current.size > 0;
+      if (!vaultOpen && !keysOpen) return;
+      if (keysOpen) {
+        unlockedKeysRef.current = new Set();
+        setUnlockedKeys(new Set());
+        setPendingKeyUnlock(null);
       }
+      const what = vaultOpen && keysOpen ? "The vault and unlocked keys were" : vaultOpen ? "The vault was" : "Unlocked keys were";
+      const done = () => toast.info(`${what} locked after ${mins} minutes of inactivity.`);
+      if (vaultOpen) void lockVault().then(done);
+      else done();
     }, 15_000);
     return () => {
-      window.removeEventListener("mousemove", bump);
-      window.removeEventListener("keydown", bump);
+      events.forEach((e) => window.removeEventListener(e, bump));
       window.clearInterval(timer);
     };
   }, [lockVault, toast]);

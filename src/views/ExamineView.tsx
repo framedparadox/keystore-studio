@@ -1,13 +1,13 @@
 import React, { useEffect, useMemo, useState } from "react";
 import clsx from "clsx";
-import { CheckCircle2, Clipboard, FileBadge, FileSearch, FolderOpen, GitCompare, Globe, Network, Plus, Save, Sparkles, XCircle } from "lucide-react";
+import { CheckCircle2, Clipboard, FileBadge, FileSearch, FolderOpen, GitCompare, Globe, Network, Plus, Save, SearchCode, Sparkles, XCircle } from "lucide-react";
 import type { CertificateInfo, ConnectionTest, DetectionResult, KeystoreEntry, TlsInspectionResult } from "../types/crypto";
 import { api, errorMessage } from "../lib/api";
 import { FILTERS, baseName, pickFile, safeFileStem } from "../lib/files";
 import { cnOf } from "../lib/keystore";
 import { connectTarget, parseTlsTarget } from "../lib/net";
 import { useStore } from "../state/store";
-import { Alert, Badge, Button, Card, CodeBlock, EmptyState, Page, PageHeader, PasswordInput, Segmented, Select, Spinner, TextArea, TextInput, useToast } from "../components/ui";
+import { Alert, Badge, Button, Card, CodeBlock, EmptyState, IconButton, Page, PageHeader, PasswordInput, Segmented, Select, Spinner, TextArea, TextInput, useToast } from "../components/ui";
 import { ChainValidation, CertificateDetails, ChainView, TrustBanner, WarningList } from "../components/CertificateView";
 import { TerminalHint } from "../components/Terminal";
 import { useSaveText } from "../components/EntryDialogs";
@@ -323,9 +323,7 @@ const DecodePanel: React.FC = () => {
           >
             Open file…
           </Button>
-          <Button icon={Clipboard} onClick={paste}>
-            Paste clipboard
-          </Button>
+          <IconButton icon={Clipboard} label="Paste clipboard" onClick={paste} className="!w-9 !h-9" />
         </div>
         {path ? (
           <div className="flex items-center gap-2 rounded-control border border-line bg-surface-2 px-3 h-9 text-[13px]">
@@ -595,7 +593,7 @@ export const ExamineView: React.FC = () => {
   }, [examineRequest]);
   return (
     <Page>
-      <PageHeader title="Examine" description="Inspect a live TLS server, test whether a server port can be reached from this machine, decode any certificate, key, CSR, CRL, PKCS#7 or JWT, or compare two certificates." />
+      <PageHeader icon={SearchCode} title="Examine" description="Inspect a live TLS server, test whether a server port can be reached from this machine, decode any certificate, key, CSR, CRL, PKCS#7 or JWT, or compare two certificates." />
       <div className="mb-4">
         <Segmented
           label="Examine mode"

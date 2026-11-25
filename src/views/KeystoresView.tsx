@@ -684,7 +684,7 @@ export const KeystoresView: React.FC = () => {
         {navigator}
         <div className="flex-1 min-w-0 overflow-y-auto">
           <div className="max-w-[1320px] mx-auto px-8 py-7">
-            <PageHeader title="Keystores" leading={showNav} description="Open PKCS#12, JKS and JCEKS keystores, or create a new one." />
+            <PageHeader icon={FolderArchive} title="Keystores" leading={showNav} description="Open PKCS#12, JKS and JCEKS keystores, or create a new one." />
             <Card className="py-16">
               <EmptyState
                 icon={FolderArchive}
@@ -956,6 +956,7 @@ export const KeystoresView: React.FC = () => {
       <div className="flex-1 min-w-0 overflow-y-auto" data-testid="keystore-detail">
         <div className="max-w-[1320px] mx-auto px-8 py-7">
           <PageHeader
+            icon={FolderArchive}
             leading={showNav}
             eyebrow={
               <span className="inline-flex items-center gap-2">
@@ -1115,11 +1116,7 @@ export const KeystoresView: React.FC = () => {
                             <Button icon={ShieldCheck} onClick={() => setDialog({ kind: "cert" })}>
                               Import certificate
                             </Button>
-                            {clip && (
-                              <Button icon={ClipboardPaste} onClick={paste}>
-                                Paste
-                              </Button>
-                            )}
+                            {clip && <IconButton icon={ClipboardPaste} label="Paste entries" onClick={paste} className="!w-9 !h-9" />}
                           </>
                         }
                       />
@@ -1151,9 +1148,7 @@ export const KeystoresView: React.FC = () => {
                       {clip ? (
                         <span className="inline-flex items-center gap-2">
                           Clipboard: <span className="font-medium text-ink">{clip.entries.map((e) => e.alias).join(", ")}</span>
-                          <Button size="sm" icon={ClipboardPaste} onClick={paste} data-testid="footer-paste">
-                            Paste here
-                          </Button>
+                          <IconButton icon={ClipboardPaste} label="Paste entries here" onClick={paste} data-testid="footer-paste" />
                         </span>
                       ) : (
                         <span>{workspaces.length ? `${workspaces.length} workspaces` : ""}</span>

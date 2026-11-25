@@ -24,12 +24,14 @@ import type {
   KeystoreFormat,
   OcspInfo,
   PemBundleOptions,
+  Pkcs12Profile,
   RevokedCertEntry,
   SaveResult,
   SecretSummary,
   SignCsrInput,
   SignedCertificateResult,
   TerminalOutput,
+  ToolStatus,
   ConnectionTest,
   TlsInspectionResult,
   VaultStatus,
@@ -55,7 +57,6 @@ export function errorMessage(err: unknown): string {
   const match = new RegExp(`^(${ERROR_KINDS.join("|")}):\\s*`, "i").exec(raw);
   const text = match ? raw.slice(match[0].length) : raw;
   if (typeof err === "string" || err instanceof Error) return text ? text.charAt(0).toUpperCase() + text.slice(1) : "Something went wrong.";
-  if (err instanceof Error) return err.message;
   try {
     return JSON.stringify(err);
   } catch {
@@ -92,7 +93,7 @@ export const api = {
   probeFile: (path: string) => call<FileProbe>("probe_file", { path }),
   openKeystore: (path: string, password: string, keyPasswords?: Record<string, string>) =>
     call<KeystoreFile>("open_keystore", { path, password, keyPasswords: keyPasswords ?? null }),
-  saveKeystore: (ks: KeystoreFile, path: string, password: string, format: KeystoreFormat, mac?: "pkcs12" | "pbmac1" | null, force?: boolean) =>
+  saveKeystore: (ks: KeystoreFile, path: string, password: string, format: KeystoreFormat, mac?: Pkcs12Profile | null, force?: boolean) =>
     call<SaveResult>("save_keystore", { ks: wire(ks), path, password, format, mac: mac ?? null, force: force ?? false }),
   exportKeystoreCsv: (ks: KeystoreFile, path: string) => call<ExportResult>("export_keystore_csv", { ks: wire(ks), path }),
 
@@ -103,7 +104,7 @@ export const api = {
     call<KeystoreEntry[]>("import_trusted_certificates", { alias, data, existingAliases }),
   importKeyPair: (alias: string, key: DataSource, keyPassword: string | null, certificates: DataSource | null) =>
     call<KeystoreEntry>("import_key_pair", { alias, key, keyPassword, certificates }),
-  buildPkcs12: (args: { path: string; key: DataSource; certificate: DataSource | null; keyPassword: string | null; passphrase: string; alias: string | null; mac?: "pkcs12" | "pbmac1" | null }) =>
+  buildPkcs12: (args: { path: string; key: DataSource; certificate: DataSource | null; keyPassword: string | null; passphrase: string; alias: string | null; mac?: Pkcs12Profile | null }) =>
     call<ExportResult>("build_pkcs12", {
       path: args.path,
       key: args.key,
@@ -125,8 +126,11 @@ export const api = {
   // non-sensitive text comes back.
   convertCertificates: (data: DataSource, target: string, order: boolean, path?: string | null) =>
     call<ConvertResult>("convert_certificates", { data, target, order, path: path ?? null }),
-  convertPrivateKey: (data: DataSource, password: string | null, target: string, outPassword: string | null, path?: string | null) =>
-    call<ConvertResult>("convert_private_key", { data, password, target, outPassword, path: path ?? null }),
+  convertPrivateKey: (data: DataSource, password: string | null, target: string, outPassword: string | null, path?: string | null, comment?: string) =>
+    call<ConvertResult>("convert_private_key", { data, password, target, outPassword, comment: comment ?? null, path: path ?? null }),
+  /** Every certificate in `data` as a trusted certificate entry of a new keystore in `format`. */
+  convertTruststore: (data: DataSource, format: KeystoreFormat, password: string, alias: string, path?: string | null) =>
+    call<ConvertResult>("convert_truststore", { data, format, password, alias, path: path ?? null }),
   convertPublicKey: (data: DataSource, password: string | null, target: string, comment: string, path?: string | null) =>
     call<ConvertResult>("convert_public_key", { data, password, target, comment, path: path ?? null }),
   convertEncoding: (data: DataSource, label: string | null, path?: string | null) => call<ConvertResult>("convert_encoding", { data, label, path: path ?? null }),
@@ -140,8 +144,9 @@ export const api = {
   readCrl: (data: DataSource) => call<CrlInfo>("read_crl", { data }),
   ledgerSearch: (query: string) => call<{ serial: string; subject: string; ski: string; not_after: string; profile: string; issuer_ski: string }[]>("ledger_search", { query }),
   ledgerDelete: (serial: string) => call<void>("ledger_delete", { serial }),
-  validateChain: (leafPem: string, intermediatesPem: string, anchorsPem: string, hostname?: string | null) =>
-    call<string[]>("validate_chain", { leafPem, intermediatesPem, anchorsPem, hostname: hostname ?? null }),
+  /** Problems with the chain, none when it is trusted. `checkRevocation` asks OCSP responders / CRL servers online. */
+  validateChain: (leafPem: string, intermediatesPem: string, anchorsPem: string, hostname?: string | null, checkRevocation = false) =>
+    call<string[]>("validate_chain", { leafPem, intermediatesPem, anchorsPem, hostname: hostname ?? null, checkRevocation }),
   /** The OS trust store as PEM, for validateChain against the same roots examineTls trusts. */
   systemTrustAnchors: () => call<string>("system_trust_anchors"),
   /** Live revocation check (RFC 6960). `url` defaults to the subject certificate's own OCSP URL when omitted. */
@@ -180,7 +185,14 @@ export const api = {
 
   runTerminalCommand: (command: string, cwd: string | undefined, timeoutSecs: number) =>
     call<TerminalOutput>("run_terminal_command", { command, cwd: cwd ?? null, timeoutSecs }),
+
+  toolStatus: () => call<ToolStatus[]>("tool_status"),
+  /** The native unsaved-changes cue (macOS: the dot in the close button). */
+  setDocumentEdited: (edited: boolean) => call<void>("set_document_edited", { edited }),
 };
+
+/** Shortest master key for a new vault or a master key change; mirrors vault.rs MIN_MASTER_KEY_LEN. */
+export const MIN_MASTER_KEY_LEN = 12;
 
 /** Vault id under which a keystore's password is remembered. */
 export const passwordSecretId = (path: string) => `keystore:${path}`;

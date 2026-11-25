@@ -186,6 +186,7 @@ export const WorkspacesView: React.FC = () => {
   return (
     <Page>
       <PageHeader
+        icon={Layers}
         title="Workspaces"
         description="Group keys and certificates from your keystores and the Certificates page by project, environment or audit scope. Workspaces never change keystore or certificate files."
         actions={

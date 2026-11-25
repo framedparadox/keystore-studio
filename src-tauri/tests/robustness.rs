@@ -15,7 +15,7 @@
 //! feedback but needs nightly; see IMPROVEMENT.md. Any crash found there should be added to
 //! `CORPUS_SEEDS` or the mutation set here so it stays fixed.
 
-use keystore_studio_lib::{cms, detect, jks, keys, keystore, pbe, pkcs12, tsa, x509};
+use keystore_studio_lib::{bcfks, bks, cms, detect, jks, keys, keystore, openssh, pbe, pkcs12, tsa, x509};
 use std::collections::HashMap;
 
 /// Runs every parser over `data`. A panic in any of them fails the test with the input that caused
@@ -27,6 +27,13 @@ fn parse_everything(data: &[u8]) {
     let _ = keystore::decode(data, "pw", &empty);
     let _ = pkcs12::decode(data, "pw");
     let _ = jks::decode(data, "pw", &empty);
+    let _ = bks::decode(data, "pw", &empty);
+    let _ = bks::decode_uber(data, "pw", &empty);
+    let _ = bcfks::decode(data, "pw", &empty);
+    let _ = openssh::decode_private_key(data, Some("pw"));
+    let _ = openssh::parse_ssh2_public_key(&String::from_utf8_lossy(data));
+    let _ = keys::PrivateKey::from_jwk(&String::from_utf8_lossy(data));
+    let _ = keystore_studio_lib::convert::spki_from_any(data, Some("pw"));
     let _ = x509::parse_certificate(data);
     let _ = x509::parse_csr(data);
     let _ = x509::parse_crl(data, None);
@@ -83,9 +90,9 @@ const CORPUS_SEEDS: &[(&str, &[u8])] = &[
     (
         "indefinite BER with hostile nested length (keystore fuzz)",
         &[
-            0x30, 0x80, 0x02, 0x01, 0x01, 0xff, 0x22, 0x80, 0x80, 0x88, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x01, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-            0xff, 0xff, 0xff, 0x17, 0x2e, 0x02, 0x02, 0x2a, 0x30, 0x86, 0x30, 0x06, 0x30, 0x7e, 0x00, 0x00, 0xff, 0x86, 0x30, 0x06, 0x30, 0x7e, 0x00, 0x00, 0xff, 0xff, 0xff, 0xff, 0xff,
-            0xff, 0xff, 0xff, 0xff, 0x17, 0x86, 0xd1, 0x00, 0xff, 0xff, 0xff,
+            0x30, 0x80, 0x02, 0x01, 0x01, 0xff, 0x22, 0x80, 0x80, 0x88, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x01, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+            0xff, 0x17, 0x2e, 0x02, 0x02, 0x2a, 0x30, 0x86, 0x30, 0x06, 0x30, 0x7e, 0x00, 0x00, 0xff, 0x86, 0x30, 0x06, 0x30, 0x7e, 0x00, 0x00, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+            0x17, 0x86, 0xd1, 0x00, 0xff, 0xff, 0xff,
         ],
     ),
 ];
@@ -142,12 +149,16 @@ fn mutations_of_real_files_are_rejected_not_fatal() {
     let entry = sample_entry();
     let password = "corpus-pw";
     let mut originals: Vec<(&str, Vec<u8>)> = Vec::new();
-    for (name, format) in [("p12", keystore::Format::Pkcs12), ("jks", keystore::Format::Jks), ("jceks", keystore::Format::Jceks)] {
+    for (name, format) in [("p12", keystore::Format::Pkcs12), ("jks", keystore::Format::Jks), ("jceks", keystore::Format::Jceks), ("bks", keystore::Format::Bks), ("uber", keystore::Format::Uber)] {
         originals.push((name, keystore::encode(std::slice::from_ref(&entry), password, format).unwrap()));
     }
     originals.push(("p12-pbmac1", pkcs12::encode_with_mac(std::slice::from_ref(&entry), password, pkcs12::MacKind::Pbmac1).unwrap()));
     originals.push(("cert-der", keystore_studio_lib::entry::chain_der(&entry).unwrap()[0].clone()));
     originals.push(("cert-pem", entry.certificate_chain[0].pem.as_bytes().to_vec()));
+    // Files Bouncy Castle itself wrote reach deeper into those codecs than our own output does.
+    for name in ["pyjks/christmas.bksv2", "pyjks/christmas.uber", "bouncycastle/oldKeyStore.bcfks", "bouncycastle/legacyScryptSignedKeyStore.bcfks"] {
+        originals.push((name, std::fs::read(format!("{}/tests/fixtures/{name}", env!("CARGO_MANIFEST_DIR"))).unwrap()));
+    }
 
     // Each mutation runs every parser, and the keystore decoders each do a 10 000-iteration PBKDF2
     // before they can reject a wrong password, so the point count dominates the runtime. The
@@ -189,11 +200,11 @@ fn mutations_of_real_files_are_rejected_not_fatal() {
 fn the_unmutated_files_still_open() {
     let entry = sample_entry();
     let empty = HashMap::new();
-    for format in [keystore::Format::Pkcs12, keystore::Format::Jks, keystore::Format::Jceks] {
+    for format in keystore::Format::ALL {
         let bytes = keystore::encode(std::slice::from_ref(&entry), "corpus-pw", format).unwrap();
-        let (detected, entries) = keystore::decode(&bytes, "corpus-pw", &empty).expect("the unmutated file must open");
-        assert_eq!(detected, format);
-        assert_eq!(entries.len(), 1);
+        let store = keystore::decode(&bytes, "corpus-pw", &empty).expect("the unmutated file must open");
+        assert_eq!(store.format, format);
+        assert_eq!(store.entries.len(), 1);
     }
 }
 
@@ -258,7 +269,7 @@ fn large_valid_keystores_still_open() {
     for format in [keystore::Format::Pkcs12, keystore::Format::Jks, keystore::Format::Jceks] {
         let bytes = keystore::encode(&entries, "corpus-pw", format).unwrap();
         assert!(bytes.len() > 3_000, "{} should be a substantial file, was {}", format.name(), bytes.len());
-        let (_, back) = keystore::decode(&bytes, "corpus-pw", &empty).unwrap_or_else(|e| panic!("{}: {e}", format.name()));
+        let back = keystore::decode(&bytes, "corpus-pw", &empty).unwrap_or_else(|e| panic!("{}: {e}", format.name())).entries;
         assert_eq!(back.len(), entries.len(), "{}", format.name());
     }
 }

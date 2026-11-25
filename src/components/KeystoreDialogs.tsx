@@ -1,10 +1,10 @@
 import React, { useLayoutEffect, useMemo, useState } from "react";
 import { FilePlus2, FolderOpen, Lock, Save, ShieldCheck } from "lucide-react";
 import { useStore } from "../state/store";
-import { api, errorMessage } from "../lib/api";
+import { api, errorMessage, MIN_MASTER_KEY_LEN } from "../lib/api";
 import { FILTERS, baseName, pickSavePath, safeFileStem, withExtension } from "../lib/files";
-import { FORMAT_EXTENSION, FORMAT_INFO, saveProblems } from "../lib/keystore";
-import { KEYSTORE_FORMATS, type GenerateKeyPairInput, type KeystoreFormat } from "../types/crypto";
+import { FORMAT_EXTENSION, FORMAT_GROUPS, FORMAT_INFO, saveProblems } from "../lib/keystore";
+import type { GenerateKeyPairInput, KeystoreFormat, Pkcs12Profile } from "../types/crypto";
 import { Alert, Button, Checkbox, Modal, PasswordInput, Select, Spinner, TextArea, TextInput, passwordStrength, useToast } from "./ui";
 import { shortcutLabel } from "../lib/platform";
 
@@ -50,10 +50,12 @@ export const OpenPasswordDialog: React.FC = () => {
   const { pendingOpen, submitOpenPassword, cancelOpen, settings } = useStore();
   const [password, setPassword] = useState("");
   const [keyPasswords, setKeyPasswords] = useState("");
+  const [noPassword, setNoPassword] = useState(false);
   const [remember, setRemember] = useState(settings.rememberPasswordsByDefault);
   const [busy, setBusy] = useState(false);
   useLayoutEffect(() => {
     setPassword("");
+    setNoPassword(false);
     setKeyPasswords("");
     setRemember(settings.rememberPasswordsByDefault);
     setBusy(false);
@@ -70,7 +72,7 @@ export const OpenPasswordDialog: React.FC = () => {
       if (cut <= 0) continue;
       extra[trimmed.slice(0, cut).trim()] = trimmed.slice(cut + 1).trim();
     }
-    await submitOpenPassword(password, remember, extra);
+    await submitOpenPassword(noPassword ? "" : password, remember && !noPassword, extra);
     setBusy(false);
   };
   return (
@@ -88,7 +90,7 @@ export const OpenPasswordDialog: React.FC = () => {
           <Button onClick={cancelOpen} disabled={busy}>
             Cancel
           </Button>
-          <Button variant="primary" type="submit" form="open-ks-form" disabled={busy || !password} data-testid="open-submit">
+          <Button variant="primary" type="submit" form="open-ks-form" disabled={busy || (!password && !noPassword)} data-testid="open-submit">
             {busy && <Spinner />} Open
           </Button>
         </>
@@ -98,13 +100,41 @@ export const OpenPasswordDialog: React.FC = () => {
         <p className="text-[13px] text-muted">
           This is a <strong className="text-ink">{FORMAT_INFO[pendingOpen.format as KeystoreFormat]?.label ?? pendingOpen.format}</strong> keystore. Enter its store password.
         </p>
-        <PasswordInput label="Keystore password" value={password} onChange={setPassword} autoFocus data-testid="open-password" error={pendingOpen.error} />
+        {!noPassword && <PasswordInput label="Keystore password" value={password} onChange={setPassword} autoFocus data-testid="open-password" error={pendingOpen.error} />}
+        <Checkbox
+          checked={noPassword}
+          onChange={setNoPassword}
+          label="This keystore has no password"
+          testId="open-no-password"
+          hint="Some tools write stores without one (an empty Bouncy Castle store, openssl -passout pass:). Saving it again will ask for a password."
+        />
         <TextArea label="Key passwords" value={keyPasswords} onChange={(e) => setKeyPasswords(e.target.value)} rows={3} placeholder={"alias=key-password\nother alias=another"} hint="Optional. One alias and its key password per line, when a key does not use the store password." />
         <RememberPassword checked={remember} onChange={setRemember} />
       </form>
     </Modal>
   );
 };
+
+/** How a PKCS#12 file is protected. Shared by Save, the keystore converter and Build PKCS#12. */
+export const Pkcs12ProfileSelect: React.FC<{ value: Pkcs12Profile; onChange: (v: Pkcs12Profile) => void; testId?: string }> = ({ value, onChange, testId = "save-pkcs12-profile" }) => (
+  <Select
+    label="PKCS#12 protection"
+    value={value}
+    onChange={(e) => onChange(e.target.value as Pkcs12Profile)}
+    data-testid={testId}
+    hint={
+      value === "legacy"
+        ? "3DES and an SHA-1 MAC, 2,048 iterations: what openssl pkcs12 -legacy writes. Only for readers that predate AES (Java 8 before 8u301, Windows 7, OpenSSL 1.0)."
+        : value === "pbmac1"
+          ? "AES-256 with a PBMAC1 (RFC 9579) integrity check. Needs OpenSSL 3.4 or newer to read."
+          : "AES-256 and an HMAC-SHA256 MAC, 10,000 iterations. Read by Java 8u301+, OpenSSL 1.1+ and Windows 10+."
+    }
+  >
+    <option value="pkcs12">Standard: AES-256, HMAC-SHA256 (recommended)</option>
+    <option value="pbmac1">Modern: AES-256, PBMAC1</option>
+    <option value="legacy">Compatibility: 3DES, SHA-1</option>
+  </Select>
+);
 
 export const SaveDialog: React.FC = () => {
   const { pendingSave, keystores, getPassword, completeSave, cancelSave, settings, rememberRequested } = useStore();
@@ -113,17 +143,17 @@ export const SaveDialog: React.FC = () => {
   const [password, setPassword] = useState("");
   const [confirmPw, setConfirmPw] = useState("");
   const [remember, setRemember] = useState(false);
-  const [mac, setMac] = useState<"pkcs12" | "pbmac1">("pkcs12");
+  const [mac, setMac] = useState<Pkcs12Profile>("pkcs12");
   const [force, setForce] = useState(false);
   const [busy, setBusy] = useState(false);
   const current = ks ? getPassword(ks.id) ?? "" : "";
 
-  // A file read from disk as JKS (or read-only BKS) is offered as PKCS#12, so the original stays as
-  // it is. A keystore created here as JKS is saved as JKS: that is the format that was chosen.
-  const migrating = !!ks && !!ks.path && (ks.format === "JKS" || ks.format === "BKS");
+  // A JKS file read from disk is offered as PKCS#12, so the original stays as it is. A keystore
+  // created here as JKS is saved as JKS: that is the format that was chosen.
+  const migrating = !!ks && !!ks.path && ks.format === "JKS";
   useLayoutEffect(() => {
     if (!ks) return;
-    setFormat(migrating || ks.format === "BKS" ? "PKCS12" : ks.format);
+    setFormat(migrating ? "PKCS12" : ks.format);
     setMac("pkcs12");
     setForce(false);
     setPassword(current);
@@ -171,10 +201,14 @@ export const SaveDialog: React.FC = () => {
     >
       <div className="space-y-4">
         <Select label="Format" value={format} onChange={(e) => setFormat(e.target.value as KeystoreFormat)} hint={FORMAT_INFO[format].description} data-testid="save-format">
-          {KEYSTORE_FORMATS.map((f) => (
-            <option key={f} value={f}>
-              {FORMAT_INFO[f].label}
-            </option>
+          {FORMAT_GROUPS.map((g) => (
+            <optgroup key={g.label} label={g.label}>
+              {g.formats.map((f) => (
+                <option key={f} value={f}>
+                  {FORMAT_INFO[f].label}
+                </option>
+              ))}
+            </optgroup>
           ))}
         </Select>
         <div className="grid grid-cols-2 gap-3">
@@ -183,16 +217,16 @@ export const SaveDialog: React.FC = () => {
         </div>
         {!password && <p className="text-[12px] text-faint">A store password is required. An empty password is rejected so the file is never saved unprotected.</p>}
         {format === "PKCS12" && (
-          <Select label="Integrity MAC" value={mac} onChange={(e) => setMac(e.target.value as "pkcs12" | "pbmac1")} hint="PBKDF2 iteration count is 10,000. PBMAC1 needs a reader from OpenSSL 3.4 or newer. The legacy MAC is the default.">
-            <option value="pkcs12">Legacy PKCS#12 MAC (compatible)</option>
-            <option value="pbmac1">PBMAC1 / PBKDF2-HMAC-SHA256</option>
-          </Select>
+          <Pkcs12ProfileSelect value={mac} onChange={setMac} />
         )}
         {migrating && (
-          <Alert tone="info" title={ks.format === "JKS" ? "JKS uses SHA-1" : "BKS is read-only"}>
-            {ks.format === "JKS"
-              ? "PKCS#12 is selected so you can write a new file and leave the original JKS in place. Pick the original path only if you mean to replace it."
-              : "The entries can be written as PKCS#12. This does not modify the BKS file unless you choose that same path."}
+          <Alert tone="info" title="JKS uses SHA-1">
+            PKCS#12 is selected so you can write a new file and leave the original JKS in place. Pick the original path only if you mean to replace it.
+          </Alert>
+        )}
+        {!!ks.omitted_entries && (
+          <Alert tone="warning" title={`${ks.omitted_entries} ${ks.omitted_entries === 1 ? "entry is" : "entries are"} not shown`}>
+            The file holds entries Keystore Studio cannot represent. Saving over {baseName(ks.path || ks.name)} drops them; save to a new file to keep the original.
           </Alert>
         )}
         <Checkbox checked={force} onChange={setForce} label="Override if the file changed on disk" hint="A .bak of the previous bytes is written beside the file either way." />
@@ -294,8 +328,12 @@ export const NewKeystoreDialog: React.FC = () => {
       <form id="new-ks-form" onSubmit={submit} className="space-y-4">
         <div>
           <span className="label">Format</span>
-          <div className="grid grid-cols-3 gap-2" role="radiogroup" aria-label="Keystore format">
-            {KEYSTORE_FORMATS.map((f) => (
+          <div className="space-y-2" role="radiogroup" aria-label="Keystore format">
+            {FORMAT_GROUPS.map((g) => (
+              <div key={g.label}>
+                <div className="text-[11px] font-semibold uppercase tracking-[0.06em] text-faint mb-1">{g.label}</div>
+                <div className="grid grid-cols-3 gap-2">
+            {g.formats.map((f) => (
               <button
                 key={f}
                 type="button"
@@ -311,6 +349,9 @@ export const NewKeystoreDialog: React.FC = () => {
                 <div className="font-semibold text-[13px] text-ink">{FORMAT_INFO[f].label}</div>
                 <div className="text-[11.5px] text-faint leading-snug mt-0.5">{FORMAT_INFO[f].description}</div>
               </button>
+            ))}
+                </div>
+              </div>
             ))}
           </div>
         </div>
@@ -359,7 +400,7 @@ export const VaultPromptDialog: React.FC = () => {
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
-    if (setup && key.length < 8) return setError("The master key must be at least 8 characters.");
+    if (setup && [...key].length < MIN_MASTER_KEY_LEN) return setError(`The master key must be at least ${MIN_MASTER_KEY_LEN} characters.`);
     if (setup && key !== confirmKey) return setError("The keys do not match.");
     setBusy(true);
     try {

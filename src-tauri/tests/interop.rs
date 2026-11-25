@@ -606,7 +606,17 @@ fn signed_jars_verify_with_jarsigner() {
         jar::sign_jar(out.to_str().unwrap(), again.to_str().unwrap(), e).unwrap();
         let v = must(d.path(), "jarsigner", &["-verify", again.to_str().unwrap()]);
         assert!(v.contains("jar verified"), "{v}");
+        assert!(!d.path().join(format!("resigned-{}.jar.xks-tmp", e.alias)).exists(), "the temp file must be renamed away");
     }
+    // A failed write removes its temp file instead of leaving it beside the output.
+    let missing_dir = d.path().join("no-such-dir").join("out.jar");
+    assert!(jar::sign_jar(jar_path.to_str().unwrap(), missing_dir.to_str().unwrap(), &p.rsa).is_err());
+    // A missing input is reported as missing, not as "same file as the output".
+    let gone = d.path().join("gone.jar");
+    let err = jar::sign_jar(gone.to_str().unwrap(), d.path().join("gone-out.jar").to_str().unwrap(), &p.rsa).unwrap_err();
+    assert!(err.contains("cannot open"), "{err}");
+    // Signing in place is refused: the original is never modified.
+    assert!(jar::sign_jar(jar_path.to_str().unwrap(), jar_path.to_str().unwrap(), &p.rsa).is_err());
 }
 
 /// A minimal RFC 3161 HTTP timestamp authority backed by `openssl ts -reply`, so timestamping can
@@ -928,4 +938,291 @@ fn openssl_pkcs12_keeps_mixed_case_alias() {
     let opened = keystore::open(d.path().join("case.p12").to_str().unwrap(), "pw", &HashMap::new()).unwrap();
     let key = opened.entries.iter().find(|e| e.entry_type == "KeyPair").unwrap();
     assert_eq!(key.alias, "API");
+}
+
+// ---------------------------------------------------------------------------------------------
+// Formats added in the 2026-11 coverage pass: OpenSSH, legacy key encodings, unusual signatures,
+// certificate containers, the legacy PKCS#12 profile, truststores and Bouncy Castle keystores.
+// ---------------------------------------------------------------------------------------------
+
+#[cfg(unix)]
+fn private_mode(path: &Path) {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600)).unwrap();
+}
+#[cfg(not(unix))]
+fn private_mode(_: &Path) {}
+
+fn first_two_words(line: &str) -> String {
+    line.split_whitespace().take(2).collect::<Vec<_>>().join(" ")
+}
+
+#[test]
+fn openssh_keys_interop_with_ssh_keygen() {
+    use keystore_studio_lib::{convert, keys::PrivateKey};
+    if !have("ssh-keygen") {
+        eprintln!("skipping: ssh-keygen not installed");
+        return;
+    }
+    let d = tmp();
+    let kinds: [(&str, &[&str]); 5] = [("rsa", &["-b", "2048"]), ("ecdsa", &["-b", "256"]), ("ecdsa", &["-b", "384"]), ("ecdsa", &["-b", "521"]), ("ed25519", &[])];
+    let ciphers = ["none", "aes256-ctr", "aes128-cbc", "aes256-gcm@openssh.com", "chacha20-poly1305@openssh.com"];
+    let mut checked = 0;
+    for (i, (kind, bits)) in kinds.iter().enumerate() {
+        for cipher in ciphers {
+            let name = format!("k{i}-{}", cipher.replace(['@', '.'], "_"));
+            let mut args = vec!["-q", "-t", kind];
+            args.extend_from_slice(bits);
+            let pass = if cipher == "none" { "" } else { "theirs-pw" };
+            args.extend_from_slice(&["-N", pass, "-C", "them@host", "-f", &name]);
+            if cipher != "none" {
+                args.extend_from_slice(&["-Z", cipher]);
+            }
+            let (ok, out) = run(d.path(), "ssh-keygen", &args);
+            if !ok {
+                assert!(cipher != "none" && cipher != "aes256-ctr", "ssh-keygen {args:?}: {out}");
+                eprintln!("skipping {kind} {cipher}: this ssh-keygen does not offer it");
+                continue;
+            }
+            // Theirs, read by us: the public key we derive is the one ssh-keygen wrote.
+            let theirs = std::fs::read(d.path().join(&name)).unwrap();
+            let pw = (!pass.is_empty()).then_some(pass);
+            PrivateKey::from_bytes(&theirs, pw).unwrap_or_else(|e| panic!("{kind} {cipher}: {e}"));
+            let expected = std::fs::read_to_string(d.path().join(format!("{name}.pub"))).unwrap();
+            let ours_pub = String::from_utf8(convert::public_key(&theirs, pw, "openssh", "").unwrap().bytes).unwrap();
+            assert_eq!(first_two_words(&ours_pub), first_two_words(&expected), "{kind} {cipher}");
+            // The public half needs no password.
+            assert_eq!(convert::spki_from_any(&theirs, None).unwrap().0, convert::spki_from_any(expected.as_bytes(), None).unwrap().0, "{kind} {cipher}");
+            checked += 1;
+        }
+        // Ours, read by ssh-keygen, plain and encrypted.
+        let theirs = std::fs::read(d.path().join(format!("k{i}-none"))).unwrap();
+        for pw in [None, Some("ours-pw")] {
+            let out = convert::private_key(&theirs, None, "openssh", pw, "us@host").unwrap();
+            let path = write(d.path(), &format!("ours{i}"), &out.bytes);
+            private_mode(&path);
+            let line = must(d.path(), "ssh-keygen", &["-y", "-P", pw.unwrap_or(""), "-f", &format!("ours{i}")]);
+            let expected = std::fs::read_to_string(d.path().join(format!("k{i}-none.pub"))).unwrap();
+            assert_eq!(first_two_words(&line), first_two_words(&expected), "{kind} ours {pw:?}");
+        }
+        // RFC 4716 both ways.
+        let rfc = must(d.path(), "ssh-keygen", &["-e", "-m", "RFC4716", "-f", &format!("k{i}-none.pub")]);
+        let line = std::fs::read_to_string(d.path().join(format!("k{i}-none.pub"))).unwrap();
+        assert_eq!(convert::spki_from_any(rfc.as_bytes(), None).unwrap().0, convert::spki_from_any(line.as_bytes(), None).unwrap().0, "{kind}: their RFC 4716");
+        let ours = convert::public_key(line.as_bytes(), None, "ssh2", "converted").unwrap();
+        write(d.path(), &format!("ours{i}.ssh2"), &ours.bytes);
+        let back = must(d.path(), "ssh-keygen", &["-i", "-m", "RFC4716", "-f", &format!("ours{i}.ssh2")]);
+        assert_eq!(first_two_words(&back), first_two_words(&line), "{kind}: our RFC 4716");
+    }
+    assert!(checked >= 10, "only {checked} ssh-keygen keys were read");
+}
+
+#[test]
+fn openssl_key_encodings_open() {
+    use keystore_studio_lib::{convert, keys::PrivateKey};
+    if !have("openssl") {
+        eprintln!("skipping: openssl not installed");
+        return;
+    }
+    let d = tmp();
+    must(d.path(), "openssl", &["genpkey", "-algorithm", "RSA", "-pkeyopt", "rsa_keygen_bits:2048", "-out", "k.pem"]);
+    let original = PrivateKey::from_bytes(&std::fs::read(d.path().join("k.pem")).unwrap(), None).unwrap().to_pkcs8_der().unwrap();
+    let variants: [(&str, &[&str]); 5] = [
+        ("scrypt.pem", &["pkcs8", "-topk8", "-scrypt", "-in", "k.pem", "-out", "scrypt.pem", "-passout", "pass:pw"]),
+        ("pbes1.pem", &["pkcs8", "-topk8", "-v1", "PBE-SHA1-3DES", "-in", "k.pem", "-out", "pbes1.pem", "-passout", "pass:pw"]),
+        ("sha512.pem", &["pkcs8", "-topk8", "-v2", "aes-128-cbc", "-v2prf", "hmacWithSHA512", "-in", "k.pem", "-out", "sha512.pem", "-passout", "pass:pw"]),
+        ("trad-aes.pem", &["pkey", "-in", "k.pem", "-traditional", "-aes256", "-out", "trad-aes.pem", "-passout", "pass:pw"]),
+        ("trad-3des.pem", &["pkey", "-in", "k.pem", "-traditional", "-des3", "-out", "trad-3des.pem", "-passout", "pass:pw"]),
+    ];
+    for (file, args) in variants {
+        must(d.path(), "openssl", args);
+        let bytes = std::fs::read(d.path().join(file)).unwrap();
+        let key = PrivateKey::from_bytes(&bytes, Some("pw")).unwrap_or_else(|e| panic!("{file}: {e}"));
+        assert_eq!(key.to_pkcs8_der().unwrap(), original, "{file}");
+        assert!(PrivateKey::from_bytes(&bytes, Some("wrong")).is_err(), "{file}");
+    }
+    // DES-based PBES1 needs OpenSSL's legacy provider; read it when this OpenSSL can write it.
+    if run(d.path(), "openssl", &["pkcs8", "-topk8", "-v1", "PBE-MD5-DES", "-in", "k.pem", "-out", "md5des.pem", "-passout", "pass:pw"]).0 {
+        let key = PrivateKey::from_bytes(&std::fs::read(d.path().join("md5des.pem")).unwrap(), Some("pw")).unwrap();
+        assert_eq!(key.to_pkcs8_der().unwrap(), original);
+    }
+    // Ours in the legacy PBES1 form, read by OpenSSL.
+    let ours = convert::private_key(&std::fs::read(d.path().join("k.pem")).unwrap(), None, "pkcs8_encrypted_3des_pem", Some("ours"), "").unwrap();
+    write(d.path(), "ours.pem", &ours.bytes);
+    let info = must(d.path(), "openssl", &["asn1parse", "-in", "ours.pem"]);
+    assert!(info.contains("pbeWithSHA1And3-KeyTripleDES-CBC"), "{info}");
+    must(d.path(), "openssl", &["pkey", "-in", "ours.pem", "-passin", "pass:ours", "-noout"]);
+}
+
+#[test]
+fn dsa_and_pss_signatures_verify() {
+    use keystore_studio_lib::x509;
+    if !have("openssl") {
+        eprintln!("skipping: openssl not installed");
+        return;
+    }
+    let d = tmp();
+    must(d.path(), "openssl", &["genpkey", "-genparam", "-algorithm", "DSA", "-pkeyopt", "dsa_paramgen_bits:2048", "-out", "dsa.param"]);
+    must(d.path(), "openssl", &["genpkey", "-paramfile", "dsa.param", "-out", "dsa.key"]);
+    must(d.path(), "openssl", &["req", "-x509", "-key", "dsa.key", "-sha256", "-subj", "/CN=dsa.test", "-days", "30", "-out", "dsa.pem"]);
+    must(
+        d.path(),
+        "openssl",
+        &[
+            "req",
+            "-x509",
+            "-newkey",
+            "rsa:2048",
+            "-nodes",
+            "-keyout",
+            "pss.key",
+            "-sha256",
+            "-sigopt",
+            "rsa_padding_mode:pss",
+            "-sigopt",
+            "rsa_pss_saltlen:32",
+            "-subj",
+            "/CN=pss.test",
+            "-days",
+            "30",
+            "-out",
+            "pss.pem",
+        ],
+    );
+    for (file, name) in [("dsa.pem", "SHA256withDSA"), ("pss.pem", "SHA256withRSA/PSS")] {
+        let der = x509::certificates_from_bytes(&std::fs::read(d.path().join(file)).unwrap()).unwrap().remove(0);
+        let info = x509::parse_certificate(&der).unwrap();
+        assert_eq!(info.signature_algorithm, name, "{file}");
+        let spki = x509::cert_summary(&der).unwrap().spki;
+        assert!(x509::verify_certificate_signature(&der, &spki).unwrap(), "{file}");
+        let mut altered = der.clone();
+        let at = altered.len() - 10;
+        altered[at] ^= 1;
+        assert!(!x509::verify_certificate_signature(&altered, &spki).unwrap_or(false), "{file}");
+    }
+    // A DSA key from OpenSSL loads, and its OpenSSH public key matches ssh-keygen's reading.
+    let key = keystore_studio_lib::keys::PrivateKey::from_bytes(&std::fs::read(d.path().join("dsa.key")).unwrap(), None).unwrap();
+    assert_eq!(key.algorithm(), "DSA");
+    assert_eq!(key.key_size(), 2048);
+}
+
+#[test]
+fn certificate_containers_from_openssl_open() {
+    use keystore_studio_lib::{convert, x509};
+    if !have("openssl") {
+        eprintln!("skipping: openssl not installed");
+        return;
+    }
+    let d = tmp();
+    let p = pki();
+    let chain: String = p.ec.certificate_chain.iter().map(|c| c.pem.clone()).collect();
+    write(d.path(), "chain.pem", chain.as_bytes());
+    must(d.path(), "openssl", &["nseq", "-in", "chain.pem", "-toseq", "-out", "chain.nseq"]);
+    let nseq = std::fs::read(d.path().join("chain.nseq")).unwrap();
+    assert_eq!(convert::read_certificates(&nseq).unwrap().len(), p.ec.certificate_chain.len(), "Netscape certificate sequence (PEM)");
+    let der = keystore_studio_lib::util::pem_blocks(&String::from_utf8_lossy(&nseq)).remove(0).der;
+    assert_eq!(convert::read_certificates(&der).unwrap().len(), p.ec.certificate_chain.len(), "Netscape certificate sequence (DER)");
+    write(d.path(), "leaf.pem", p.ec.certificate_chain[0].pem.as_bytes());
+    must(d.path(), "openssl", &["x509", "-in", "leaf.pem", "-trustout", "-addtrust", "serverAuth", "-out", "trusted.pem"]);
+    let trusted = std::fs::read_to_string(d.path().join("trusted.pem")).unwrap();
+    assert!(trusted.contains("BEGIN TRUSTED CERTIFICATE"));
+    let certs = x509::certificates_from_bytes(trusted.as_bytes()).unwrap();
+    assert_eq!(certs, vec![entry::chain_der(&p.ec).unwrap().remove(0)], "the trust settings are not part of the certificate");
+}
+
+#[test]
+fn legacy_pkcs12_opens_in_openssl_and_keytool() {
+    let p = pki();
+    let d = tmp();
+    let path = d.path().join("legacy.p12");
+    keystore::save_with(
+        &ks(vec![p.rsa.clone()]),
+        path.to_str().unwrap(),
+        "legacy-pw",
+        keystore::Format::Pkcs12,
+        keystore::SavePolicy { mac: keystore_studio_lib::pkcs12::MacKind::Legacy, force: false },
+    )
+    .unwrap();
+    if have("openssl") {
+        let info = must(d.path(), "openssl", &["pkcs12", "-in", "legacy.p12", "-info", "-noout", "-passin", "pass:legacy-pw"]);
+        assert!(info.contains("MAC: sha1"), "{info}");
+        assert!(info.contains("pbeWithSHA1And3-KeyTripleDES-CBC"), "{info}");
+        assert!(!info.contains("PBES2"), "{info}");
+    }
+    if have("keytool") {
+        let listing = must(d.path(), "keytool", &["-list", "-keystore", "legacy.p12", "-storetype", "PKCS12", "-storepass", "legacy-pw"]);
+        assert!(listing.contains("PrivateKeyEntry"), "{listing}");
+    }
+}
+
+#[test]
+fn truststores_open_in_keytool() {
+    use keystore_studio_lib::convert;
+    if !have("keytool") {
+        eprintln!("skipping: keytool not installed");
+        return;
+    }
+    let p = pki();
+    let d = tmp();
+    let pem = format!("{}{}", p.root.certificate_chain[0].pem, p.inter.certificate_chain[0].pem);
+    for (format, file) in [("PKCS12", "trust.p12"), ("JKS", "trust.jks"), ("JCEKS", "trust.jceks")] {
+        let out = convert::truststore(pem.as_bytes(), format, "trust-pw", "").unwrap();
+        write(d.path(), file, &out.bytes);
+        let listing = must(d.path(), "keytool", &["-list", "-keystore", file, "-storetype", format, "-storepass", "trust-pw"]);
+        assert_eq!(listing.matches("trustedCertEntry").count(), 2, "{format}: {listing}");
+    }
+}
+
+/// The Bouncy Castle provider jar, from `BCPROV_JAR` or the local Maven repository.
+fn bcprov_jar() -> Option<PathBuf> {
+    if let Some(p) = std::env::var_os("BCPROV_JAR").map(PathBuf::from).filter(|p| p.is_file()) {
+        return Some(p);
+    }
+    let root = dirs::home_dir()?.join(".m2/repository/org/bouncycastle");
+    let mut found: Vec<PathBuf> = std::fs::read_dir(&root)
+        .ok()?
+        .flatten()
+        .filter(|d| d.file_name().to_string_lossy().starts_with("bcprov"))
+        .flat_map(|d| std::fs::read_dir(d.path()).into_iter().flatten().flatten())
+        .flat_map(|v| std::fs::read_dir(v.path()).into_iter().flatten().flatten())
+        .map(|f| f.path())
+        .filter(|p| p.extension().is_some_and(|e| e == "jar") && !p.to_string_lossy().contains("sources"))
+        .collect();
+    found.sort();
+    found.pop()
+}
+
+#[test]
+fn bouncy_castle_keystores_interop_with_keytool() {
+    let Some(jar) = bcprov_jar() else {
+        eprintln!("skipping: set BCPROV_JAR to a bcprov jar to run the Bouncy Castle keytool round trip");
+        return;
+    };
+    if !have("keytool") {
+        eprintln!("skipping: keytool not installed");
+        return;
+    }
+    let jar = jar.to_string_lossy().to_string();
+    let provider = ["-providerpath", jar.as_str(), "-providerclass", "org.bouncycastle.jce.provider.BouncyCastleProvider"];
+    let p = pki();
+    let d = tmp();
+    let secret = entry::secret_key_entry("aes", "AES", &[5u8; 32], None);
+    for (format, file) in [(keystore::Format::Bks, "ours.bks"), (keystore::Format::Uber, "ours.uber"), (keystore::Format::Bcfks, "ours.bcfks")] {
+        keystore::save(&ks(vec![p.rsa.clone(), p.ec.clone(), secret.clone()]), d.path().join(file).to_str().unwrap(), "bc-pass-1", format).unwrap();
+        // Ours, read by Bouncy Castle.
+        let mut args = vec!["-list", "-keystore", file, "-storetype", format.name(), "-storepass", "bc-pass-1"];
+        args.extend_from_slice(&provider);
+        let listing = must(d.path(), "keytool", &args);
+        assert_eq!(listing.matches("PrivateKeyEntry").count(), 2, "{}: {listing}", format.name());
+        assert!(listing.contains("SecretKeyEntry"), "{}: {listing}", format.name());
+        // Theirs, written by Bouncy Castle from a PKCS#12, read by us.
+        let theirs = format!("theirs.{}", format.extension());
+        keystore::save(&ks(vec![p.rsa.clone(), p.ec.clone()]), d.path().join("src.p12").to_str().unwrap(), "bc-pass-1", keystore::Format::Pkcs12).unwrap();
+        let mut args = vec!["-importkeystore", "-noprompt", "-srckeystore", "src.p12", "-srcstoretype", "PKCS12", "-srcstorepass", "bc-pass-1"];
+        args.extend_from_slice(&["-destkeystore", &theirs, "-deststoretype", format.name(), "-deststorepass", "bc-pass-1"]);
+        args.extend_from_slice(&provider);
+        must(d.path(), "keytool", &args);
+        let opened = keystore::open(d.path().join(&theirs).to_str().unwrap(), "bc-pass-1", &HashMap::new()).unwrap();
+        assert_eq!(opened.entries.iter().filter(|e| e.entry_type == "KeyPair" && !e.locked).count(), 2, "{}", format.name());
+    }
 }

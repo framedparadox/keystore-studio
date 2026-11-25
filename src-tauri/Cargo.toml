@@ -2,7 +2,7 @@
 name = "keystore-studio"
 version = "1.0.0"
 description = "Keystore Studio — native keystore and X.509 certificate workbench"
-authors = ["Keystore Studio contributors"]
+authors = ["Ajay Kontham"]
 license = "MIT"
 edition = "2024"
 
@@ -69,6 +69,16 @@ des = "0.8"
 rc2 = "0.8"
 zeroize = { version = "1", features = ["derive"] }
 
+# Formats beyond PKCS#12/JKS. Bouncy Castle UBER encrypts the whole store with Twofish; BCFKS and
+# `openssl pkcs8 -scrypt` derive keys with scrypt; OpenSSH private keys use bcrypt-pbkdf with
+# AES-CTR (the default), AES-GCM or ChaCha20-Poly1305.
+twofish = "0.7"
+scrypt = { version = "0.11", default-features = false }
+bcrypt-pbkdf = "0.10"
+ctr = "0.9"
+chacha20 = "0.9"
+poly1305 = "0.8"
+
 # ASN.1 / X.509 / encodings
 yasna = "0.5"
 x509-parser = "0.16"
@@ -86,16 +96,20 @@ rustls-native-certs = "0.8"
 ureq = { version = "3.5.1", default-features = false, features = ["rustls"] }
 
 # JAR signing
-zip = { version = "2", default-features = false, features = ["deflate"] }
+zip = { version = "9", default-features = false, features = ["deflate"] }
 
 dirs = "6"
-chrono = { version = "0.4", features = ["serde"] }
 uuid = { version = "1", features = ["v4"] }
 
 # The built-in terminal kills a timed-out command's whole process group (killpg). Already in the
 # dependency tree through Tauri and ring; listed so the engine can call it directly.
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
+
+# The unsaved-changes dot in the window's close button (NSWindow.documentEdited). Tauri already
+# links objc2 on macOS; this only names it.
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
 
 [dev-dependencies]
 tempfile = "3"

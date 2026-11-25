@@ -1,8 +1,9 @@
 import React, { useEffect, useMemo, useState } from "react";
 import clsx from "clsx";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
-import { ArrowLeft, ArrowRight, CheckCircle2, FileOutput, FolderOpen, Lock, Repeat, Sparkles, Unlock } from "lucide-react";
-import type { ConvertResult, DataSource, DetectionResult, KeystoreEntry, KeystoreFile, KeystoreFormat, OpenKeystore, PemBundleOptions } from "../types/crypto";
+import { ArrowRight, CheckCircle2, ChevronLeft, FileOutput, FolderOpen, Lock, Repeat, Sparkles, Unlock } from "lucide-react";
+import type { ConvertResult, DataSource, DetectionResult, KeystoreEntry, KeystoreFile, KeystoreFormat, OpenKeystore, PemBundleOptions, Pkcs12Profile } from "../types/crypto";
+import { Pkcs12ProfileSelect } from "../components/KeystoreDialogs";
 import { KEYSTORE_FORMATS } from "../types/crypto";
 import { api, errorMessage } from "../lib/api";
 import { FILTERS, baseName, pickFile, pickSavePath, type FileFilter } from "../lib/files";
@@ -13,18 +14,17 @@ import { Alert, Badge, Button, Card, Checkbox, CodeBlock, OptionList, Page, Page
 import { FileOrText, usePkcs12Builder } from "../components/AddEntryDialogs";
 import { EntryIcon } from "../components/entry";
 import { TerminalHint } from "../components/Terminal";
-import { CONVERTER_ICONS } from "../components/Sidebar";
+import { CONVERTER_ICONS, ConvertIcon } from "../components/Sidebar";
 
 // ================================================================================ shared
 
-const Step: React.FC<{ n: number; title: string; hint?: React.ReactNode; children: React.ReactNode }> = ({ n, title, hint, children }) => (
+const Step: React.FC<{ title: string; hint?: React.ReactNode; children: React.ReactNode }> = ({ title, hint, children }) => (
   <section className="space-y-3">
-    <div className="flex items-baseline gap-2">
-      <span className="w-5 h-5 rounded-full bg-surface-3 text-[11px] font-semibold text-muted flex items-center justify-center shrink-0 tabular-nums">{n}</span>
+    <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
       <h3 className="text-[14px] font-semibold text-ink">{title}</h3>
       {hint && <span className="text-[12px] text-faint">{hint}</span>}
     </div>
-    <div className="pl-7">{children}</div>
+    <div>{children}</div>
   </section>
 );
 
@@ -206,7 +206,7 @@ const Layout: React.FC<{ form: React.ReactNode; side: React.ReactNode }> = ({ fo
   </div>
 );
 
-const Hint: React.FC<{ command: string | null }> = ({ command }) => (command ? <TerminalHint command={command} label="Run in terminal" /> : null);
+const Hint: React.FC<{ command: string | null }> = ({ command }) => (command ? <TerminalHint command={command} iconOnly /> : null);
 
 // =========================================================================== certificate
 
@@ -226,11 +226,11 @@ const CertificatePanel: React.FC = () => {
     <Layout
       form={
         <>
-          <Step n={1} title="Certificate or chain" hint="PEM, DER, PKCS#7 or PkiPath">
+          <Step title="Certificate or chain" hint="PEM, DER, PKCS#7 or PkiPath">
             <FileOrText label="Input" filters={[FILTERS.certificates]} path={path} setPath={setPath} text={text} setText={setText} placeholder="-----BEGIN CERTIFICATE-----" testId="convert-input" />
             <Detected {...detection} />
           </Step>
-          <Step n={2} title="Output format">
+          <Step title="Output format">
             <OptionList label="Certificate output format" value={target} onChange={setTarget} options={targetOptions(CERT_OUTPUTS)} columns={2} />
             {detection.result && detection.result.certificates.length > 1 && target === "der" && (
               <Alert tone="warning" className="mt-3">
@@ -260,6 +260,66 @@ const CertificatePanel: React.FC = () => {
   );
 };
 
+// ============================================================================ truststore
+
+const TruststorePanel: React.FC = () => {
+  const runner = useRunner();
+  const [path, setPath] = useState<string | null>(null);
+  const [text, setText] = useState("");
+  const [format, setFormat] = useState<KeystoreFormat>("PKCS12");
+  const [alias, setAlias] = useState("");
+  const [pw, setPw] = useState("");
+  const [pw2, setPw2] = useState("");
+  const source = sourceOf(path, text);
+  const detection = useDetection(source, "");
+  const count = detection.result?.certificates.length ?? 0;
+  const pwError = pw2 && pw !== pw2 ? "Passwords do not match" : undefined;
+  const ready = !!source && pw.length > 0 && pw === pw2;
+  const convert = (out: string | null) => api.convertTruststore(source!, format, pw, alias, out);
+  return (
+    <Layout
+      form={
+        <>
+          <Step title="Certificates" hint="A CA bundle: PEM, DER, PKCS#7 or PkiPath">
+            <FileOrText label="Input" filters={[FILTERS.certificates]} path={path} setPath={setPath} text={text} setText={setText} placeholder="-----BEGIN CERTIFICATE-----" testId="convert-input" />
+            <Detected {...detection} />
+          </Step>
+          <Step title="Truststore format">
+            <OptionList
+              label="Truststore format"
+              value={format}
+              onChange={(v) => setFormat(v as KeystoreFormat)}
+              columns={2}
+              options={KEYSTORE_FORMATS.map((f) => ({ value: f, label: FORMAT_INFO[f].label, hint: FORMAT_INFO[f].description, meta: `.${FORMAT_EXTENSION[f]}`, testId: `convert-trust-format-${f}` }))}
+            />
+            <TextInput
+              className="mt-3"
+              label="Alias of the first certificate (optional)"
+              value={alias}
+              onChange={(e) => setAlias(e.target.value)}
+              hint={`Every certificate becomes a trusted certificate entry named after its common name${format === "JKS" || format === "JCEKS" ? ", in lower case as keytool stores it" : ""}.`}
+              data-testid="convert-trust-alias"
+            />
+          </Step>
+          <Step title="Password">
+            <div className="grid grid-cols-2 gap-3">
+              <PasswordInput label="Truststore password" value={pw} onChange={setPw} data-testid="convert-trust-password" />
+              <PasswordInput label="Confirm" value={pw2} onChange={setPw2} error={pwError} data-testid="convert-trust-password-confirm" />
+            </div>
+          </Step>
+          <Actions runner={runner} disabled={!ready} saveLabel={count > 1 ? `Build truststore (${count} certificates)…` : "Build truststore…"} onSave={() => runner.save(convert, { title: "Save truststore", input: path, stem: "truststore", ext: FORMAT_EXTENSION[format], filters: [FILTERS.keystores] })} />
+        </>
+      }
+      side={
+        <>
+          <ResultPanel runner={runner} empty="Choose the certificates, a format and a password. The truststore is written to a file." />
+          <Hint command={cliHint("truststore", format, path)} />
+        </>
+      }
+    />
+  );
+};
+
 // =========================================================================== private key
 
 const PrivateKeyPanel: React.FC = () => {
@@ -273,28 +333,34 @@ const PrivateKeyPanel: React.FC = () => {
   const source = sourceOf(path, text);
   const detection = useDetection(source, inPw);
   const t = KEY_OUTPUTS.find((o) => o.value === target)!;
-  const pwError = t.needsPassword && outPw2 && outPw !== outPw2 ? "Passwords do not match" : undefined;
-  const ready = !!source && (!t.needsPassword || (!!outPw && outPw === outPw2));
-  const convert = (out: string | null) => api.convertPrivateKey(source!, inPw || null, target, t.needsPassword ? outPw : null, out);
+  const [comment, setComment] = useState("");
+  const takesPassword = !!(t.needsPassword || t.optionalPassword);
+  const pwError = takesPassword && outPw2 && outPw !== outPw2 ? "Passwords do not match" : undefined;
+  const ready = !!source && (t.needsPassword ? !!outPw && outPw === outPw2 : !t.optionalPassword || outPw === outPw2);
+  const convert = (out: string | null) => api.convertPrivateKey(source!, inPw || null, target, takesPassword && outPw ? outPw : null, out, comment);
   return (
     <Layout
       form={
         <>
-          <Step n={1} title="Private key" hint="PKCS#8, encrypted PKCS#8, PKCS#1 or SEC1">
+          <Step title="Private key" hint="PKCS#8, encrypted PKCS#8, PKCS#1, SEC1, OpenSSH or JWK">
             <div className="space-y-3">
               <FileOrText label="Input" filters={[FILTERS.keys]} path={path} setPath={setPath} text={text} setText={setText} placeholder="-----BEGIN PRIVATE KEY-----" testId="convert-input" />
               <PasswordInput label="Password of the input key (only if it is encrypted)" value={inPw} onChange={setInPw} data-testid="convert-input-password" />
             </div>
             <Detected {...detection} />
           </Step>
-          <Step n={2} title="Output format">
+          <Step title="Output format">
             <OptionList label="Private key output format" value={target} onChange={setTarget} options={targetOptions(KEY_OUTPUTS)} columns={2} />
-            {t.needsPassword ? (
+            {target === "openssh" && (
+              <TextInput className="mt-3" label="Comment" value={comment} onChange={(e) => setComment(e.target.value)} placeholder="user@host" hint="Stored in the key and shown by ssh-keygen -l." data-testid="convert-comment" />
+            )}
+            {takesPassword && (
               <div className="grid grid-cols-2 gap-3 mt-3">
-                <PasswordInput label="Password for the converted key" value={outPw} onChange={setOutPw} data-testid="convert-out-password" />
+                <PasswordInput label={t.needsPassword ? "Password for the converted key" : "Password (optional)"} value={outPw} onChange={setOutPw} data-testid="convert-out-password" />
                 <PasswordInput label="Confirm" value={outPw2} onChange={setOutPw2} error={pwError} data-testid="convert-out-password-confirm" />
               </div>
-            ) : (
+            )}
+            {!t.needsPassword && !(t.optionalPassword && outPw) && (
               <Alert tone="warning" className="mt-3">
                 This format is not encrypted. Anyone who can read the file can use the key.
               </Alert>
@@ -331,14 +397,14 @@ const PublicKeyPanel: React.FC = () => {
     <Layout
       form={
         <>
-          <Step n={1} title="Anything with a public key" hint="Certificate, CSR, private key, public key, OpenSSH or JWK">
+          <Step title="Anything with a public key" hint="Certificate, CSR, private key, public key, OpenSSH or JWK">
             <div className="space-y-3">
               <FileOrText label="Input" filters={[FILTERS.certificates, FILTERS.keys, FILTERS.csr]} path={path} setPath={setPath} text={text} setText={setText} placeholder="-----BEGIN CERTIFICATE----- or ssh-ed25519 AAAA… or { &quot;kty&quot;: … }" testId="convert-input" />
               <PasswordInput label="Password (only for an encrypted private key)" value={inPw} onChange={setInPw} />
             </div>
             <Detected {...detection} />
           </Step>
-          <Step n={2} title="Output format">
+          <Step title="Output format">
             <OptionList label="Public key output format" value={target} onChange={setTarget} options={targetOptions(PUBLIC_OUTPUTS)} columns={2} />
             {target === "openssh" && (
               <TextInput className="mt-3" label="Comment" value={comment} onChange={(e) => setComment(e.target.value)} placeholder="user@host" hint="Appended to the authorized_keys line." />
@@ -379,11 +445,11 @@ const EncodingPanel: React.FC = () => {
     <Layout
       form={
         <>
-          <Step n={1} title="PEM or DER input" hint="Certificate, CSR, CRL, PKCS#7 or key">
+          <Step title="PEM or DER input" hint="Certificate, CSR, CRL, PKCS#7 or key">
             <FileOrText label="Input" filters={[FILTERS.certificates, FILTERS.keys, FILTERS.csr, FILTERS.crl]} path={path} setPath={setPath} text={text} setText={setText} placeholder="Paste PEM here, or choose a DER file" testId="convert-input" />
             <Detected {...detection} />
           </Step>
-          <Step n={2} title="Direction">
+          <Step title="Direction">
             {source ? (
               <div className="flex items-center gap-2 text-[13px]" data-testid="convert-direction">
                 <Badge tone="brand">{toDer ? "PEM" : "DER"}</Badge>
@@ -588,7 +654,7 @@ const KeystorePanel: React.FC = () => {
   const [keepPw, setKeepPw] = useState(true);
   const [pw, setPw] = useState("");
   const [pw2, setPw2] = useState("");
-  const [mac, setMac] = useState<"pkcs12" | "pbmac1">("pkcs12");
+  const [mac, setMac] = useState<Pkcs12Profile>("pkcs12");
   const problems = source ? saveProblems(source.ks.entries, source.ks.format, target) : [];
   const newPw = keepPw ? source?.password ?? "" : pw;
   const pwError = !keepPw && pw && pw.length < 6 ? "At least 6 characters" : !keepPw && pw2 && pw !== pw2 ? "Passwords do not match" : undefined;
@@ -636,10 +702,10 @@ const KeystorePanel: React.FC = () => {
     <Layout
       form={
         <>
-          <Step n={1} title="Source keystore">
+          <Step title="Source keystore">
             {ui}
           </Step>
-          <Step n={2} title="Output format">
+          <Step title="Output format">
             <OptionList
               label="Keystore output format"
               value={target}
@@ -647,13 +713,12 @@ const KeystorePanel: React.FC = () => {
               options={KEYSTORE_FORMATS.map((f) => ({ value: f, label: FORMAT_INFO[f].label, hint: FORMAT_INFO[f].description, meta: `.${FORMAT_EXTENSION[f]}`, testId: `convert-format-${f}` }))}
             />
             {target === "PKCS12" && (
-              <Select className="mt-3" label="Integrity MAC" value={mac} onChange={(e) => setMac(e.target.value as "pkcs12" | "pbmac1")} hint="The legacy MAC is read by every tool. PBMAC1 needs OpenSSL 3.4 or newer.">
-                <option value="pkcs12">Legacy PKCS#12 MAC (compatible)</option>
-                <option value="pbmac1">PBMAC1 (RFC 9579)</option>
-              </Select>
+              <div className="mt-3">
+                <Pkcs12ProfileSelect value={mac} onChange={setMac} testId="convert-pkcs12-profile" />
+              </div>
             )}
           </Step>
-          <Step n={3} title="Password">
+          <Step title="Password">
             <div className="space-y-3">
               <Checkbox checked={keepPw} onChange={setKeepPw} label="Use the source keystore's password" />
               {!keepPw && (
@@ -730,11 +795,11 @@ const ExtractPanel: React.FC = () => {
     <Layout
       form={
         <>
-          <Step n={1} title="Source keystore">
+          <Step title="Source keystore">
             {ui}
           </Step>
           {source && (
-            <Step n={2} title="Entries" hint={`${chosen.length} of ${entries.length} selected`}>
+            <Step title="Entries" hint={`${chosen.length} of ${entries.length} selected`}>
               <div className="flex gap-2 mb-2">
                 <Button size="sm" onClick={() => setPicked(null)}>
                   All
@@ -770,7 +835,7 @@ const ExtractPanel: React.FC = () => {
               </ul>
             </Step>
           )}
-          <Step n={source ? 3 : 2} title="What to write">
+          <Step title="What to write">
             <div className="space-y-3">
               <div className="flex flex-wrap items-center gap-3">
                 <span className="label !mb-0 w-28">Certificates</span>
@@ -861,6 +926,7 @@ const Pkcs12Panel: React.FC = () => {
 
 const PANELS: Record<ConverterId, React.FC> = {
   certificate: CertificatePanel,
+  truststore: TruststorePanel,
   private_key: PrivateKeyPanel,
   public_key: PublicKeyPanel,
   keystore: KeystorePanel,
@@ -873,7 +939,7 @@ const Overview: React.FC = () => {
   const { openConverter } = useStore();
   return (
     <Page>
-      <PageHeader title="Convert" description="Change the format of certificates, keys and keystores. Everything runs locally; nothing leaves this computer." />
+      <PageHeader icon={ConvertIcon} title="Convert" description="Change the format of certificates, keys and keystores. Everything runs locally; nothing leaves this computer." />
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
         {CONVERTERS.map((c, i) => {
           const Icon = CONVERTER_ICONS[c.id];
@@ -882,7 +948,11 @@ const Overview: React.FC = () => {
           const spanMd = last && CONVERTERS.length % 2 === 1;
           const spanXl = last && CONVERTERS.length % 3 === 1;
           return (
-            <Card key={c.id} interactive onClick={() => openConverter(c.id)} data-testid={`convert-tile-${c.id}`} className={clsx("flex flex-col gap-3", spanMd && "md:col-span-2", spanXl && "xl:col-span-3 xl:flex-row xl:items-center xl:gap-8")} role="button" tabIndex={0} onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && openConverter(c.id)}>
+            <Card key={c.id} interactive onClick={() => openConverter(c.id)} data-testid={`convert-tile-${c.id}`} className={clsx("flex flex-col gap-3", spanMd && "md:col-span-2", spanXl && "xl:col-span-3 xl:flex-row xl:items-center xl:gap-8")} role="button" tabIndex={0} onKeyDown={(e) => {
+              if (e.key !== "Enter" && e.key !== " ") return;
+              e.preventDefault(); // Space would also scroll the page.
+              openConverter(c.id);
+            }}>
               <div className={clsx("flex items-start gap-3", spanXl && "xl:flex-1")}>
                 <span className="w-9 h-9 rounded-card bg-brand-tint text-brand flex items-center justify-center shrink-0">
                   <Icon className="w-[18px] h-[18px]" />
@@ -921,24 +991,12 @@ export const ConvertView: React.FC = () => {
       <PageHeader
         eyebrow={
           <button type="button" onClick={() => openConverter(null)} className="inline-flex items-center gap-1 text-brand font-medium hover:underline cursor-pointer" data-testid="convert-back">
-            <ArrowLeft className="w-3.5 h-3.5" /> All conversions
+            <ChevronLeft className="w-3.5 h-3.5" /> All conversions
           </button>
         }
-        title={
-          <span className="inline-flex items-center gap-2.5">
-            <Icon className="w-5 h-5 text-brand" /> {info.title}
-          </span>
-        }
+        icon={Icon}
+        title={info.title}
         description={info.description}
-        actions={
-          <Select aria-label="Switch conversion" value={convertMode} onChange={(e) => openConverter(e.target.value as ConverterId)} className="!w-60" data-testid="convert-switch">
-            {CONVERTERS.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.title}
-              </option>
-            ))}
-          </Select>
-        }
       />
       <div className={clsx("pb-8")} data-testid={`converter-${convertMode}`}>
         {/* Keyed so switching converters starts from a clean form. */}

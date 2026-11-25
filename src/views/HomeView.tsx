@@ -11,6 +11,7 @@ import {
   FolderOpen,
   KeyRound,
   Layers,
+  LayoutDashboard,
   Lock,
   Play,
   SearchCode,
@@ -26,6 +27,7 @@ import { DropZone } from "../components/DropZone";
 import { FORMAT_INFO } from "../lib/keystore";
 import type { KeystoreFormat, OpenKeystore } from "../types/crypto";
 import { nullInput } from "../lib/platform";
+import { ConvertIcon } from "../components/Sidebar";
 
 /*
  * Info boxes closed on the dashboard stay closed for the rest of the session (also across a reload,
@@ -109,9 +111,13 @@ const TerminalSection: React.FC = () => {
                 {s.command}
               </code>
             </div>
-            <Button size="sm" icon={Play} onClick={() => open(s.command)}>
-              Run
-            </Button>
+            <Button
+              size="sm"
+              icon={Play}
+              onClick={() => open(s.command)}
+              aria-label={`Run ${s.label.toLowerCase()}`}
+              title={`Run ${s.label.toLowerCase()}`}
+            />
           </li>
         ))}
       </ul>
@@ -153,7 +159,7 @@ export const HomeView: React.FC = () => {
   if (!loaded.length) {
     return (
       <Page>
-        <PageHeader title="Welcome to Keystore Studio" description="A workbench for Java keystores, PKCS#12 files and X.509 certificates. Everything runs locally." />
+        <PageHeader icon={LayoutDashboard} title="Welcome to Keystore Studio" description="A workbench for Java keystores, PKCS#12 files and X.509 certificates. Everything runs locally." />
         {!desktop && !notices.dismissed("browser-preview") && (
           <Alert tone="warning" className="mb-4" title="Browser preview" testId="browser-preview" onDismiss={() => notices.dismiss(["browser-preview"])}>
             The native engine is only available in the desktop app (pnpm tauri dev). Buttons that touch files or keys will report an error here.
@@ -167,7 +173,7 @@ export const HomeView: React.FC = () => {
                 { icon: FolderOpen, title: "Open a keystore", text: "PKCS#12, JKS or JCEKS — enter its password to view and edit entries.", action: () => openFiles(), testId: "welcome-open" },
                 { icon: FilePlus2, title: "Create a keystore", text: "Start empty or with a fresh key pair and self-signed certificate.", action: () => setNewKeystoreOpen(true), testId: "welcome-new" },
                 { icon: SearchCode, title: "Examine", text: "Inspect a TLS server, test a connection, or decode a certificate, CSR, key or JWT.", action: () => setTab("examine"), testId: "welcome-examine" },
-                { icon: ArrowLeftRight, title: "Convert", text: "PEM ↔ DER, PKCS#7, PKCS#8, OpenSSH, JWK, and JKS ↔ PKCS#12.", action: () => openConverter(null), testId: "welcome-convert" },
+                { icon: ConvertIcon, title: "Convert", text: "PEM ↔ DER, PKCS#7, PKCS#8, OpenSSH, JWK, and JKS ↔ PKCS#12.", action: () => openConverter(null), testId: "welcome-convert" },
                 {
                   icon: FolderArchive,
                   title: "Create a PKCS#12",
@@ -211,6 +217,7 @@ export const HomeView: React.FC = () => {
   return (
     <Page>
       <PageHeader
+        icon={LayoutDashboard}
         title="Dashboard"
         description={`Certificate and key health across ${loaded.length} open keystore${loaded.length === 1 ? "" : "s"}${workspaces.length ? ` and ${workspaces.length} workspaces` : ""}.`}
         actions={

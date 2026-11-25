@@ -62,6 +62,21 @@ impl DataSource {
 
 struct AppPaths {
     data_dir: std::path::PathBuf,
+    /// Held across each read-modify-write of `crl_numbers.json` and `issuance.jsonl`. Commands run
+    /// on separate threads, so two unsynchronised writers could each read the file and the slower
+    /// one would drop the other's update (the same reason as `VaultState::files`).
+    data_files: Arc<std::sync::Mutex<()>>,
+}
+
+impl AppPaths {
+    fn data_lock(&self) -> Arc<std::sync::Mutex<()>> {
+        self.data_files.clone()
+    }
+}
+
+/// A poisoned lock only means another command panicked mid-write; the files are still usable.
+fn lock_data(lock: &std::sync::Mutex<()>) -> std::sync::MutexGuard<'_, ()> {
+    lock.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -130,16 +145,10 @@ async fn probe_file(path: String) -> Res<FileProbe> {
         let lower = name.to_ascii_lowercase();
         let (kind, keystore_format) = if let Some(fmt) = keystore::detect(&head) {
             ("keystore".to_string(), Some(fmt.name().to_string()))
-        } else if keystore::looks_like_bks_v2(&head) {
-            ("keystore".to_string(), Some("BKS".to_string()))
         } else if lower.ends_with(".apk") {
             ("apk".to_string(), None)
         } else if lower.ends_with(".jar") || lower.ends_with(".war") || lower.ends_with(".ear") {
             ("jar".to_string(), None)
-        } else if let Some(kind) = keystore::detect_unsupported(&head) {
-            // Report the actual format: the conversion command differs per store type, and
-            // suggesting BKS for a BCFKS file produces a command that fails.
-            ("unsupported_keystore".to_string(), Some(kind.store_type().to_string()))
         } else {
             match detect::examine(&head, None) {
                 Ok(r) => (r.kind, None),
@@ -152,8 +161,15 @@ async fn probe_file(path: String) -> Res<FileProbe> {
 }
 
 #[tauri::command]
-async fn open_keystore(path: String, password: String, key_passwords: Option<HashMap<String, String>>) -> Res<KeystoreFile> {
-    blocking(move || keystore::open(&path, &password, &key_passwords.unwrap_or_default())).await
+async fn open_keystore(path: String, mut password: String, key_passwords: Option<HashMap<String, String>>) -> Res<KeystoreFile> {
+    blocking(move || {
+        let mut key_passwords = key_passwords.unwrap_or_default();
+        let result = keystore::open(&path, &password, &key_passwords);
+        password.zeroize();
+        key_passwords.values_mut().for_each(Zeroize::zeroize);
+        result
+    })
+    .await
 }
 
 #[derive(Serialize)]
@@ -169,10 +185,7 @@ struct SaveResult {
 async fn save_keystore(mut ks: KeystoreFile, path: String, mut password: String, format: String, mac: Option<String>, force: Option<bool>) -> Res<SaveResult> {
     blocking(move || {
         let fmt = keystore::Format::parse(&format)?;
-        let mac_kind = match mac.as_deref() {
-            Some("pbmac1") => pkcs12::MacKind::Pbmac1,
-            _ => pkcs12::MacKind::Pkcs12,
-        };
+        let mac_kind = pkcs12::MacKind::parse(mac.as_deref());
         let saved = keystore::save_with(&ks, &path, &password, fmt, keystore::SavePolicy { mac: mac_kind, force: force.unwrap_or(false) });
         password.zeroize();
         for entry in &mut ks.entries {
@@ -212,10 +225,11 @@ struct GeneratedKeyPair {
 
 #[tauri::command]
 async fn generate_key_pair(input: GenerateKeyPairInput, issuer: Option<KeystoreEntry>, paths: State<'_, Arc<AppPaths>>) -> Res<GeneratedKeyPair> {
-    let dir = paths.data_dir.clone();
+    let (dir, lock) = (paths.data_dir.clone(), paths.data_lock());
     blocking(move || {
         let (entry, validity_note) = ops::issue_key_pair(&input, issuer.as_ref())?;
         if let Some(ca) = &issuer {
+            let _guard = lock_data(&lock);
             record_issuance(&dir, entry.certificate_chain.first(), ca.certificate_chain.first(), "generate");
         }
         Ok(GeneratedKeyPair { entry, validity_note })
@@ -234,13 +248,17 @@ async fn import_trusted_certificates(alias: String, data: DataSource, existing_a
 }
 
 #[tauri::command]
-async fn import_key_pair(alias: String, key: DataSource, key_password: Option<String>, certificates: Option<DataSource>) -> Res<KeystoreEntry> {
+async fn import_key_pair(alias: String, key: DataSource, mut key_password: Option<String>, certificates: Option<DataSource>) -> Res<KeystoreEntry> {
     blocking(move || {
-        let cert_bytes = match &certificates {
-            Some(c) if !c.is_empty() => Some(c.bytes()?),
-            _ => None,
-        };
-        ops::import_key_pair(&alias, &key.bytes()?, key_password.as_deref(), cert_bytes.as_deref())
+        let result = (|| {
+            let cert_bytes = match &certificates {
+                Some(c) if !c.is_empty() => Some(c.bytes()?),
+                _ => None,
+            };
+            ops::import_key_pair(&alias, &key.bytes()?, key_password.as_deref(), cert_bytes.as_deref())
+        })();
+        key_password.zeroize();
+        result
     })
     .await
 }
@@ -263,8 +281,12 @@ async fn build_pkcs12(
             Some(c) if !c.is_empty() => Some(c.bytes()?),
             _ => None,
         };
-        let input = BuildPkcs12Input { alias: alias.unwrap_or_default(), key: key.bytes()?, certificate: cert_bytes, key_password, passphrase, mac };
-        let der = ops::build_pkcs12(&input)?;
+        let mut input = BuildPkcs12Input { alias: alias.unwrap_or_default(), key: key.bytes()?, certificate: cert_bytes, key_password, passphrase, mac };
+        let der = ops::build_pkcs12(&input);
+        input.passphrase.zeroize();
+        input.key_password.zeroize();
+        input.key.zeroize();
+        let der = der?;
         util::write_atomic(std::path::Path::new(&path), &der)?;
         Ok(ExportResult { path, format: "PKCS#12 (certificate and private key)".into(), byte_length: der.len(), text: None })
     })
@@ -283,10 +305,11 @@ async fn import_ca_reply(entry: KeystoreEntry, reply: DataSource) -> Res<Keystor
 
 #[tauri::command]
 async fn rotate_key(entry: KeystoreEntry, algorithm: String, key_size: u32, curve: Option<String>, issuer: Option<KeystoreEntry>, paths: State<'_, Arc<AppPaths>>) -> Res<KeystoreEntry> {
-    let dir = paths.data_dir.clone();
+    let (dir, lock) = (paths.data_dir.clone(), paths.data_lock());
     blocking(move || {
         let rotated = ops::rotate_key(&entry, &algorithm, key_size, curve.as_deref(), issuer.as_ref())?;
         if let Some(ca) = &issuer {
+            let _guard = lock_data(&lock);
             record_issuance(&dir, rotated.certificate_chain.first(), ca.certificate_chain.first(), "rotate");
         }
         Ok(rotated)
@@ -295,8 +318,13 @@ async fn rotate_key(entry: KeystoreEntry, algorithm: String, key_size: u32, curv
 }
 
 #[tauri::command]
-async fn export_entry(entry: KeystoreEntry, target: String, path: String, password: Option<String>) -> Res<ExportResult> {
-    blocking(move || export::export_entry(&entry, &target, &path, password.as_deref())).await
+async fn export_entry(entry: KeystoreEntry, target: String, path: String, mut password: Option<String>) -> Res<ExportResult> {
+    blocking(move || {
+        let result = export::export_entry(&entry, &target, &path, password.as_deref());
+        password.zeroize();
+        result
+    })
+    .await
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -311,26 +339,42 @@ async fn convert_certificates(data: DataSource, target: String, order: Option<bo
 }
 
 #[tauri::command]
-async fn convert_private_key(data: DataSource, password: Option<String>, target: String, out_password: Option<String>, path: Option<String>) -> Res<convert::ConvertResult> {
+async fn convert_private_key(data: DataSource, password: Option<String>, target: String, out_password: Option<String>, comment: Option<String>, path: Option<String>) -> Res<convert::ConvertResult> {
     blocking(move || {
-        let mut out_password = out_password;
-        let result = convert::private_key(&data.bytes()?, password.as_deref(), &target, out_password.as_deref());
-        if let Some(pw) = out_password.as_mut() {
-            pw.zeroize();
-        }
+        let (mut password, mut out_password) = (password, out_password);
+        let result = data.bytes().map(zeroize::Zeroizing::new).and_then(|bytes| convert::private_key(&bytes, password.as_deref(), &target, out_password.as_deref(), comment.as_deref().unwrap_or("")));
+        password.zeroize();
+        out_password.zeroize();
         convert::deliver(result?, path.as_deref())
     })
     .await
 }
 
 #[tauri::command]
-async fn convert_public_key(data: DataSource, password: Option<String>, target: String, comment: Option<String>, path: Option<String>) -> Res<convert::ConvertResult> {
-    blocking(move || convert::deliver(convert::public_key(&data.bytes()?, password.as_deref(), &target, comment.as_deref().unwrap_or(""))?, path.as_deref())).await
+async fn convert_public_key(data: DataSource, mut password: Option<String>, target: String, comment: Option<String>, path: Option<String>) -> Res<convert::ConvertResult> {
+    blocking(move || {
+        let result = data.bytes().map(zeroize::Zeroizing::new).and_then(|bytes| convert::public_key(&bytes, password.as_deref(), &target, comment.as_deref().unwrap_or("")));
+        password.zeroize();
+        convert::deliver(result?, path.as_deref())
+    })
+    .await
 }
 
 #[tauri::command]
 async fn convert_encoding(data: DataSource, label: Option<String>, path: Option<String>) -> Res<convert::ConvertResult> {
     blocking(move || convert::deliver(convert::encoding(&data.bytes()?, label.as_deref())?, path.as_deref())).await
+}
+
+/// Certificates (any format) written as a truststore in any keystore format.
+#[tauri::command]
+async fn convert_truststore(data: DataSource, format: String, password: String, alias: Option<String>, path: Option<String>) -> Res<convert::ConvertResult> {
+    blocking(move || {
+        let mut password = password;
+        let result = convert::truststore(&data.bytes()?, &format, &password, alias.as_deref().unwrap_or(""));
+        password.zeroize();
+        convert::deliver(result?, path.as_deref())
+    })
+    .await
 }
 
 /// Certificates and private keys of keystore entries as one PEM file.
@@ -358,9 +402,10 @@ async fn jwt_algorithms(entry: KeystoreEntry) -> Res<Vec<String>> {
 
 #[tauri::command]
 async fn sign_csr(input: SignCsrInput, ca_entry: KeystoreEntry, paths: State<'_, Arc<AppPaths>>) -> Res<SignedCertificateResult> {
-    let dir = paths.data_dir.clone();
+    let (dir, lock) = (paths.data_dir.clone(), paths.data_lock());
     blocking(move || {
         let signed = ops::sign_csr(&input, &ca_entry)?;
+        let _guard = lock_data(&lock);
         record_issuance(&dir, Some(&signed.certificate), ca_entry.certificate_chain.first(), "sign-csr");
         Ok(signed)
     })
@@ -374,9 +419,10 @@ async fn inspect_csr(data: DataSource) -> Res<CsrInfo> {
 
 #[tauri::command]
 async fn generate_crl(ca_entry: KeystoreEntry, next_update_days: u32, crl_number: u64, revoked_entries: Vec<RevokedCertEntry>, paths: State<'_, Arc<AppPaths>>) -> Res<CrlInfo> {
-    let dir = paths.data_dir.clone();
+    let (dir, lock) = (paths.data_dir.clone(), paths.data_lock());
     blocking(move || {
         let crl = ops::generate_crl(&ca_entry, next_update_days, crl_number, &revoked_entries)?;
+        let _guard = lock_data(&lock);
         if let Some(ski) = ca_entry.certificate_chain.first().and_then(|c| c.subject_key_id.as_deref()).filter(|s| !s.is_empty()) {
             let path = dir.join("crl_numbers.json");
             let mut map: HashMap<String, u64> = std::fs::read_to_string(&path).ok().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default();
@@ -395,8 +441,9 @@ async fn generate_crl(ca_entry: KeystoreEntry, next_update_days: u32, crl_number
 
 #[tauri::command]
 async fn ca_next_crl_number(paths: State<'_, Arc<AppPaths>>, ca_ski: String) -> Res<u64> {
-    let path = paths.data_dir.join("crl_numbers.json");
+    let (path, lock) = (paths.data_dir.join("crl_numbers.json"), paths.data_lock());
     blocking(move || {
+        let _guard = lock_data(&lock);
         let map: HashMap<String, u64> = std::fs::read_to_string(&path).ok().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default();
         Ok(map.get(&ca_ski).copied().unwrap_or(0).saturating_add(1))
     })
@@ -525,9 +572,12 @@ fn record_issuance(dir: &std::path::Path, leaf: Option<&CertificateInfo>, issuer
 
 #[tauri::command]
 async fn ledger_search(paths: State<'_, Arc<AppPaths>>, query: String) -> Res<Vec<IssuanceRecord>> {
-    let path = paths.data_dir.join("issuance.jsonl");
+    let (path, lock) = (paths.data_dir.join("issuance.jsonl"), paths.data_lock());
     blocking(move || {
-        let text = std::fs::read_to_string(&path).unwrap_or_default();
+        let text = {
+            let _guard = lock_data(&lock);
+            std::fs::read_to_string(&path).unwrap_or_default()
+        };
         let q = query.trim().to_ascii_lowercase();
         let mut out = Vec::new();
         for line in text.lines() {
@@ -545,8 +595,9 @@ async fn ledger_search(paths: State<'_, Arc<AppPaths>>, query: String) -> Res<Ve
 
 #[tauri::command]
 async fn ledger_delete(paths: State<'_, Arc<AppPaths>>, serial: String) -> Res<()> {
-    let path = paths.data_dir.join("issuance.jsonl");
+    let (path, lock) = (paths.data_dir.join("issuance.jsonl"), paths.data_lock());
     blocking(move || {
+        let _guard = lock_data(&lock);
         let text = std::fs::read_to_string(&path).unwrap_or_default();
         let mut kept = String::new();
         for line in text.lines() {
@@ -571,7 +622,7 @@ async fn system_trust_anchors() -> Res<String> {
 }
 
 #[tauri::command]
-async fn validate_chain(leaf_pem: String, intermediates_pem: String, anchors_pem: String, hostname: Option<String>) -> Res<Vec<String>> {
+async fn validate_chain(leaf_pem: String, intermediates_pem: String, anchors_pem: String, hostname: Option<String>, check_revocation: Option<bool>) -> Res<Vec<String>> {
     blocking(move || {
         let leaf = x509::certificates_from_bytes(leaf_pem.as_bytes())?;
         let leaf = leaf.first().cloned().ok_or("no leaf certificate")?;
@@ -582,7 +633,12 @@ async fn validate_chain(leaf_pem: String, intermediates_pem: String, anchors_pem
         };
         let anchors =
             if anchors_pem.trim().is_empty() { Vec::new() } else { x509::certificates_from_bytes(anchors_pem.as_bytes()).map_err(|err| format!("invalid trust anchor certificate(s): {err}"))? };
-        Ok(x509::validate_chain(&leaf, &intermediates, &anchors, hostname.as_deref()))
+        let (mut problems, path) = x509::validate_chain_path(&leaf, &intermediates, &anchors, hostname.as_deref());
+        // Opt-in: it goes online. A chain that is already broken is not worth the requests.
+        if check_revocation.unwrap_or(false) && problems.is_empty() {
+            problems.extend(revocation::check_path(&path, &revocation::network()));
+        }
+        Ok(problems)
     })
     .await
 }
@@ -633,8 +689,13 @@ async fn test_connection(target: String, port: u16, timeout_secs: Option<u64>) -
 }
 
 #[tauri::command]
-async fn examine_data(data: DataSource, password: Option<String>) -> Res<DetectionResult> {
-    blocking(move || detect::examine(&data.bytes()?, password.as_deref())).await
+async fn examine_data(data: DataSource, mut password: Option<String>) -> Res<DetectionResult> {
+    blocking(move || {
+        let result = data.bytes().and_then(|bytes| detect::examine(&bytes, password.as_deref()));
+        password.zeroize();
+        result
+    })
+    .await
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -679,16 +740,22 @@ async fn vault_status(state: State<'_, Arc<VaultState>>) -> Res<VaultStatus> {
 }
 
 #[tauri::command]
-async fn vault_init(state: State<'_, Arc<VaultState>>, master_key: String) -> Res<()> {
+async fn vault_init(state: State<'_, Arc<VaultState>>, mut master_key: String) -> Res<()> {
     let v = state.inner().clone();
-    blocking(move || v.init(&master_key)).await
+    blocking(move || {
+        let result = v.init(&master_key);
+        master_key.zeroize();
+        result
+    })
+    .await
 }
 
 #[tauri::command]
-async fn vault_unlock(state: State<'_, Arc<VaultState>>, master_key: String) -> Res<()> {
+async fn vault_unlock(state: State<'_, Arc<VaultState>>, mut master_key: String) -> Res<()> {
     let v = state.inner().clone();
     blocking(move || {
         let result = v.unlock(&master_key);
+        master_key.zeroize();
         if result.is_err() {
             // Slow down guessing a little beyond Argon2's own cost.
             std::thread::sleep(std::time::Duration::from_millis(400));
@@ -704,9 +771,15 @@ async fn vault_lock(state: State<'_, Arc<VaultState>>) -> Res<()> {
 }
 
 #[tauri::command]
-async fn vault_change_master_key(state: State<'_, Arc<VaultState>>, old_master_key: String, new_master_key: String) -> Res<()> {
+async fn vault_change_master_key(state: State<'_, Arc<VaultState>>, mut old_master_key: String, mut new_master_key: String) -> Res<()> {
     let v = state.inner().clone();
-    blocking(move || v.change_master_key(&old_master_key, &new_master_key)).await
+    blocking(move || {
+        let result = v.change_master_key(&old_master_key, &new_master_key);
+        old_master_key.zeroize();
+        new_master_key.zeroize();
+        result
+    })
+    .await
 }
 
 #[tauri::command]
@@ -716,9 +789,14 @@ async fn vault_reset(state: State<'_, Arc<VaultState>>) -> Res<()> {
 }
 
 #[tauri::command]
-async fn vault_store_secret(state: State<'_, Arc<VaultState>>, id: String, label: String, secret: String) -> Res<()> {
+async fn vault_store_secret(state: State<'_, Arc<VaultState>>, id: String, label: String, mut secret: String) -> Res<()> {
     let v = state.inner().clone();
-    blocking(move || v.store_secret(&id, &label, &secret)).await
+    blocking(move || {
+        let result = v.store_secret(&id, &label, &secret);
+        secret.zeroize();
+        result
+    })
+    .await
 }
 
 #[tauri::command]
@@ -746,6 +824,43 @@ async fn vault_list_secrets(state: State<'_, Arc<VaultState>>) -> Res<Vec<Secret
 #[tauri::command]
 async fn run_terminal_command(command: String, cwd: Option<String>, timeout_secs: Option<u64>) -> Res<terminal::TerminalOutput> {
     blocking(move || terminal::run(&command, cwd, timeout_secs.unwrap_or(120))).await
+}
+
+// ------------------------------------------------------------------------------------------------
+// Window
+// ------------------------------------------------------------------------------------------------
+
+/// Marks the window as having unsaved changes: on macOS the dot in the close button, the native
+/// cue now that the title bar shows no title. Nothing to do elsewhere.
+#[tauri::command]
+fn set_document_edited(window: tauri::WebviewWindow, edited: bool) -> Res<()> {
+    #[cfg(target_os = "macos")]
+    {
+        let ns_window = window.ns_window().map_err(|err| err.to_string())? as usize;
+        // AppKit wants the main thread; the pointer is carried as an integer to cross threads.
+        window
+            .run_on_main_thread(move || {
+                // SAFETY: Tauri hands back the live NSWindow of this webview window, which outlives
+                // this call on the main thread; setDocumentEdited: takes a BOOL and returns nothing.
+                unsafe {
+                    let obj = &*(ns_window as *const objc2::runtime::AnyObject);
+                    let _: () = objc2::msg_send![obj, setDocumentEdited: edited];
+                }
+            })
+            .map_err(|err| err.to_string())?;
+    }
+    #[cfg(not(target_os = "macos"))]
+    let _ = (window, edited);
+    Ok(())
+}
+
+// ------------------------------------------------------------------------------------------------
+// Tools
+// ------------------------------------------------------------------------------------------------
+
+#[tauri::command]
+async fn tool_status() -> Vec<tools::ToolStatus> {
+    tauri::async_runtime::spawn_blocking(tools::status).await.unwrap_or_default()
 }
 
 /// Localhost JavaScript bridge used by `e2e/eval-drive.mjs`.
@@ -883,7 +998,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .manage(Arc::new(VaultState::new(data_dir.clone())))
-        .manage(Arc::new(AppPaths { data_dir: data_dir.clone() }))
+        .manage(Arc::new(AppPaths { data_dir: data_dir.clone(), data_files: Arc::default() }))
         .on_page_load(|_, payload| {
             if std::env::var_os("KEYSTORE_STUDIO_E2E").is_none() {
                 return;
@@ -899,6 +1014,12 @@ pub fn run() {
         .setup(move |app| {
             if std::env::var_os("KEYSTORE_STUDIO_E2E").is_some() {
                 start_e2e_bridge(app.handle().clone(), data_dir.clone());
+            }
+            // Windows only: show just the app logo in the title bar, without the title text.
+            // macOS: same, so only the traffic lights remain.
+            #[cfg(any(windows, target_os = "macos"))]
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.set_title("");
             }
             Ok(())
         })
@@ -924,6 +1045,7 @@ pub fn run() {
             convert_private_key,
             convert_public_key,
             convert_encoding,
+            convert_truststore,
             entries_to_pem,
             sign_csr,
             inspect_csr,
@@ -957,6 +1079,8 @@ pub fn run() {
             vault_delete_secret,
             vault_list_secrets,
             run_terminal_command,
+            tool_status,
+            set_document_edited,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Keystore Studio");

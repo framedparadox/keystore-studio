@@ -1,20 +1,24 @@
-import React, { useEffect, useRef, useState } from "react";
-import { CheckCircle2, Clock, EyeOff, FolderOpen, Info, Keyboard, LifeBuoy, Monitor, Moon, Palette, RotateCcw, Settings2, ShieldCheck, Sun, TerminalSquare, Trash2 } from "lucide-react";
+import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { CheckCircle2, Clock, EyeOff, FolderOpen, Info, Keyboard, LifeBuoy, Monitor, Moon, Palette, RotateCcw, Settings as SettingsIcon, Settings2, ShieldCheck, Sun, TerminalSquare, Trash2, Wrench } from "lucide-react";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import { DEFAULT_SETTINGS, useStore, type Settings } from "../state/store";
 import { FORMAT_INFO } from "../lib/keystore";
 import { KEYSTORE_FORMATS, type KeystoreFormat } from "../types/crypto";
-import { Button, Card, CardHeader, Checkbox, Kbd, Page, PageHeader, Segmented, Select, TextArea, TextInput, useConfirm, useToast } from "../components/ui";
+import { Button, Card, CardHeader, Checkbox, IconButton, Kbd, Page, PageHeader, Segmented, Select, TextArea, TextInput, useConfirm, useToast } from "../components/ui";
 import type { ThemePreference } from "../lib/theme";
 import type { HelpLink } from "../lib/help";
 import { HelpTopics } from "../components/HelpTopics";
 import { PrivacyPolicy } from "../components/PrivacyPolicy";
+import { ToolsPanel } from "../components/ToolsPanel";
 import { TerminalHint, useTerminal } from "../components/Terminal";
 import { joinPath, listFolderCommand, OS } from "../lib/platform";
+import { version as appVersion } from "../../package.json";
 
 const ENGINE = [
   "PKCS#12 reader/writer (PBES2/AES, legacy 3DES/RC2, SHA-1/SHA-2/PBMAC1 MACs, Java secret keys)",
-  "JKS and JCEKS reader/writer (keytool compatible, incl. sealed secret keys) + read-only BKS v2",
+  "JKS and JCEKS reader/writer (keytool compatible, incl. sealed secret keys)",
+  "Bouncy Castle BKS, UBER and BCFKS reader/writer, checked byte for byte against files Bouncy Castle wrote",
+  "OpenSSH private keys (every ssh-keygen cipher), SSH2 and OpenSSH public keys, JWK",
   "X.509 certificates, PKCS#10 CSRs and v2 CRLs built and signed with your keys",
   "RSA (rsa), ECDSA P-256/384/521 (RustCrypto), Ed25519 (ed25519-dalek)",
   "CMS/PKCS#7 SignedData, JAR signing, RFC 3161 timestamps, JWS/JWT",
@@ -35,7 +39,7 @@ export const SHORTCUTS: [string, string][] = [
   ["Ctrl+0", "Certificates"],
 ];
 
-export type SectionId = "general" | "security" | "signing" | "terminal" | "shortcuts" | "data" | "help" | "about";
+export type SectionId = "general" | "security" | "signing" | "terminal" | "tools" | "shortcuts" | "data" | "help" | "about";
 
 interface SectionDef {
   id: SectionId;
@@ -50,11 +54,13 @@ const SECTIONS: SectionDef[] = [
   { id: "security", label: "Security", icon: ShieldCheck, keys: ["requireKeyUnlock", "autoLockMinutes"] },
   { id: "signing", label: "Signing", icon: Clock, keys: ["tsaUrl", "tsaTrustPem", "timestampByDefault"] },
   { id: "terminal", label: "Terminal", icon: TerminalSquare, keys: ["terminalTimeoutSecs"] },
+  { id: "tools", label: "Tools", icon: Wrench, keys: [] },
   { id: "shortcuts", label: "Keyboard shortcuts", icon: Keyboard, keys: [] },
   { id: "data", label: "Data", icon: FolderOpen, keys: [] },
   { id: "help", label: "Help", icon: LifeBuoy, keys: [] },
   { id: "about", label: "About", icon: Info, keys: [] },
 ];
+const NAV_SECTIONS = SECTIONS.filter((section) => section.id !== "help" && section.id !== "about");
 
 /** Remembers the last section for the rest of the session, so returning to Settings lands where you left it. */
 let rememberedSection: SectionId = "general";
@@ -75,8 +81,47 @@ const isChanged = (keys: (keyof Settings)[], settings: Settings) => keys.some((k
  */
 const CardGrid: React.FC<{ children: React.ReactNode }> = ({ children }) => <div className="grid grid-cols-1 @3xl:grid-cols-2 gap-4 items-start">{children}</div>;
 
+const SigningCardGrid: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const gridRef = useRef<HTMLDivElement>(null);
+
+  useLayoutEffect(() => {
+    const grid = gridRef.current;
+    const first = grid?.children[0];
+    const second = grid?.children[1];
+    const textarea = second?.querySelector("textarea");
+    if (!(first instanceof HTMLElement) || !(second instanceof HTMLElement) || !textarea || !grid) return;
+
+    const matchDefaultHeights = () => {
+      // Measure the unresized textarea so resizing it never changes the other card's baseline.
+      const height = textarea.style.height;
+      first.style.minHeight = "";
+      second.style.minHeight = "";
+      textarea.style.height = "";
+      const sameRow = Math.abs(first.getBoundingClientRect().top - second.getBoundingClientRect().top) < 1;
+      const minHeight = sameRow ? `${Math.max(first.getBoundingClientRect().height, second.getBoundingClientRect().height)}px` : "";
+      textarea.style.height = height;
+      first.style.minHeight = minHeight;
+      second.style.minHeight = minHeight;
+    };
+
+    matchDefaultHeights();
+    const observer = new ResizeObserver(matchDefaultHeights);
+    observer.observe(grid);
+    observer.observe(first);
+    observer.observe(second);
+    observer.observe(textarea);
+    return () => observer.disconnect();
+  });
+
+  return <div ref={gridRef} className="grid grid-cols-1 @3xl:grid-cols-2 gap-4 items-start">{children}</div>;
+};
+
 /** A card that spans the full row on wide content. */
-const WideCard: React.FC<{ className?: string; children: React.ReactNode }> = ({ className, children }) => <Card className={`space-y-4 @3xl:col-span-2 ${className ?? ""}`}>{children}</Card>;
+const WideCard: React.FC<{ className?: string; children: React.ReactNode } & React.HTMLAttributes<HTMLDivElement>> = ({ className, children, ...rest }) => (
+  <Card {...rest} className={`space-y-4 @3xl:col-span-2 ${className ?? ""}`}>
+    {children}
+  </Card>
+);
 
 /**
  * A numeric setting that lets the user clear the field and retype. The typed text is shown as-is
@@ -113,22 +158,24 @@ const DraftNumber: React.FC<Omit<React.InputHTMLAttributes<HTMLInputElement>, "v
 };
 
 /** Top navigation: one button per section, arrow keys move between them, a dot marks sections changed from defaults. */
-const SettingsNav: React.FC<{ active: SectionId; onSelect: (id: SectionId) => void; settings: Settings; onRestore: () => void }> = ({ active, onSelect, settings, onRestore }) => {
+const SettingsNav: React.FC<{ active: SectionId; onSelect: (id: SectionId) => void; settings: Settings }> = ({ active, onSelect, settings }) => {
   const refs = useRef<Record<string, HTMLButtonElement | null>>({});
+  const headerSection = active === "help" || active === "about";
 
   const move = (from: number, delta: number | "first" | "last") => {
-    const last = SECTIONS.length - 1;
-    const next = delta === "first" ? 0 : delta === "last" ? last : (from + delta + SECTIONS.length) % SECTIONS.length;
-    onSelect(SECTIONS[next].id);
-    refs.current[SECTIONS[next].id]?.focus();
+    const last = NAV_SECTIONS.length - 1;
+    const next = delta === "first" ? 0 : delta === "last" ? last : (from + delta + NAV_SECTIONS.length) % NAV_SECTIONS.length;
+    onSelect(NAV_SECTIONS[next].id);
+    refs.current[NAV_SECTIONS[next].id]?.focus();
   };
 
   return (
     <div className="sticky top-0 z-10 -mx-8 px-8 py-3 mb-5 bg-canvas/95 backdrop-blur border-b border-line flex items-center gap-3">
       {/* Narrow content: a dropdown, so the sections never need to scroll sideways. */}
       <div className="@md:hidden flex-1 min-w-0">
-        <Select aria-label="Settings section" value={active} onChange={(e) => onSelect(e.target.value as SectionId)}>
-          {SECTIONS.map((s) => (
+        <Select aria-label="Settings section" value={headerSection ? "" : active} onChange={(e) => onSelect(e.target.value as SectionId)}>
+          {headerSection && <option value="" disabled>Select a section</option>}
+          {NAV_SECTIONS.map((s) => (
             <option key={s.id} value={s.id}>
               {s.label}
               {isChanged(s.keys, settings) ? " (changed)" : ""}
@@ -138,8 +185,8 @@ const SettingsNav: React.FC<{ active: SectionId; onSelect: (id: SectionId) => vo
       </div>
 
       {/* Medium content: icon tabs. Wide content: icon and label. */}
-      <div role="tablist" aria-label="Settings sections" className="hidden @md:flex flex-1 min-w-0 items-center gap-1">
-        {SECTIONS.map((s, i) => {
+      <div role="tablist" aria-label="Settings sections" className="hidden @md:flex flex-1 min-w-0 items-center justify-between gap-1">
+        {NAV_SECTIONS.map((s, i) => {
           const selected = s.id === active;
           const changed = isChanged(s.keys, settings);
           return (
@@ -155,7 +202,7 @@ const SettingsNav: React.FC<{ active: SectionId; onSelect: (id: SectionId) => vo
               title={s.label}
               aria-selected={selected}
               aria-controls={`settings-panel-${s.id}`}
-              tabIndex={selected ? 0 : -1}
+              tabIndex={selected || (headerSection && i === 0) ? 0 : -1}
               data-testid={`settings-tab-${s.id}`}
               onClick={() => onSelect(s.id)}
               onKeyDown={(e) => {
@@ -178,16 +225,6 @@ const SettingsNav: React.FC<{ active: SectionId; onSelect: (id: SectionId) => vo
         })}
       </div>
 
-      {/*
-        Restores the open section only. It sits in the section bar, always in the same spot, and
-        appears only when something in the section differs from its default. (A band above the
-        cards pushed them down the moment a setting changed.)
-      */}
-      {isChanged(SECTIONS.find((s) => s.id === active)!.keys, settings) && (
-        <Button size="sm" variant="ghost" icon={RotateCcw} onClick={onRestore} className="shrink-0" title="Restore this section's settings to their defaults" data-testid="settings-restore">
-          Restore defaults
-        </Button>
-      )}
     </div>
   );
 };
@@ -271,7 +308,7 @@ export const SettingsView: React.FC = () => {
       case "security":
         return (
           <CardGrid>
-            <Card className="space-y-4">
+            <Card className="space-y-4 self-stretch">
               <CardHeader title="Key access" subtitle="When a key pair can be used." icon={ShieldCheck} />
               <Checkbox
                 checked={settings.requireKeyUnlock}
@@ -280,9 +317,11 @@ export const SettingsView: React.FC = () => {
                 hint="Key pairs open locked. Inspecting, exporting, copying or signing with one asks for its key password (the keystore password unless the key has its own) once per session."
               />
             </Card>
-            <Card className="space-y-4">
-              <CardHeader title="Vault" subtitle="When the encrypted vault locks itself." icon={Clock} />
-              <Select label="Lock the vault after inactivity" value={settings.autoLockMinutes} onChange={(e) => updateSettings({ autoLockMinutes: Number(e.target.value) })}>
+            <Card className="space-y-4 self-stretch">
+              <CardHeader title="Auto-lock" subtitle="When the vault and unlocked key pairs lock themselves." icon={Clock} />
+              <Select
+                label="Lock the vault and unlocked keys after inactivity"
+                hint="Key pairs unlocked this session need their key password again afterwards." value={settings.autoLockMinutes} onChange={(e) => updateSettings({ autoLockMinutes: Number(e.target.value) })}>
                 {[5, 15, 30, 60, 240].map((m) => (
                   <option key={m} value={m}>
                     {m} minutes
@@ -296,7 +335,7 @@ export const SettingsView: React.FC = () => {
 
       case "signing":
         return (
-          <CardGrid>
+          <SigningCardGrid>
             <Card className="space-y-4">
               <CardHeader title="Timestamp authority" subtitle="Trusted timestamps for CMS and JAR signatures." icon={Clock} />
               <p className="text-[13px] text-muted">
@@ -329,7 +368,7 @@ export const SettingsView: React.FC = () => {
                 hint="A timestamp is reported as trusted only when the token's certificates chain to this bundle. Leave it empty to record the time without a trust decision."
               />
             </Card>
-          </CardGrid>
+          </SigningCardGrid>
         );
 
       case "terminal":
@@ -353,6 +392,13 @@ export const SettingsView: React.FC = () => {
           </CardGrid>
         );
 
+      case "tools":
+        return (
+          <CardGrid>
+            <ToolsPanel />
+          </CardGrid>
+        );
+
       case "shortcuts":
         return (
           <CardGrid>
@@ -373,7 +419,7 @@ export const SettingsView: React.FC = () => {
       case "data":
         return (
           <CardGrid>
-            <Card className="space-y-4">
+            <WideCard>
               <CardHeader title="Data" subtitle="Where Keystore Studio keeps its own state." icon={FolderOpen} />
               <p className="text-[13px] text-muted">Session state, workspaces, labels and the encrypted vault live in:</p>
               <div className="p-3 rounded-control bg-surface-2 border border-line font-mono text-[12px] text-ink break-all select-text">{appInfo?.data_dir ?? "—"}</div>
@@ -411,9 +457,9 @@ export const SettingsView: React.FC = () => {
                 </Button>
               </div>
               {appInfo && <TerminalHint command={listFolderCommand(appInfo.data_dir)} label="List" />}
-            </Card>
+            </WideCard>
 
-            <Card className="space-y-4 border-danger/30">
+            <WideCard className="border-danger/30">
               <CardHeader title="Reset app data" subtitle="Deletes workspaces, labels, the Certificates list, recent files and settings. Keystore and certificate files and the vault are not touched." icon={RotateCcw} />
               <div>
                 <Button
@@ -435,7 +481,7 @@ export const SettingsView: React.FC = () => {
                   Reset app data
                 </Button>
               </div>
-            </Card>
+            </WideCard>
           </CardGrid>
         );
 
@@ -443,7 +489,6 @@ export const SettingsView: React.FC = () => {
         return (
           <CardGrid>
             <WideCard>
-              <CardHeader title="Help" subtitle="Answers to common questions. Keyboard shortcuts have their own tab." icon={LifeBuoy} />
               <HelpTopics onNavigate={followHelpLink} />
             </WideCard>
           </CardGrid>
@@ -453,7 +498,14 @@ export const SettingsView: React.FC = () => {
         return (
           <CardGrid>
             <WideCard>
-              <CardHeader title="About Keystore Studio" subtitle={appInfo ? `Version ${appInfo.version} · ${appInfo.platform}` : undefined} icon={Info} />
+              <div className="text-center">
+                <div className="flex items-center justify-center gap-2.5">
+                  <img src="/icon.png" alt="" className="w-7 h-7 rounded-control object-cover dark:hidden" />
+                  <img src="/icon-l.png" alt="" className="hidden w-7 h-7 rounded-control object-cover dark:block" />
+                  <h3 className="text-[14px] font-semibold text-ink leading-5">Keystore Studio</h3>
+                </div>
+                <p className="text-[12px] text-faint leading-4 mt-1">Version {appInfo?.version ?? appVersion}{appInfo ? ` · ${appInfo.platform}` : ""}</p>
+              </div>
               <p className="text-[13px] text-muted">All cryptography runs locally in the bundled Rust engine. What the app stores and the few requests it makes are listed in the privacy policy below.</p>
               <ul className="grid grid-cols-1 @3xl:grid-cols-2 gap-x-8 gap-y-1.5 text-[13px]">
                 {ENGINE.map((p) => (
@@ -463,7 +515,7 @@ export const SettingsView: React.FC = () => {
                   </li>
                 ))}
               </ul>
-              <p className="text-[12px] text-faint">Not supported: Bouncy Castle BCFKS/UBER keystores (BKS v2 is read-only), hardware tokens (PKCS#11).</p>
+              <p className="text-[12px] text-faint">Not supported: hardware tokens (PKCS#11), operating system certificate stores, PuTTY .ppk keys.</p>
             </WideCard>
             <WideCard>
               <CardHeader title="Privacy policy" subtitle="What Keystore Studio keeps, and what leaves your computer." icon={EyeOff} />
@@ -476,11 +528,45 @@ export const SettingsView: React.FC = () => {
 
   return (
     <Page>
-      <PageHeader title="Settings" description="Preferences are saved automatically on this computer." />
+      <PageHeader
+        icon={SettingsIcon}
+        title="Settings"
+        description="Preferences are saved automatically on this computer."
+        actionsClassName="lg:self-center"
+        actions={
+          <>
+            {isChanged(def.keys, settings) && (
+              <Button size="sm" variant="ghost" icon={RotateCcw} onClick={() => restore(def.keys, def.label)} title="Restore this section's settings to their defaults" data-testid="settings-restore">
+                Restore defaults
+              </Button>
+            )}
+            <IconButton
+              icon={LifeBuoy}
+              label="Help"
+              id="settings-tab-help"
+              data-testid="settings-tab-help"
+              aria-controls="settings-panel-help"
+              aria-pressed={section === "help"}
+              onClick={() => select("help")}
+              className={`!w-9 !h-9 ml-auto border ${section === "help" ? "border-line bg-surface !text-brand shadow-card" : "border-transparent"}`}
+            />
+            <IconButton
+              icon={Info}
+              label="About"
+              id="settings-tab-about"
+              data-testid="settings-tab-about"
+              aria-controls="settings-panel-about"
+              aria-pressed={section === "about"}
+              onClick={() => select("about")}
+              className={`!w-9 !h-9 border ${section === "about" ? "border-line bg-surface !text-brand shadow-card" : "border-transparent"}`}
+            />
+          </>
+        }
+      />
       {/* The container query measures the content column, which shrinks when the sidebar is open. */}
       <div className="@container">
-        <SettingsNav active={section} onSelect={select} settings={settings} onRestore={() => restore(def.keys, def.label)} />
-        <div role="tabpanel" id={`settings-panel-${section}`} aria-label={def.label} className="min-w-0">
+        <SettingsNav active={section} onSelect={select} settings={settings} />
+        <div role={section === "help" || section === "about" ? "region" : "tabpanel"} id={`settings-panel-${section}`} aria-label={def.label} className="min-w-0">
           {body}
         </div>
       </div>

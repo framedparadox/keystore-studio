@@ -13,9 +13,11 @@ export type TabType =
   | "settings";
 
 /** Formats Keystore Studio can open and save. */
-export type KeystoreFormat = "PKCS12" | "JKS" | "JCEKS" | "BKS";
-/** Formats the app can write. BKS is opened read-only. */
-export const KEYSTORE_FORMATS: KeystoreFormat[] = ["PKCS12", "JKS", "JCEKS"];
+export type KeystoreFormat = "PKCS12" | "JKS" | "JCEKS" | "BKS" | "UBER" | "BCFKS";
+/** Every format, in the order the format pickers list them: the common three, then Bouncy Castle's. */
+export const KEYSTORE_FORMATS: KeystoreFormat[] = ["PKCS12", "JKS", "JCEKS", "BKS", "UBER", "BCFKS"];
+/** How a PKCS#12 file is protected: the default, PBMAC1 (RFC 9579), or the pre-PBES2 legacy profile. */
+export type Pkcs12Profile = "pkcs12" | "pbmac1" | "legacy";
 
 export type EntryType = "KeyPair" | "TrustedCertificate" | "SecretKey";
 
@@ -51,7 +53,6 @@ export interface CertificateInfo {
   authority_key_id?: string | null;
   sha256_fingerprint: string;
   sha1_fingerprint: string;
-  md5_fingerprint: string;
   /** SHA-256 of the subjectPublicKeyInfo, for pinning. */
   spki_sha256?: string;
   crl_distribution_points?: string[];
@@ -104,6 +105,10 @@ export interface KeystoreFile {
   /** File mtime in unix milliseconds, captured when the file was opened. */
   source_mtime_ms?: number | null;
   entries: KeystoreEntry[];
+  /** What the engine found that the entry list does not show (entries it cannot model, weak integrity). */
+  notes?: string[];
+  /** Entries in the file the app could not represent. Saving over the file drops them. */
+  omitted_entries?: number;
 }
 
 /** A keystore as held by the UI. */
@@ -198,6 +203,8 @@ export interface CsrInfo {
   curve?: string | null;
   signature_algorithm: string;
   signature_valid: boolean;
+  /** False when the signature uses an algorithm the engine cannot verify; signature_valid then says nothing. */
+  signature_checked?: boolean;
   sans: string[];
   /** Builder ids requested by the CSR (`digitalSignature`, …). */
   key_usage: string[];
@@ -473,7 +480,7 @@ export interface FileProbe {
   path: string;
   name: string;
   size: number;
-  kind: DetectionKind | "jar" | "apk" | "unsupported_keystore";
+  kind: DetectionKind | "jar" | "apk";
   keystore_format?: string | null;
 }
 
@@ -512,6 +519,20 @@ export interface TerminalOutput {
   cwd: string;
   timed_out: boolean;
   truncated: boolean;
+}
+
+/** An external CLI tool Keystore Studio's workflows refer to (java, keytool, openssl), and whether it's on PATH. */
+export interface ToolStatus {
+  id: string;
+  name: string;
+  description: string;
+  /** "java", "openssl" or "ssh": the family the Tools page groups it under. */
+  group: string;
+  /** What in Keystore Studio refers to the tool. */
+  used_by: string[];
+  available: boolean;
+  version: string | null;
+  path: string | null;
 }
 
 /** Input from a file path, pasted text or base64 bytes. */

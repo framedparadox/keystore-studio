@@ -45,7 +45,12 @@ pub const ECDSA_SHA256: &[u64] = &[1, 2, 840, 10045, 4, 3, 2];
 pub const ECDSA_SHA384: &[u64] = &[1, 2, 840, 10045, 4, 3, 3];
 pub const ECDSA_SHA512: &[u64] = &[1, 2, 840, 10045, 4, 3, 4];
 pub const DSA_SHA1: &[u64] = &[1, 2, 840, 10040, 4, 3];
+pub const DSA_SHA224: &[u64] = &[2, 16, 840, 1, 101, 3, 4, 3, 1];
 pub const DSA_SHA256: &[u64] = &[2, 16, 840, 1, 101, 3, 4, 3, 2];
+pub const DSA_SHA384: &[u64] = &[2, 16, 840, 1, 101, 3, 4, 3, 3];
+pub const DSA_SHA512: &[u64] = &[2, 16, 840, 1, 101, 3, 4, 3, 4];
+/// The mask generation function of RSASSA-PSS.
+pub const MGF1: &[u64] = &[1, 2, 840, 113549, 1, 1, 8];
 
 // Digests
 pub const SHA1: &[u64] = &[1, 3, 14, 3, 2, 26];
@@ -61,17 +66,41 @@ pub const HMAC_SHA224: &[u64] = &[1, 2, 840, 113549, 2, 8];
 pub const HMAC_SHA256: &[u64] = &[1, 2, 840, 113549, 2, 9];
 pub const HMAC_SHA384: &[u64] = &[1, 2, 840, 113549, 2, 10];
 pub const HMAC_SHA512: &[u64] = &[1, 2, 840, 113549, 2, 11];
+pub const HMAC_SHA512_224: &[u64] = &[1, 2, 840, 113549, 2, 12];
+pub const HMAC_SHA512_256: &[u64] = &[1, 2, 840, 113549, 2, 13];
+pub const HMAC_SHA3_512: &[u64] = &[2, 16, 840, 1, 101, 3, 4, 2, 16];
 
 // Symmetric ciphers
 pub const AES: &[u64] = &[2, 16, 840, 1, 101, 3, 4, 1];
 pub const AES128_CBC: &[u64] = &[2, 16, 840, 1, 101, 3, 4, 1, 2];
 pub const AES192_CBC: &[u64] = &[2, 16, 840, 1, 101, 3, 4, 1, 22];
 pub const AES256_CBC: &[u64] = &[2, 16, 840, 1, 101, 3, 4, 1, 42];
+pub const AES128_GCM: &[u64] = &[2, 16, 840, 1, 101, 3, 4, 1, 6];
+pub const AES192_GCM: &[u64] = &[2, 16, 840, 1, 101, 3, 4, 1, 26];
+pub const AES256_GCM: &[u64] = &[2, 16, 840, 1, 101, 3, 4, 1, 46];
+pub const AES128_CCM: &[u64] = &[2, 16, 840, 1, 101, 3, 4, 1, 7];
+pub const AES192_CCM: &[u64] = &[2, 16, 840, 1, 101, 3, 4, 1, 27];
+pub const AES256_CCM: &[u64] = &[2, 16, 840, 1, 101, 3, 4, 1, 47];
+/// AES key wrap with padding (RFC 5649).
+pub const AES128_WRAP_PAD: &[u64] = &[2, 16, 840, 1, 101, 3, 4, 1, 8];
+pub const AES192_WRAP_PAD: &[u64] = &[2, 16, 840, 1, 101, 3, 4, 1, 28];
+pub const AES256_WRAP_PAD: &[u64] = &[2, 16, 840, 1, 101, 3, 4, 1, 48];
 pub const DES_EDE3_CBC: &[u64] = &[1, 2, 840, 113549, 3, 7];
+/// DESede as OIW names it, the OID Bouncy Castle stores triple-DES secret keys under.
+pub const DES_EDE_OIW: &[u64] = &[1, 3, 14, 3, 2, 17];
+pub const DES_CBC: &[u64] = &[1, 3, 14, 3, 2, 7];
+pub const RC2_CBC: &[u64] = &[1, 2, 840, 113549, 3, 2];
 
 // Password-based encryption
 pub const PBES2: &[u64] = &[1, 2, 840, 113549, 1, 5, 13];
 pub const PBKDF2: &[u64] = &[1, 2, 840, 113549, 1, 5, 12];
+/// scrypt as a PBES2 key derivation function (RFC 7914).
+pub const SCRYPT: &[u64] = &[1, 3, 6, 1, 4, 1, 11591, 4, 11];
+// PBES1 (PKCS#5 v1.5): PBKDF1 with a single-DES or 64-bit RC2 key.
+pub const PBE_MD5_DES: &[u64] = &[1, 2, 840, 113549, 1, 5, 3];
+pub const PBE_MD5_RC2: &[u64] = &[1, 2, 840, 113549, 1, 5, 6];
+pub const PBE_SHA1_DES: &[u64] = &[1, 2, 840, 113549, 1, 5, 10];
+pub const PBE_SHA1_RC2: &[u64] = &[1, 2, 840, 113549, 1, 5, 11];
 /// PBMAC1 (RFC 9579), the modern PKCS#12 integrity protection.
 pub const PBMAC1: &[u64] = &[1, 2, 840, 113549, 1, 5, 14];
 pub const PBE_SHA1_RC4_128: &[u64] = &[1, 2, 840, 113549, 1, 12, 1, 1];
@@ -294,7 +323,19 @@ pub fn signature_algorithm_name(arcs: &[u64]) -> String {
         [1, 2, 840, 10045, 4, 3, 3] => "SHA384withECDSA".into(),
         [1, 2, 840, 10045, 4, 3, 4] => "SHA512withECDSA".into(),
         [1, 2, 840, 10040, 4, 3] => "SHA1withDSA".into(),
+        [2, 16, 840, 1, 101, 3, 4, 3, 1] => "SHA224withDSA".into(),
         [2, 16, 840, 1, 101, 3, 4, 3, 2] => "SHA256withDSA".into(),
+        [2, 16, 840, 1, 101, 3, 4, 3, 3] => "SHA384withDSA".into(),
+        [2, 16, 840, 1, 101, 3, 4, 3, 4] => "SHA512withDSA".into(),
+        [2, 16, 840, 1, 101, 3, 4, 3, 9] => "SHA3-224withECDSA".into(),
+        [2, 16, 840, 1, 101, 3, 4, 3, 10] => "SHA3-256withECDSA".into(),
+        [2, 16, 840, 1, 101, 3, 4, 3, 11] => "SHA3-384withECDSA".into(),
+        [2, 16, 840, 1, 101, 3, 4, 3, 12] => "SHA3-512withECDSA".into(),
+        [2, 16, 840, 1, 101, 3, 4, 3, 13] => "SHA3-224withRSA".into(),
+        [2, 16, 840, 1, 101, 3, 4, 3, 14] => "SHA3-256withRSA".into(),
+        [2, 16, 840, 1, 101, 3, 4, 3, 15] => "SHA3-384withRSA".into(),
+        [2, 16, 840, 1, 101, 3, 4, 3, 16] => "SHA3-512withRSA".into(),
+        [1, 2, 156, 10197, 1, 501] => "SM3withSM2".into(),
         [1, 3, 101, 112] => "Ed25519".into(),
         [1, 3, 101, 113] => "Ed448".into(),
         other => post_quantum_name(other).map(String::from).unwrap_or_else(|| oid_str(other)),

@@ -4,7 +4,7 @@ import { AlertTriangle, ChevronDown, ChevronRight, Network, ShieldCheck, ShieldA
 import type { CertificateInfo, OcspInfo } from "../types/crypto";
 import { api, errorMessage } from "../lib/api";
 import { cnOf } from "../lib/keystore";
-import { Alert, Badge, Button, CodeBlock, CopyButton, Spinner } from "./ui";
+import { Alert, Badge, Button, Checkbox, CodeBlock, CopyButton, Spinner } from "./ui";
 
 export const ValidityBadge: React.FC<{ cert: CertificateInfo }> = ({ cert }) => {
   const now = Date.now() / 1000;
@@ -72,7 +72,6 @@ export const CertificateDetails: React.FC<{ cert: CertificateInfo; showPem?: boo
         <Row label="SHA-256" value={cert.sha256_fingerprint} copy={cert.sha256_fingerprint} mono />
         <Row label="SPKI SHA-256" value={cert.spki_sha256 || undefined} copy={cert.spki_sha256} mono />
         <Row label="SHA-1" value={cert.sha1_fingerprint} copy={cert.sha1_fingerprint} mono />
-        <Row label="MD5" value={cert.md5_fingerprint || undefined} copy={cert.md5_fingerprint} mono />
       </tbody>
     </table>
     {showPem && <CodeBlock label="PEM" value={cert.pem} maxHeight={200} />}
@@ -219,6 +218,9 @@ export const ChainValidation: React.FC<{ certs: CertificateInfo[] }> = ({ certs 
   const [busy, setBusy] = useState(false);
   const [problems, setProblems] = useState<string[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Off by default: checking revocation contacts the CA's OCSP responder or CRL server.
+  const [checkRevocation, setCheckRevocation] = useState(false);
+  const [checkedRevocation, setCheckedRevocation] = useState(false);
   const leaf = certs[0];
   if (!leaf || leaf.self_signed) {
     return null;
@@ -228,7 +230,8 @@ export const ChainValidation: React.FC<{ certs: CertificateInfo[] }> = ({ certs 
     setError(null);
     try {
       const anchors = await api.systemTrustAnchors();
-      setProblems(await api.validateChain(leaf.pem, certs.slice(1).map((c) => c.pem).join(""), anchors, null));
+      setProblems(await api.validateChain(leaf.pem, certs.slice(1).map((c) => c.pem).join(""), anchors, null, checkRevocation));
+      setCheckedRevocation(checkRevocation);
     } catch (err) {
       setProblems(null);
       setError(errorMessage(err));
@@ -241,8 +244,16 @@ export const ChainValidation: React.FC<{ certs: CertificateInfo[] }> = ({ certs 
       <Button icon={ShieldCheck} onClick={() => void run()} disabled={busy}>
         {busy && <Spinner />} {busy ? "Validating…" : "Validate against this computer's trust store"}
       </Button>
+      <Checkbox
+        checked={checkRevocation}
+        onChange={setCheckRevocation}
+        label="Also check revocation online"
+        hint="Asks each certificate's OCSP responder, or downloads its CRL, which tells the CA this certificate is being checked."
+        testId="validate-revocation"
+      />
       {error && <Alert tone="danger">{error}</Alert>}
       {problems && problems.length === 0 && <TrustBanner trusted />}
+      {problems && problems.length === 0 && checkedRevocation && <p className="text-[12px] text-faint">No certificate in the chain is revoked.</p>}
       {problems && problems.length > 0 && (
         <Alert tone="danger" title="Not trusted">
           <ul className="mt-1 space-y-0.5 list-disc pl-4">

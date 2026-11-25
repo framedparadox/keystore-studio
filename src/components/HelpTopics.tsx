@@ -1,7 +1,7 @@
 import React, { useState } from "react";
-import { ArrowRight, ChevronRight, Search } from "lucide-react";
+import { ArrowRight, ChevronRight, LifeBuoy, Search } from "lucide-react";
 import { HELP_GROUPS, searchHelp, type HelpLink } from "../lib/help";
-import { Button, EmptyState } from "./ui";
+import { Button, CardHeader, EmptyState } from "./ui";
 import { shortcutLabel } from "../lib/platform";
 
 /** Searchable help topics. While a search is typed every match is shown open. */
@@ -12,11 +12,14 @@ export const HelpTopics: React.FC<{ onNavigate: (link: HelpLink) => void }> = ({
 
   return (
     <div className="space-y-5" data-testid="help-topics">
-      <label className="relative block max-w-md">
-        <span className="sr-only">Search help</span>
-        <Search className="w-4 h-4 text-subtle absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" aria-hidden />
-        <input className="field !pl-9" type="search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search help" data-testid="help-search" />
-      </label>
+      <div className="flex flex-col @xl:flex-row @xl:items-start justify-between gap-3">
+        <CardHeader title="Help" subtitle="Answers to common questions. Keyboard shortcuts have their own tab." icon={LifeBuoy} className="!mb-0" />
+        <label className="relative block w-full @xl:w-80 shrink-0">
+          <span className="sr-only">Search help</span>
+          <Search className="w-4 h-4 text-subtle absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" aria-hidden />
+          <input className="field !pl-9" type="search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search help" data-testid="help-search" />
+        </label>
+      </div>
 
       {groups.length === 0 ? (
         <EmptyState icon={Search} title="No matching topics" description="Try another word, or look under Keyboard shortcuts." />

@@ -144,6 +144,8 @@ const waitText = (text, timeout = 15000) =>
   driver.wait(async () => (await driver.findElement(By.tagName("body")).getText()).includes(text), timeout, `never saw "${text}"`);
 
 async function run() {
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const exists = async (css) => (await driver.findElements(By.css(css))).length > 0;
   bridgePort = await startEngine();
   log(`engine on ${bridgePort}`);
   const webPort = await startServer(bridgePort);
@@ -167,6 +169,18 @@ async function run() {
     }
   });
 
+  await step("dashboard: Convert uses the sidebar's convert icon", async () => {
+    const icons = await driver.executeScript(`return ['welcome-convert', 'nav-convert'].map(id => {
+      const icon = document.querySelector('[data-testid="' + id + '"] span[aria-hidden="true"]');
+      if (!icon) return null;
+      const style = getComputedStyle(icon), rect = icon.getBoundingClientRect();
+      return { mask: style.maskImage, color: style.backgroundColor, width: rect.width, height: rect.height };
+    });`);
+    if (!icons.every(icon => icon?.mask.includes("/convert-icon.png")) || icons[0].width !== 20 || icons[0].height !== 20) {
+      throw new Error(`dashboard and sidebar do not share the Convert icon: ${JSON.stringify(icons)}`);
+    }
+  });
+
   await step("the header and sidebar use theme-aware monochrome accents", async () => {
     const previous = await driver.executeScript("return document.documentElement.dataset.theme");
     try {
@@ -179,14 +193,152 @@ async function run() {
         const colors = await driver.executeScript(`const button = document.querySelector('[data-testid="header-new"]');
           const icon = document.querySelector('[data-testid="nav-home"] svg');
           return { background: getComputedStyle(button).backgroundColor, foreground: getComputedStyle(button).color,
-            icon: getComputedStyle(icon).color, pageAccent: getComputedStyle(document.documentElement).getPropertyValue("--color-brand").trim() };`);
-        if (colors.background !== accent || colors.foreground !== foreground || colors.icon !== accent || colors.pageAccent === (theme === "light" ? "#000000" : "#ffffff")) {
+            icon: getComputedStyle(icon).color, terminal: getComputedStyle(document.querySelector('[data-testid="header-terminal"] svg')).color,
+            pageAccent: getComputedStyle(document.documentElement).getPropertyValue("--color-brand").trim() };`);
+        if (colors.background !== accent || colors.foreground !== foreground || colors.icon !== accent || colors.terminal !== accent || colors.pageAccent === (theme === "light" ? "#000000" : "#ffffff")) {
           throw new Error(`unexpected ${theme} shell colors: ${JSON.stringify(colors)}`);
         }
       }
     } finally {
       await driver.executeScript("document.documentElement.dataset.theme = arguments[0]", previous);
     }
+  });
+
+  await step("sidebar: Workspaces follows Dashboard and footer controls toggle the theme", async () => {
+    const layout = await driver.executeScript(`const home = document.querySelector('[data-testid="nav-home"]');
+      const workspace = document.querySelector('[data-testid="nav-workspaces"]');
+      const controls = ["sidebar-collapse", "sidebar-theme", "sidebar-terminal"].map(id => document.querySelector('[data-testid="' + id + '"]'));
+      return { next: home.nextElementSibling === workspace,
+        sameRow: controls.every(el => Math.abs(el.getBoundingClientRect().top - controls[0].getBoundingClientRect().top) < 1),
+        divider: controls[0].parentElement.previousElementSibling.getBoundingClientRect().width / controls[0].parentElement.getBoundingClientRect().width };`);
+    if (!layout.next || !layout.sameRow || Math.abs(layout.divider - 0.5) > 0.01) throw new Error(`unexpected sidebar layout: ${JSON.stringify(layout)}`);
+    const previous = await driver.executeScript("return document.documentElement.dataset.theme");
+    await click("sidebar-theme");
+    await driver.wait(async () => (await driver.executeScript("return document.documentElement.dataset.theme")) !== previous, 5000, "theme did not change");
+    await click("sidebar-theme");
+    await driver.wait(async () => (await driver.executeScript("return document.documentElement.dataset.theme")) === previous, 5000, "theme did not change back");
+    await click("sidebar-terminal");
+    if (!(await exists('[data-testid="terminal"]'))) throw new Error("sidebar terminal button did not open the terminal");
+    await click("sidebar-terminal");
+    if (await exists('[data-testid="terminal"]')) throw new Error("sidebar terminal button did not close the terminal");
+  });
+
+  await step("header: unlocked vault uses a green Open-style icon button", async () => {
+    await click("nav-vault");
+    await setField("vault-key", "test-vault-key");
+    await setField("vault-key-confirm", "test-vault-key");
+    await click("vault-submit");
+    await driver.wait(async () => (await driver.findElement(By.tagName("body")).getText()).includes("Change master key"), 15000, "vault did not unlock");
+    if (await exists('[data-testid="header-lock-vault"]')) throw new Error("the header lock is visible on the Vault page");
+    await click("nav-home");
+    const lockButton = await driver.wait(until.elementLocated(byTest("header-lock-vault")), 5000);
+    await driver.actions().move({ origin: lockButton }).perform();
+    const previous = await driver.executeScript("return document.documentElement.dataset.theme");
+    try {
+      for (const theme of ["light", "dark"]) {
+        await driver.executeScript("document.documentElement.dataset.theme = arguments[0]", theme);
+        await sleep(250);
+        const layout = await driver.executeScript(`const lock = document.querySelector('[data-testid="header-lock-vault"]');
+          const open = document.querySelector('[data-testid="header-open"]');
+          const sample = document.createElement('span');
+          sample.style.color = 'var(--color-success)';
+          lock.appendChild(sample);
+          const color = getComputedStyle(sample).color;
+          sample.remove();
+          const a = lock.getBoundingClientRect(), b = open.getBoundingClientRect();
+          return { width: a.width, height: a.height, openWidth: b.width, openHeight: b.height,
+            border: getComputedStyle(lock).borderColor, openBorder: getComputedStyle(open).borderColor,
+            color: getComputedStyle(lock.querySelector('svg')).color, success: color, label: lock.getAttribute('aria-label'),
+            text: lock.textContent.trim() };`);
+        if (Math.abs(layout.width - layout.openWidth) > 1 || Math.abs(layout.height - layout.openHeight) > 1 ||
+            layout.border !== layout.openBorder || layout.color !== layout.success || layout.label !== "Lock password vault" || layout.text) {
+          throw new Error(`unexpected ${theme} vault action: ${JSON.stringify(layout)}`);
+        }
+      }
+    } finally {
+      await driver.executeScript("document.documentElement.dataset.theme = arguments[0]", previous);
+    }
+    await click("header-lock-vault");
+    await driver.wait(async () => !(await exists('[data-testid="header-lock-vault"]')), 10000, "the vault did not lock");
+  });
+
+  await step("page headings use their navigation icons", async () => {
+    for (const [id, iconClass] of [
+      ["nav-home", "lucide-layout-dashboard"],
+      ["nav-workspaces", "lucide-layers"],
+      ["nav-keystores", "lucide-folder-archive"],
+      ["nav-certificates", "lucide-file-badge"],
+      ["nav-examine", "lucide-search-code"],
+      ["nav-ca_signing", "lucide-file-signature"],
+      ["nav-scanner", "lucide-shield-check"],
+      ["nav-vault", "lucide-key-round"],
+      ["nav-settings", "lucide-settings"],
+    ]) {
+      await click(id);
+      const heading = await driver.executeScript(`const title = document.querySelector('main h1'), icon = title?.previousElementSibling;
+        if (!icon) return null;
+        return { matches: icon.classList.contains(arguments[0]), hidden: icon.getAttribute('aria-hidden'),
+          before: icon.getBoundingClientRect().right <= title.getBoundingClientRect().left };`, iconClass);
+      if (!heading?.matches || heading.hidden !== "true" || !heading.before) throw new Error(`${id} has an incorrect heading icon: ${JSON.stringify(heading)}`);
+    }
+    await click("nav-home");
+    await click("welcome-convert");
+    const convert = await driver.executeScript(`const title = document.querySelector('main h1'), icon = title.previousElementSibling;
+      return { mask: getComputedStyle(icon).maskImage, hidden: icon.getAttribute('aria-hidden'), before: icon.getBoundingClientRect().right <= title.getBoundingClientRect().left };`);
+    if (!convert.mask.includes("/convert-icon.png") || convert.hidden !== "true" || !convert.before) throw new Error(`unexpected Convert heading: ${JSON.stringify(convert)}`);
+    await click("nav-home");
+  });
+
+  await step("settings: section defaults are restored from the page header", async () => {
+    await click("nav-settings");
+    const position = await driver.executeScript(`const button = document.querySelector('[data-testid="settings-restore"]');
+      const about = document.querySelector('[data-testid="settings-tab-about"]');
+      const help = document.querySelector('[data-testid="settings-tab-help"]');
+      const header = [...document.querySelectorAll("h1")].find(el => el.textContent === "Settings")?.parentElement.parentElement.parentElement;
+      if (!button || !about || !help || !header) return null;
+      return { inside: header.contains(button) && header.contains(help) && header.contains(about),
+        beforeAbout: button.getBoundingClientRect().right <= help.getBoundingClientRect().left && help.getBoundingClientRect().right <= about.getBoundingClientRect().left,
+        centerGap: Math.abs((header.getBoundingClientRect().top + header.getBoundingClientRect().bottom - about.getBoundingClientRect().top - about.getBoundingClientRect().bottom) / 2),
+        rightGap: header.getBoundingClientRect().right - about.getBoundingClientRect().right };`);
+    if (!position?.inside || !position.beforeAbout || position.centerGap > 1 || Math.abs(position.rightGap) > 1) throw new Error(`settings actions are not centered at the right of the page header: ${JSON.stringify(position)}`);
+    await click("settings-tab-security");
+    if (await exists('[data-testid="settings-restore"]')) throw new Error("restore action is visible for an unchanged section");
+    await click("settings-tab-general");
+    await click("settings-restore");
+    if (await exists('[data-testid="settings-restore"]')) throw new Error("restoring the section did not clear its changes");
+    await click("nav-home");
+  });
+
+  await step("settings: Help search shares the heading row and About centers the app identity", async () => {
+    await click("nav-settings");
+    await click("settings-tab-help");
+    const help = await driver.executeScript(`const input = document.querySelector('[data-testid="help-search"]');
+      const button = document.querySelector('[data-testid="settings-tab-help"]');
+      const heading = document.querySelector('#settings-panel-help h3');
+      const a = heading.getBoundingClientRect(), b = input.getBoundingClientRect();
+      return { sameRow: Math.abs(a.top - b.top) < 10, toRight: b.left > a.right, width: b.width,
+        iconOnly: !button.textContent.trim(), pressed: button.getAttribute('aria-pressed'), inTabs: !!button.closest('[role="tablist"]'),
+        tabStop: document.querySelector('[role="tablist"] [role="tab"][tabindex="0"]')?.id };`);
+    if (!help.sameRow || !help.toRight || help.width < 319 || !help.iconOnly || help.pressed !== "true" || help.inTabs || help.tabStop !== "settings-tab-general") throw new Error(`Help search or navigation has an unexpected layout: ${JSON.stringify(help)}`);
+    await setField("help-search", "master key");
+    if (!(await exists('[data-testid="help-topic-vault"]'))) throw new Error("Help search did not return the vault topic");
+    await setField("help-search", "zzzz-no-help-match");
+    await waitText("No matching topics");
+    await click("settings-tab-about");
+    const about = await driver.executeScript(`const panel = document.querySelector('#settings-panel-about');
+      const button = document.querySelector('[data-testid="settings-tab-about"]');
+      const heading = [...panel.querySelectorAll('h3')].find(el => el.textContent === 'Keystore Studio');
+      const identity = heading.parentElement.parentElement;
+      const image = [...identity.querySelectorAll('img')].find(el => getComputedStyle(el).display !== 'none');
+      const row = heading.parentElement.getBoundingClientRect(), box = identity.getBoundingClientRect();
+      return { logo: !!image, centered: Math.abs((row.left + row.right - box.left - box.right) / 2) < 1,
+        iconOnly: !button.textContent.trim(), pressed: button.getAttribute('aria-pressed'), inTabs: !!button.closest('[role="tablist"]'),
+        tabStop: document.querySelector('[role="tablist"] [role="tab"][tabindex="0"]')?.id,
+        version: identity.lastElementChild.textContent.trim() };`);
+    if (!about.logo || !about.centered || !about.iconOnly || about.pressed !== "true" || about.inTabs || about.tabStop !== "settings-tab-general" || !about.version.startsWith("Version ")) {
+      throw new Error(`unexpected About identity or navigation: ${JSON.stringify(about)}`);
+    }
+    await click("nav-home");
   });
 
   await step("the engine is reachable from the page", async () => {
@@ -317,7 +469,6 @@ async function run() {
     const el = await driver.wait(until.elementLocated(By.xpath(`//button[@role="tab"][contains(normalize-space(.), ${JSON.stringify(label)})]`)), 10000);
     await driver.executeScript("arguments[0].click()", el);
   };
-  const exists = async (css) => (await driver.findElements(By.css(css))).length > 0;
   const clickButton = (text) => driver.executeScript(
     `const el = [...document.querySelectorAll("button")].find((b) => !b.disabled && b.innerText.replace(/\\s+/g, " ").trim().includes(${JSON.stringify(text)}));
      if (!el) throw new Error("no button: " + ${JSON.stringify(text)});
@@ -361,15 +512,14 @@ async function run() {
 
   await step("the Convert row toggles its submenu and Open is icon-only", async () => {
     const expanded = async () => (await driver.findElement(byTest("nav-convert"))).getAttribute("aria-expanded");
-    if (await expanded() !== "true") throw new Error("conversions should start expanded");
-    await click("nav-convert");
-    if (await expanded() !== "false" || await exists('[data-testid="nav-convert-certificate"]')) {
-      throw new Error("clicking Convert did not collapse its submenu");
-    }
+    if (await expanded() !== "false" || await exists('[data-testid="nav-convert-certificate"]')) throw new Error("conversions should start collapsed");
     await click("nav-convert");
     if (await expanded() !== "true" || !(await exists('[data-testid="nav-convert-certificate"]'))) {
       throw new Error("clicking Convert did not expand its submenu");
     }
+    await click("nav-convert");
+    if (await expanded() !== "false" || await exists('[data-testid="nav-convert-certificate"]')) throw new Error("clicking Convert did not collapse its submenu");
+    await click("nav-convert");
     const open = await driver.findElement(byTest("header-open"));
     if (await open.getText() || !/^Open \((Ctrl\+|⌘)O\)$/.test(await open.getAttribute("aria-label"))) throw new Error("Open should be an accessible icon-only button");
     if ((await driver.findElement(By.tagName("body")).getText()).includes("Local Rust engine · offline")) throw new Error("offline status is still shown");
@@ -429,7 +579,7 @@ async function run() {
     await driver.wait(until.elementLocated(byTest("convert-ks-summary")), 15000);
     // 'sep' has its own key password, so PKCS#12 is refused until it is given.
     await click("convert-format-PKCS12");
-    await waitText("can only be saved back to JKS", 10000);
+    await waitText("can only be saved as JKS", 10000);
     await setField("convert-ks-keypw", "newkey99");
     await click("convert-ks-unlock");
     await driver.wait(async () => !(await driver.findElement(By.tagName("body")).getText()).includes("locked by their own key password"), 15000, "the locked key never unlocked");
@@ -441,6 +591,113 @@ async function run() {
     // Every key, including the one that had its own password, opens with the one PKCS#12 password.
     const dump = sh("openssl", ["pkcs12", "-in", out, "-passin", `pass:${STORE_PW}`, "-nodes"]);
     if ((dump.match(/BEGIN PRIVATE KEY/g) ?? []).length !== 2) throw new Error(`expected two keys under the store password:\n${dump}`);
+  });
+
+  // ------------------------------------------------------------------ formats (2026-11 pass)
+  const FIXTURES = path.join(path.dirname(new URL(import.meta.url).pathname), "..", "src-tauri", "tests", "fixtures");
+  const header = (file) => [...fs.readFileSync(file).subarray(0, 4)];
+
+  await step("formats: a BCFKS store from Bouncy Castle opens and converts to BKS, UBER and BCFKS", async () => {
+    const src = path.join(WORK, "old.bcfks");
+    fs.copyFileSync(path.join(FIXTURES, "bouncycastle", "oldKeyStore.bcfks"), src);
+    await click("nav-convert-keystore");
+    await clickTab("File on disk");
+    await driver.executeScript(`window.__xksStub.open.push(${JSON.stringify(src)});`);
+    await click("convert-ks-pick");
+    await setField("convert-ks-password", "hello world");
+    await click("convert-ks-load");
+    await driver.wait(until.elementLocated(byTest("convert-ks-summary")), 15000);
+    await waitText("BCFKS", 10000);
+    const written = {};
+    for (const [format, ext] of [["BKS", "bks"], ["UBER", "uber"], ["BCFKS", "bcfks"]]) {
+      const out = path.join(WORK, `from-bcfks.${ext}`);
+      await click(`convert-format-${format}`);
+      await driver.executeScript(`window.__xksStub.save.push(${JSON.stringify(out)});`);
+      await click("convert-save");
+      await driver.wait(async () => fs.existsSync(out), 30000, `the ${format} file was never written`);
+      written[format] = out;
+    }
+    // BKS starts with store version 2, UBER with version 1, BCFKS is a DER SEQUENCE.
+    if (header(written.BKS).join() !== "0,0,0,2") throw new Error(`BKS header ${header(written.BKS)}`);
+    if (header(written.UBER).join() !== "0,0,0,1") throw new Error(`UBER header ${header(written.UBER)}`);
+    if (header(written.BCFKS)[0] !== 0x30) throw new Error(`BCFKS header ${header(written.BCFKS)}`);
+    // Reopen the UBER copy in the app: the key pair is there.
+    await driver.executeScript(`window.__xksStub.open.push(${JSON.stringify(written.UBER)});`);
+    await click("header-open");
+    await setField("open-password", "hello world");
+    await click("open-submit");
+    await driver.wait(until.elementLocated(byTest("ks-tab-from-bcfks.uber")), 15000);
+  });
+
+  await step("formats: a keystore without a password opens with 'no password'", async () => {
+    const src = path.join(WORK, "nopw.bcfks");
+    fs.copyFileSync(path.join(FIXTURES, "bouncycastle", "oldKeyStoreNoPW.bcfks"), src);
+    await driver.executeScript(`window.__xksStub.open.push(${JSON.stringify(src)});`);
+    await click("header-open");
+    await driver.wait(until.elementLocated(byTest("open-no-password")), 10000);
+    await click("open-no-password");
+    if (await exists('[data-testid="open-password"]')) throw new Error("the password field is still shown");
+    await click("open-submit");
+    await driver.wait(until.elementLocated(byTest("ks-tab-nopw.bcfks")), 15000);
+  });
+
+  await step("formats: a private key converts to an OpenSSH key that ssh-keygen reads", async () => {
+    const key = path.join(WORK, "for-ssh.pem");
+    sh("openssl", ["genpkey", "-algorithm", "ED25519", "-out", key]);
+    const out = path.join(WORK, "id_ed25519");
+    await click("nav-convert-private_key");
+    await setField("convert-input", fs.readFileSync(key, "utf8"));
+    await click("convert-target-openssh");
+    await setField("convert-comment", "e2e@headless");
+    await setField("convert-out-password", "ssh-pass-1");
+    await setField("convert-out-password-confirm", "ssh-pass-1");
+    await driver.executeScript(`window.__xksStub.save.push(${JSON.stringify(out)});`);
+    await click("convert-save");
+    await driver.wait(async () => fs.existsSync(out), 20000, "the OpenSSH key was never written");
+    fs.chmodSync(out, 0o600);
+    const line = sh("ssh-keygen", ["-y", "-P", "ssh-pass-1", "-f", out]);
+    if (!line.startsWith("ssh-ed25519 ")) throw new Error(`ssh-keygen read: ${line}`);
+    if (spawnSync("ssh-keygen", ["-y", "-P", "wrong", "-f", out], { stdio: "ignore" }).status === 0) throw new Error("the wrong passphrase opened the key");
+  });
+
+  await step("formats: a certificate bundle becomes a JKS truststore keytool lists", async () => {
+    const out = path.join(WORK, "trust.jks");
+    await click("nav-convert-truststore");
+    await setField("convert-input", certPem());
+    await waitText("X.509 certificate", 10000);
+    await click("convert-trust-format-JKS");
+    await setField("convert-trust-password", "trust-pw-1");
+    await setField("convert-trust-password-confirm", "trust-pw-1");
+    await driver.executeScript(`window.__xksStub.save.push(${JSON.stringify(out)});`);
+    await click("convert-save");
+    await driver.wait(async () => fs.existsSync(out), 20000, "the truststore was never written");
+    const list = sh("keytool", ["-list", "-keystore", out, "-storetype", "JKS", "-storepass", "trust-pw-1"]);
+    if (!list.includes("trustedCertEntry")) throw new Error(`not a truststore:\n${list}`);
+  });
+
+  await step("tools: Settings → Tools is one grouped table whose rows expand", async () => {
+    await click("sidebar-tools");
+    await driver.wait(until.elementLocated(byTest("settings-tools-summary")), 20000);
+    const info = await driver.executeScript(`
+      const rows = [...document.querySelectorAll('[data-testid^="settings-tool-"][data-available]')];
+      const groups = [...document.querySelectorAll('[data-testid="settings-tools"] section > h3')].map((h) => h.textContent.trim());
+      return { ids: rows.map((r) => r.dataset.testid.replace("settings-tool-", "")), groups,
+        summary: document.querySelector('[data-testid="settings-tools-summary"]').textContent,
+        missingOpen: rows.filter((r) => r.dataset.available === "false").every((r) => r.querySelector('button').getAttribute('aria-expanded') === 'true'),
+        cards: document.querySelectorAll('[data-testid="settings-tools"]').length };`);
+    for (const id of ["java", "keytool", "jarsigner", "bcprov", "openssl", "ssh-keygen", "puttygen"]) {
+      if (!info.ids.includes(id)) throw new Error(`no row for ${id}: ${info.ids}`);
+    }
+    if (info.groups.join() !== "Java,OpenSSL,SSH") throw new Error(`groups: ${info.groups}`);
+    if (info.cards !== 1) throw new Error("the tools are not in one card");
+    if (!/^\d+ of 7 found$/.test(info.summary.trim())) throw new Error(`summary: ${info.summary}`);
+    if (!info.missingOpen) throw new Error("a missing tool did not start expanded");
+    // Expand an installed tool and see what uses it.
+    const row = await driver.findElement(By.css('[data-testid="settings-tool-openssl"] button'));
+    if ((await row.getAttribute("aria-expanded")) !== "true") await driver.executeScript("arguments[0].click()", row);
+    const panel = await driver.wait(until.elementLocated(By.id("tool-panel-openssl")), 5000);
+    if (!/used by/i.test(await panel.getText())) throw new Error("the expanded row does not say what uses the tool");
+    await shot("settings-tools");
   });
 
   await step("export an open keystore to PEM after unlocking its key pair", async () => {
@@ -509,7 +766,6 @@ async function run() {
   fs.mkdirSync(R, { recursive: true });
   const REV_PW = "reviewpw1";
   const ESC = "\uE00C";
-  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const keys = (...k) => driver.actions().sendKeys(...k).perform();
   const present = async (id) => (await driver.findElements(byTest(id))).length > 0;
   const gone = (id, what) => driver.wait(async () => !(await present(id)), 10000, what ?? `${id} is still open`);
@@ -693,7 +949,7 @@ async function run() {
       const btn = [...document.querySelectorAll('[data-testid="diff-dialog"] button')].pop();
       const r = btn.getBoundingClientRect();
       const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
-      const toasts = document.querySelector('[aria-live="polite"]');
+      const toasts = document.querySelector('[role="region"][aria-label="Notifications"]');
       return { onTop: btn.contains(hit), toastZ: getComputedStyle(toasts).zIndex };`);
     if (!covered.onTop) throw new Error("something covers the dialog's footer button");
     if (Number(covered.toastZ) >= 50) throw new Error(`toasts (z-index ${covered.toastZ}) are above dialogs`);
@@ -1161,12 +1417,12 @@ async function run() {
     const asideWidth = () => driver.executeScript(`return Math.round(document.querySelector("aside").getBoundingClientRect().width)`);
     await driver.findElement(By.css('aside button[aria-label="Collapse sidebar"]')).click();
     await driver.wait(async () => (await asideWidth()) === 64, 5000, "the sidebar did not collapse");
-    const r = await driver.executeScript(`const nav = document.querySelector('nav[aria-label="Primary"]');
-       const b = nav.querySelector('[aria-label="Expand sidebar"]');
+    const r = await driver.executeScript(`const aside = document.querySelector("aside");
+       const b = aside.querySelector('[aria-label="Expand sidebar"]');
        const search = document.querySelector('[data-testid="open-palette"]').getBoundingClientRect();
        const terminal = document.querySelector('[data-testid="header-terminal"]').getBoundingClientRect();
        return { chevron: !!b?.querySelector('svg path[d="m9 18 6-6-6-6"]'),
-         bottom: b ? nav.getBoundingClientRect().bottom - b.getBoundingClientRect().bottom : null,
+         bottom: b ? aside.getBoundingClientRect().bottom - b.getBoundingClientRect().bottom : null,
          gap: terminal.left - search.right };`);
     if (!r.chevron) throw new Error("the collapsed navigation has no expand chevron");
     if (r.bottom < 0 || r.bottom > 24) throw new Error(`the chevron is not at the bottom of the navigation (${r.bottom}px)`);
@@ -1177,6 +1433,85 @@ async function run() {
     if (await present("sidebar-expand")) throw new Error("the expand chevron stays visible while the sidebar is expanded");
   });
 
+  await step("convert: form sections are unnumbered and aligned at both window sizes", async () => {
+    try {
+      const convert = await driver.findElement(byTest("nav-convert"));
+      if (await convert.getAttribute("aria-expanded") !== "true") await click("nav-convert");
+      for (const width of [1024, 1600]) {
+        await setViewport(width, 900);
+        for (const id of ["certificate", "truststore", "private_key", "public_key", "keystore", "extract", "encoding"]) {
+          await click(`nav-convert-${id}`);
+          const sections = await driver.executeScript(`const card = document.querySelector('[data-testid="convert-save"]').closest('[class*="xl:col-span-7"]');
+            return [...card.querySelectorAll(':scope > section')].map(section => {
+              const heading = section.firstElementChild;
+              return { title: heading.firstElementChild.tagName, headingLeft: heading.getBoundingClientRect().left,
+                bodyLeft: section.lastElementChild.getBoundingClientRect().left };
+            });`);
+          if (sections.length < 2 || sections.some(section => section.title !== "H3" || Math.abs(section.headingLeft - section.bodyLeft) > 1)) {
+            throw new Error(`${id} sections are numbered or indented at ${width}px: ${JSON.stringify(sections)}`);
+          }
+        }
+      }
+    } finally {
+      await restoreWindow();
+    }
+  });
+
+  await step("convert: terminal hints show complete commands and still open the terminal", async () => {
+    try {
+      for (const width of [1024, 1400]) {
+        await setViewport(width, 900);
+        for (const id of ["certificate", "truststore", "private_key", "public_key", "keystore", "pkcs12", "extract", "encoding"]) {
+          await click(`nav-convert-${id}`);
+          if (await exists('[data-testid="convert-switch"]') || !(await exists(`[data-testid="converter-${id}"]`)) ||
+              (await driver.findElement(byTest(`nav-convert-${id}`)).getAttribute("aria-current")) !== "page") {
+            throw new Error(`${id} is not accessible solely through the conversion navigation`);
+          }
+          const heading = await driver.executeScript(`const title = document.querySelector('main h1');
+            const icon = title.previousElementSibling, navIcon = document.querySelector(arguments[0] + ' svg');
+            return { matches: [...navIcon.classList].filter(c => c.startsWith('lucide-')).every(c => icon.classList.contains(c)),
+              hidden: icon.getAttribute('aria-hidden'), chevron: !!document.querySelector('[data-testid="convert-back"] .lucide-chevron-left') };`, `[data-testid="nav-convert-${id}"]`);
+          if (!heading.matches || heading.hidden !== "true" || !heading.chevron) throw new Error(`${id} has an incorrect heading or back icon: ${JSON.stringify(heading)}`);
+          const hint = await driver.executeScript(`const hint = document.querySelector('[data-testid="terminal-hint"]');
+            const code = hint.querySelector('code'), button = hint.querySelector('button');
+            const original = code.textContent, initialHeight = code.getBoundingClientRect().height;
+            const measure = () => ({ x: code.scrollWidth - code.clientWidth, y: code.scrollHeight - code.clientHeight });
+            const normal = measure();
+            code.textContent = 'openssl ' + 'x'.repeat(500);
+            const long = measure();
+            code.textContent = original;
+            const box = hint.getBoundingClientRect(), action = button.getBoundingClientRect();
+            return { original, title: code.title, normal, long, initialHeight,
+              buttonLabel: button.getAttribute('aria-label'), buttonTitle: button.title,
+              buttonText: button.textContent.trim(), hasIcon: !!button.querySelector('svg.lucide-play'),
+              lineHeight: parseFloat(getComputedStyle(code).lineHeight), buttonVisible: action.right <= box.right && action.bottom <= box.bottom };`);
+          if (!hint.original || hint.original !== hint.title || hint.normal.x > 1 || hint.normal.y > 1 ||
+              hint.long.x > 1 || hint.long.y > 1 || !hint.buttonVisible ||
+              hint.buttonLabel !== "Run in terminal" || hint.buttonTitle !== hint.buttonLabel || hint.buttonText || !hint.hasIcon ||
+              (width === 1400 && id === "certificate" && hint.initialHeight < hint.lineHeight * 1.5)) {
+            throw new Error(`${id} terminal hint or action is incorrect at ${width}px: ${JSON.stringify(hint)}`);
+          }
+        }
+      }
+      const command = await driver.executeScript(`const hint = document.querySelector('[data-testid="terminal-hint"]');
+        const command = hint.querySelector('code').textContent;
+        hint.querySelector('button').click();
+        return command;`);
+      await driver.wait(until.elementLocated(By.css('[data-testid="terminal"] input')), 5000);
+      await driver.wait(async () => (await driver.findElement(By.css('[data-testid="terminal"] input')).getAttribute("value")) === command, 5000, "terminal was not prefilled");
+      await driver.executeScript(`const input = document.querySelector('[data-testid="terminal"] input');
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, '');
+        input.dispatchEvent(new Event('input', { bubbles: true }));`);
+      await click("sidebar-terminal");
+      await click("sidebar-collapse");
+      await click("convert-back");
+      if (!(await exists('[data-testid="convert-tile-certificate"]'))) throw new Error("conversion overview is unavailable with the sidebar collapsed");
+      await click("sidebar-expand");
+    } finally {
+      await restoreWindow();
+    }
+  });
+
   await step("settings: the panel fills the available content width", async () => {
     try {
       await click("nav-settings");
@@ -1185,6 +1520,44 @@ async function run() {
         const gap = await driver.executeScript(`const panel = document.querySelector('[role="tabpanel"]');
           return panel.parentElement.getBoundingClientRect().right - panel.getBoundingClientRect().right;`);
         if (Math.abs(gap) > 1) throw new Error(`settings panel has a ${gap}px right gap at ${width}px`);
+        const nav = await driver.executeScript(`const tabs = [...document.querySelectorAll('[role="tablist"][aria-label="Settings sections"] [role="tab"]')];
+          const rects = tabs.map(tab => tab.getBoundingClientRect());
+          return { gaps: rects.slice(1).map((rect, i) => rect.left - rects[i].right),
+            overflow: rects.at(-1).right - tabs[0].parentElement.getBoundingClientRect().right };`);
+        if (nav.overflow > 1 || Math.max(...nav.gaps) - Math.min(...nav.gaps) > 1 || Math.min(...nav.gaps) < 0) {
+          throw new Error(`settings tabs are not evenly spaced at ${width}px: ${JSON.stringify(nav)}`);
+        }
+        await click("settings-tab-data");
+        const data = await driver.executeScript(`const cards = [...document.querySelector('#settings-panel-data > div').children];
+          return cards.map(card => { const r = card.getBoundingClientRect(); return { left: r.left, right: r.right, top: r.top, bottom: r.bottom }; });`);
+        if (data.length !== 2 || Math.abs(data[0].left - data[1].left) > 1 || Math.abs(data[0].right - data[1].right) > 1 || data[1].top < data[0].bottom) {
+          throw new Error(`Data cards are not full-width rows at ${width}px: ${JSON.stringify(data)}`);
+        }
+        for (const section of ["security", "signing"]) {
+          await click(`settings-tab-${section}`);
+          const cards = await driver.executeScript(`return [...document.querySelector('#settings-panel-${section} > div').children]
+            .map(card => { const r = card.getBoundingClientRect(); return { top: r.top, height: r.height }; });`);
+          const sameRow = cards.length === 2 && Math.abs(cards[0].top - cards[1].top) < 1;
+          if (cards.length !== 2 || (width === 1600 && !sameRow) || (width === 1024 && sameRow) || (sameRow && Math.abs(cards[0].height - cards[1].height) > 1)) {
+            throw new Error(`${section} cards have an unexpected layout at ${width}px: ${JSON.stringify(cards)}`);
+          }
+          if (section === "signing" && sameRow) {
+            const resized = await driver.executeAsyncScript(`const done = arguments[arguments.length - 1];
+              const cards = document.querySelector('#settings-panel-signing > div').children;
+              const textarea = cards[1].querySelector('textarea');
+              const before = [...cards].map(card => card.getBoundingClientRect().height);
+              const oldHeight = textarea.style.height;
+              textarea.style.height = (textarea.getBoundingClientRect().height + 300) + 'px';
+              requestAnimationFrame(() => requestAnimationFrame(() => {
+                const after = [...cards].map(card => card.getBoundingClientRect().height);
+                textarea.style.height = oldHeight;
+                done({ before, after });
+              }));`);
+            if (Math.abs(resized.after[0] - resized.before[0]) > 1 || resized.after[1] - resized.before[1] < 200) {
+              throw new Error(`resizing the trust anchors changed the wrong card: ${JSON.stringify(resized)}`);
+            }
+          }
+        }
       }
     } finally {
       await restoreWindow();
@@ -1335,7 +1708,7 @@ async function run() {
           const recent = document.querySelector('[data-testid="recent-files"]') ?? [...document.querySelectorAll("h3")].find((x) => x.textContent.trim() === "Recent files")?.closest(".rounded-card");
           const drop = document.querySelector('[data-testid="dropzone"]');
           const tiles = [...document.querySelectorAll('button[data-testid^="welcome-"]')].map((b) => {
-            const icon = box(b.querySelector("svg"));
+            const icon = box(b.firstElementChild.firstElementChild);
             const title = [...b.querySelectorAll("*")].find((el) => el.children.length === 0 && el.textContent.trim() && !el.closest("svg"));
             const t = box(title);
             return { name: title.textContent.trim(), beside: t.left > icon.right && Math.abs((t.top + t.bottom) / 2 - (icon.top + icon.bottom) / 2) < 4 };
@@ -1371,7 +1744,8 @@ async function run() {
       const term = card("Terminal"), gs = card("Get started"), rc = card("Recent files");
       if (!term) return null;
       const t = box(term), g = box(gs), c = box(rc);
-      const runs = [...term.querySelectorAll("button")].filter((b) => b.textContent.trim() === "Run").map((b) => box(b.closest("li")));
+      // The Run buttons are icon-only (commit 93b6980); their name is the aria-label.
+      const runs = [...term.querySelectorAll("li button")].filter((b) => (b.getAttribute("aria-label") ?? b.textContent).trim().startsWith("Run")).map((b) => box(b.closest("li")));
       return { below: t.top >= Math.max(g.bottom, c.bottom), left: Math.round(t.left - g.left), right: Math.round(t.right - c.right), run: runs.length,
                sideBySide: runs.length === 2 && Math.abs(runs[0].top - runs[1].top) < 1 && runs[1].left >= runs[0].right - 1 };`);
     if (!r) throw new Error("the welcome page has no Terminal section");

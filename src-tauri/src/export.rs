@@ -18,10 +18,12 @@ pub const TARGETS: &[(&str, &str)] = &[
     ("pkipath", "pkipath"),
     ("public_pem", "pem"),
     ("public_openssh", "pub"),
+    ("public_ssh2", "pub"),
     ("public_jwk", "jwk.json"),
     ("private_pkcs8_pem", "key"),
     ("private_traditional", "key"),
     ("private_pkcs8_encrypted", "key"),
+    ("private_openssh", "key"),
     ("private_jwk", "jwk.json"),
     ("pkcs12", "p12"),
     ("secret_hex", "txt"),
@@ -74,6 +76,10 @@ pub fn render(e: &KeystoreEntry, target: &str, password: Option<&str>) -> Res<(V
             let (line, _) = keys::openssh_public_key(&spki_of(e)?, &e.alias)?;
             (format!("{line}\n").into_bytes(), true, "OpenSSH public key".into())
         }
+        "public_ssh2" => {
+            let (_, blob) = keys::openssh_public_blob(&spki_of(e)?)?;
+            (crate::openssh::format_ssh2_public_key(&blob, &e.alias).into_bytes(), true, "SSH2 public key (RFC 4716)".into())
+        }
         "public_jwk" => {
             let jwk = with_kid(keys::public_jwk_from_spki(&spki_of(e)?)?, &e.alias);
             (serde_json::to_string_pretty(&jwk).unwrap().into_bytes(), true, "JSON Web Key (public)".into())
@@ -83,6 +89,11 @@ pub fn render(e: &KeystoreEntry, target: &str, password: Option<&str>) -> Res<(V
         "private_pkcs8_encrypted" => {
             let der = pbe::encrypt_pkcs8(need_password()?, &entry::private_key_der(e)?, pbe::DEFAULT_ITERATIONS)?;
             (to_pem("ENCRYPTED PRIVATE KEY", &der).into_bytes(), true, "Private key (encrypted PKCS#8, AES-256)".into())
+        }
+        // Encrypted with aes256-ctr and bcrypt when a password is given, as ssh-keygen does.
+        "private_openssh" => {
+            let text = crate::openssh::encode_private_key(&entry::private_key(e)?, &e.alias, password.filter(|p| !p.is_empty()))?;
+            (text.into_bytes(), true, if password.is_some_and(|p| !p.is_empty()) { "OpenSSH private key (encrypted)" } else { "OpenSSH private key" }.into())
         }
         "private_jwk" => {
             let jwk = with_kid(entry::private_key(e)?.private_jwk()?, &e.alias);

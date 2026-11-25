@@ -603,16 +603,14 @@ pub fn parse_instant(date: &str) -> Res<Option<i64>> {
     if t.is_empty() {
         return Ok(None);
     }
-    if let Ok(d) = chrono::NaiveDate::parse_from_str(t, "%Y-%m-%d") {
-        return Ok(Some(d.and_hms_opt(0, 0, 0).unwrap().and_utc().timestamp()));
+    if let Some(d) = parse_ymd(t) {
+        return Ok(Some(d.ts()));
     }
-    if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(t) {
-        return Ok(Some(dt.timestamp()));
+    if let Some(ts) = parse_rfc3339(t) {
+        return Ok(Some(ts));
     }
-    for fmt in ["%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M", "%Y-%m-%d %H:%M:%S"] {
-        if let Ok(dt) = chrono::NaiveDateTime::parse_from_str(t, fmt) {
-            return Ok(Some(dt.and_utc().timestamp()));
-        }
+    if let Some(dt) = parse_naive_datetime(t) {
+        return Ok(Some(dt.ts()));
     }
     Err(format!("'{date}' is not a YYYY-MM-DD date or a UTC timestamp"))
 }
@@ -863,9 +861,68 @@ fn describe_extension(ext: &X509Extension) -> X509ExtensionInfo {
     X509ExtensionInfo { oid: oids::oid_str(&arcs), name: oids::extension_name(&arcs).to_string(), critical: ext.critical, value }
 }
 
-/// Parses a DER certificate into the display model, with real SHA-256/SHA-1/MD5 fingerprints.
+/// One DER element with the given tag byte.
+fn der_tlv(tag: u8, content: &[u8]) -> Vec<u8> {
+    let mut out = vec![tag];
+    if content.len() < 0x80 {
+        out.push(content.len() as u8);
+    } else {
+        let bytes = content.len().to_be_bytes();
+        let start = bytes.iter().position(|b| *b != 0).unwrap_or(bytes.len() - 1);
+        out.push(0x80 | (bytes.len() - start) as u8);
+        out.extend_from_slice(&bytes[start..]);
+    }
+    out.extend_from_slice(content);
+    out
+}
+
+/// The signature algorithm of a certificate, CSR or CRL when it is one this app can check.
+/// RSASSA-PSS keeps its hash and salt length in the parameters, so those are read too.
+fn sig_alg_of(alg: &AlgorithmIdentifier) -> Option<SigAlg> {
+    // Only a SEQUENCE is ever meaningful here; the NULL of the PKCS#1 v1.5 algorithms is not.
+    let params = alg.parameters.as_ref().filter(|p| p.header.tag().0 == 16).map(|p| der_tlv(0x30, p.data));
+    SigAlg::from_algorithm(&arcs_of(&alg.algorithm), params.as_deref())
+}
+
+/// The algorithm's display name. For RSASSA-PSS the digest comes from the parameters, because
+/// the OID alone does not say whether the signature rests on SHA-1 or SHA-256.
+fn sig_alg_name(alg: &AlgorithmIdentifier) -> String {
+    let arcs = arcs_of(&alg.algorithm);
+    match sig_alg_of(alg) {
+        Some(parsed) if arcs == oids::RSASSA_PSS => parsed.name(),
+        _ => oids::signature_algorithm_name(&arcs),
+    }
+}
+
+/// The bytes of the one certificate at the start of `der`. OpenSSL's `TRUSTED CERTIFICATE`
+/// appends its trust settings after the certificate; they are not part of it, and hashing them
+/// along gives a fingerprint no other tool shows.
+pub fn exact_certificate(der: &[u8]) -> Option<&[u8]> {
+    let (rest, _) = X509Certificate::from_der(der).ok()?;
+    Some(&der[..der.len() - rest.len()])
+}
+
+/// A Netscape certificate sequence, the `openssl nseq` format some CAs still deliver chains in:
+/// `SEQUENCE { OID netscape-cert-sequence, [0] SEQUENCE OF Certificate }`.
+fn netscape_cert_sequence(der: &[u8]) -> Option<Vec<Vec<u8>>> {
+    check_der_lengths(der).ok()?;
+    let certs = yasna::parse_ber(der, |r| {
+        r.read_sequence(|r| {
+            if r.next().read_oid()?.components().as_slice() != [2, 16, 840, 1, 113730, 2, 5] {
+                return Err(yasna::ASN1Error::new(yasna::ASN1ErrorKind::Invalid));
+            }
+            r.next().read_tagged(Tag::context(0), |r| r.collect_sequence_of(|r| r.read_der()))
+        })
+    })
+    .ok()?;
+    (!certs.is_empty() && certs.iter().all(|c| X509Certificate::from_der(c).is_ok())).then_some(certs)
+}
+
+/// Parses a DER certificate into the display model, with real SHA-256 and SHA-1 fingerprints.
 pub fn parse_certificate(der: &[u8]) -> Res<CertificateInfo> {
-    let (_, cert) = X509Certificate::from_der(der).map_err(|err| format!("not a valid X.509 certificate: {err}"))?;
+    let (rest, cert) = X509Certificate::from_der(der).map_err(|err| format!("not a valid X.509 certificate: {err}"))?;
+    // Fingerprints and the PEM cover the certificate, not anything a container put after it.
+    let der = &der[..der.len() - rest.len()];
     let spki = cert.public_key().raw;
     let pk = keys::public_key_info(spki).unwrap_or(keys::PublicKeyInfo { algorithm: "unknown".into(), key_size: 0, curve: None, is_post_quantum: false });
     let not_before = cert.validity().not_before.timestamp();
@@ -873,7 +930,7 @@ pub fn parse_certificate(der: &[u8]) -> Res<CertificateInfo> {
     let mut info = CertificateInfo {
         version: (cert.version().0 + 1) as u8,
         serial_number: upper_hex(cert.raw_serial()),
-        signature_algorithm: oids::signature_algorithm_name(&arcs_of(&cert.signature_algorithm.algorithm)),
+        signature_algorithm: sig_alg_name(&cert.signature_algorithm),
         subject: name_to_string(cert.subject()),
         issuer: name_to_string(cert.issuer()),
         valid_from: fmt_ts(not_before),
@@ -886,7 +943,6 @@ pub fn parse_certificate(der: &[u8]) -> Res<CertificateInfo> {
         curve: pk.curve,
         sha256_fingerprint: colon_hex(&sha256(der)),
         sha1_fingerprint: colon_hex(&sha1(der)),
-        md5_fingerprint: colon_hex(&md5(der)),
         spki_sha256: colon_hex(&sha256(spki)),
         pem: to_pem("CERTIFICATE", der),
         ..Default::default()
@@ -939,10 +995,12 @@ pub fn parse_certificate(der: &[u8]) -> Res<CertificateInfo> {
     Ok(info)
 }
 
-/// Verifies that the certificate `der` was signed by the key in `issuer_spki`.
+/// Verifies that the certificate `der` was signed by the key in `issuer_spki`. An `Err` means
+/// the check could not be made (an algorithm or curve this app does not compute), which is a
+/// different answer from `Ok(false)`.
 pub fn verify_certificate_signature(der: &[u8], issuer_spki: &[u8]) -> Res<bool> {
     let (_, cert) = X509Certificate::from_der(der).map_err(e)?;
-    let alg = SigAlg::from_oid(&arcs_of(&cert.signature_algorithm.algorithm)).ok_or_else(|| format!("unsupported signature algorithm {}", cert.signature_algorithm.algorithm))?;
+    let alg = sig_alg_of(&cert.signature_algorithm).ok_or_else(|| format!("unsupported signature algorithm {}", sig_alg_name(&cert.signature_algorithm)))?;
     keys::verify(issuer_spki, alg, cert.tbs_certificate.as_ref(), &cert.signature_value.data)
 }
 
@@ -1039,37 +1097,54 @@ pub fn order_bundle(certs: &[Vec<u8>]) -> Vec<Vec<u8>> {
     chain
 }
 
-/// Extracts certificates from PEM text (one or many), a DER certificate, or a PKCS#7 bundle.
+/// The certificates in one DER blob: a certificate (or several back to back), a Netscape
+/// certificate sequence or a PKCS#7 bundle. None when it is none of those.
+fn certificates_from_der(der: &[u8]) -> Option<Vec<Vec<u8>>> {
+    if let Some(first) = exact_certificate(der) {
+        let mut out = vec![first.to_vec()];
+        let mut rest = &der[first.len()..];
+        // More certificates may follow directly. Anything else after the first one (OpenSSL's
+        // trust settings, padding) is not ours to interpret.
+        while let Some(next) = exact_certificate(rest) {
+            out.push(next.to_vec());
+            rest = &rest[next.len()..];
+        }
+        return Some(out);
+    }
+    if let Some(certs) = netscape_cert_sequence(der) {
+        return Some(certs);
+    }
+    crate::cms::certificates_from_pkcs7(der).ok().filter(|c| !c.is_empty())
+}
+
+/// Extracts certificates from PEM text (one or many blocks), DER, a PKCS#7 bundle or a Netscape
+/// certificate sequence. Every certificate returned has been parsed, and is exactly its own bytes.
 pub fn certificates_from_bytes(data: &[u8]) -> Res<Vec<Vec<u8>>> {
     if looks_textual(data) {
         let text = String::from_utf8_lossy(data);
         let mut out = Vec::new();
         for block in pem_blocks(&text) {
             match block.tag.as_str() {
-                "CERTIFICATE" | "X509 CERTIFICATE" | "TRUSTED CERTIFICATE" => out.push(block.der),
+                "CERTIFICATE" | "X509 CERTIFICATE" | "TRUSTED CERTIFICATE" => {
+                    // A block that claims to be a certificate and is not one is reported, not
+                    // skipped: a chain with a link silently missing is worse than an error.
+                    let certs = certificates_from_der(&block.der).ok_or_else(|| format!("certificate {} in the PEM data is not a valid X.509 certificate", out.len() + 1))?;
+                    out.extend(certs);
+                }
                 "PKCS7" | "CMS" => out.extend(crate::cms::certificates_from_pkcs7(&block.der)?),
                 _ => {}
             }
         }
         if out.is_empty() {
-            // Bare base64 of a DER certificate.
-            if let Ok(der) = unb64(text.trim())
-                && X509Certificate::from_der(&der).is_ok()
-            {
-                return Ok(vec![der]);
+            // Bare base64 of a DER certificate or bundle.
+            if let Some(certs) = unb64(text.trim()).ok().and_then(|der| certificates_from_der(&der)) {
+                return Ok(certs);
             }
             return Err("no certificate found in the data".into());
         }
         return Ok(out);
     }
-    if X509Certificate::from_der(data).is_ok() {
-        return Ok(vec![data.to_vec()]);
-    }
-    let certs = crate::cms::certificates_from_pkcs7(data)?;
-    if certs.is_empty() {
-        return Err("no certificate found in the data".into());
-    }
-    Ok(certs)
+    certificates_from_der(data).ok_or_else(|| "no certificate found in the data".to_string())
 }
 
 /// Parses a PKCS#10 CSR (DER) and verifies its proof-of-possession signature.
@@ -1078,10 +1153,11 @@ pub fn parse_csr(der: &[u8]) -> Res<CsrInfo> {
     let info = &csr.certification_request_info;
     let spki = info.subject_pki.raw;
     let pk = keys::public_key_info(spki)?;
-    let alg = SigAlg::from_oid(&arcs_of(&csr.signature_algorithm.algorithm));
-    let signature_valid = match alg {
-        Some(alg) => keys::verify(spki, alg, info.raw, &csr.signature_value.data).unwrap_or(false),
-        None => false,
+    // "Could not be checked" (an algorithm or curve this app does not compute) is kept apart
+    // from "does not verify": only the second means the request was altered.
+    let (signature_valid, signature_checked) = match sig_alg_of(&csr.signature_algorithm).map(|alg| keys::verify(spki, alg, info.raw, &csr.signature_value.data)) {
+        Some(Ok(valid)) => (valid, true),
+        _ => (false, false),
     };
     let mut sans = Vec::new();
     let mut key_usage = Vec::new();
@@ -1105,8 +1181,9 @@ pub fn parse_csr(der: &[u8]) -> Res<CsrInfo> {
         public_key_algorithm: pk.algorithm,
         key_size: pk.key_size,
         curve: pk.curve,
-        signature_algorithm: oids::signature_algorithm_name(&arcs_of(&csr.signature_algorithm.algorithm)),
+        signature_algorithm: sig_alg_name(&csr.signature_algorithm),
         signature_valid,
+        signature_checked,
         sans,
         key_usage,
         extended_key_usage,
@@ -1129,6 +1206,12 @@ pub struct CsrParts {
 
 pub fn csr_parts(der: &[u8]) -> Res<CsrParts> {
     let info = parse_csr(der)?;
+    if !info.signature_checked {
+        return Err(format!(
+            "the CSR is signed with {}, which Keystore Studio cannot verify, so it cannot prove the requester holds the key. Sign it with openssl or keytool instead.",
+            info.signature_algorithm
+        ));
+    }
     if !info.signature_valid {
         return Err("the CSR signature is invalid (the request was altered or is corrupt)".into());
     }
@@ -1168,19 +1251,18 @@ pub fn parse_crl(der: &[u8], issuer_spki: Option<&[u8]>) -> Res<CrlInfo> {
         .iter_revoked_certificates()
         .map(|r| RevokedCertEntry {
             serial_number: upper_hex(r.raw_serial()),
-            revocation_date: ts_to_datetime(r.revocation_date.timestamp()).format("%Y-%m-%dT%H:%M:%SZ").to_string(),
+            revocation_date: fmt_rfc3339z(r.revocation_date.timestamp()),
             reason: r.reason_code().map(|(_, c)| reason_name(c.0).to_string()).unwrap_or_else(|| "unspecified".into()),
         })
         .collect();
-    let signature_valid = issuer_spki.map(|spki| {
-        SigAlg::from_oid(&arcs_of(&crl.signature_algorithm.algorithm)).map(|alg| keys::verify(spki, alg, crl.tbs_cert_list.as_ref(), &crl.signature_value.data).unwrap_or(false)).unwrap_or(false)
-    });
+    let signature_valid =
+        issuer_spki.map(|spki| sig_alg_of(&crl.signature_algorithm).map(|alg| keys::verify(spki, alg, crl.tbs_cert_list.as_ref(), &crl.signature_value.data).unwrap_or(false)).unwrap_or(false));
     Ok(CrlInfo {
         issuer: name_to_string(crl.issuer()),
         this_update: fmt_ts(crl.last_update().timestamp()),
         next_update: crl.next_update().map(|t| fmt_ts(t.timestamp())).unwrap_or_else(|| "—".into()),
         crl_number: crl.crl_number().map(|n| n.to_string()),
-        signature_algorithm: oids::signature_algorithm_name(&arcs_of(&crl.signature_algorithm.algorithm)),
+        signature_algorithm: sig_alg_name(&crl.signature_algorithm),
         revoked_entries: revoked,
         extensions: crl.extensions().iter().map(describe_extension).collect(),
         sha256_fingerprint: colon_hex(&sha256(der)),
@@ -1317,9 +1399,16 @@ fn check_name_constraints(parent_der: &[u8], parent_subject: &str, child_info: &
 /// An empty list means a path was built and the checks below passed.
 /// Name constraints are applied to DNS and IP names on the leaf. Revocation is not fetched.
 pub fn validate_chain(leaf: &[u8], intermediates: &[Vec<u8>], anchors: &[Vec<u8>], hostname: Option<&str>) -> Vec<String> {
+    validate_chain_path(leaf, intermediates, anchors, hostname).0
+}
+
+/// [`validate_chain`], plus the path it built: the leaf first, then each issuer it found (ending
+/// with the trust anchor when one was reached). Revocation checking walks this path.
+pub fn validate_chain_path(leaf: &[u8], intermediates: &[Vec<u8>], anchors: &[Vec<u8>], hostname: Option<&str>) -> (Vec<String>, Vec<Vec<u8>>) {
     let mut problems = Vec::new();
+    let mut path = vec![leaf.to_vec()];
     let Ok(leaf_info) = parse_certificate(leaf) else {
-        return vec!["the certificate could not be parsed".into()];
+        return (vec!["the certificate could not be parsed".into()], path);
     };
     let now = now_ts();
     if leaf_info.not_before > now {
@@ -1388,6 +1477,7 @@ pub fn validate_chain(leaf: &[u8], intermediates: &[Vec<u8>], anchors: &[Vec<u8>
             ca_certs_below += 1;
         }
         current = parent.to_vec();
+        path.push(current.clone());
         if parent_info.self_signed {
             break;
         }
@@ -1395,7 +1485,7 @@ pub fn validate_chain(leaf: &[u8], intermediates: &[Vec<u8>], anchors: &[Vec<u8>
     if !reached {
         problems.push("the chain does not reach one of the supplied trust anchors".into());
     }
-    problems
+    (problems, path)
 }
 
 #[cfg(test)]

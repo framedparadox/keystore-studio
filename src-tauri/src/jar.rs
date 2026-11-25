@@ -91,7 +91,10 @@ pub fn sign_jar_with_trust(input: &str, output: &str, signer: &KeystoreEntry, ts
     if signer.entry_type != "KeyPair" {
         return Err("JAR signing needs a key pair entry".into());
     }
-    if std::path::Path::new(input).canonicalize().ok() == std::path::Path::new(output).canonicalize().ok() {
+    // Only when both exist: two missing paths both canonicalize to None, which is not "the same file".
+    if let (Ok(a), Ok(b)) = (std::path::Path::new(input).canonicalize(), std::path::Path::new(output).canonicalize())
+        && a == b
+    {
         return Err("choose a different output file; the original JAR is never modified in place".into());
     }
     let key = entry::private_key(signer)?;
@@ -111,7 +114,7 @@ pub fn sign_jar_with_trust(input: &str, output: &str, signer: &KeystoreEntry, ts
     let mut digests: Vec<(String, String)> = Vec::new();
     for i in 0..archive.len() {
         let mut f = archive.by_index(i).map_err(e)?;
-        let name = f.name().to_string();
+        let name = f.name().map_err(e)?.to_string();
         if f.is_dir() {
             continue;
         }
@@ -161,11 +164,11 @@ pub fn sign_jar_with_trust(input: &str, output: &str, signer: &KeystoreEntry, ts
     let block_name = format!("META-INF/{base}.{ext}");
 
     let tmp_out = format!("{output}.xks-tmp");
-    {
+    let written = (|| -> Res<()> {
         let out_file = std::fs::File::create(&tmp_out).map_err(|err| format!("cannot create {output}: {err}"))?;
         let mut w = zip::ZipWriter::new(out_file);
         let opts = zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
-        let had_meta_dir = (0..archive.len()).any(|i| archive.by_index_raw(i).map(|f| f.name() == "META-INF/").unwrap_or(false));
+        let had_meta_dir = (0..archive.len()).any(|i| archive.by_index_raw(i).ok().and_then(|f| f.name().ok().map(|n| n == "META-INF/")).unwrap_or(false));
         if had_meta_dir {
             w.add_directory("META-INF/", opts).map_err(e)?;
         }
@@ -175,13 +178,19 @@ pub fn sign_jar_with_trust(input: &str, output: &str, signer: &KeystoreEntry, ts
         }
         for i in 0..archive.len() {
             let f = archive.by_index_raw(i).map_err(e)?;
-            let name = f.name().to_string();
+            let name = f.name().map_err(e)?.to_string();
             if name == "META-INF/" || name.eq_ignore_ascii_case("META-INF/MANIFEST.MF") || is_signature_file(&name) {
                 continue;
             }
             w.raw_copy_file(f).map_err(|err| format!("cannot copy {name}: {err}"))?;
         }
         w.finish().map_err(e)?;
+        Ok(())
+    })();
+    drop(archive);
+    if let Err(err) = written {
+        let _ = std::fs::remove_file(&tmp_out);
+        return Err(err);
     }
     std::fs::rename(&tmp_out, output).map_err(|err| {
         let _ = std::fs::remove_file(&tmp_out);

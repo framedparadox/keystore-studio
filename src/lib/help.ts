@@ -29,8 +29,8 @@ export const HELP_GROUPS: HelpGroup[] = [
         id: "formats",
         question: "Which files can Keystore Studio open?",
         answer: [
-          "Keystores: PKCS#12 (.p12, .pfx), JKS and JCEKS, which you can edit and save. Bouncy Castle BKS v2 opens read-only; save it as PKCS#12 to keep the entries. UBER and BCFKS are not supported; convert them first with keytool -importkeystore.",
-          "Certificates, private and public keys, CSRs, CRLs, PKCS#7 bundles and JWTs open in Examine or under Certificates. JAR files open for signing.",
+          "Keystores: PKCS#12 (.p12, .pfx), JKS and JCEKS, and Bouncy Castle's BKS (versions 1 and 2), UBER and BCFKS. All six open, edit and save, and Save as converts between them. Java needs the Bouncy Castle provider to read the last three.",
+          "Certificates (PEM, DER, PKCS#7, PkiPath, Netscape sequences), private keys (PKCS#8 including scrypt and legacy PBE, PKCS#1, SEC1, DSA, OpenSSL-encrypted PEM, OpenSSH, JWK), public keys (PEM, DER, OpenSSH, SSH2, JWK), CSRs, CRLs and JWTs open in Examine or under Certificates. JAR files open for signing.",
           "Open a file with Ctrl+O, by dropping it anywhere on the window, or from Recent files on the Dashboard.",
         ],
       },
@@ -86,7 +86,7 @@ export const HELP_GROUPS: HelpGroup[] = [
         question: "What does the vault do?",
         answer: [
           "The vault remembers keystore passwords so you do not have to type them again. They are encrypted with AES-256-GCM under a key derived from your master key with Argon2id. The master key itself is never written to disk.",
-          "The vault locks itself after a period of inactivity, which you can change under Settings → Security.",
+          "The vault, and any key pairs unlocked this session, lock themselves after a period of inactivity, which you can change under Settings → Security.",
         ],
         link: { label: "Open the vault", tab: "vault" },
       },
@@ -133,7 +133,7 @@ export const HELP_GROUPS: HelpGroup[] = [
         id: "convert",
         question: "How do I convert between formats?",
         answer: [
-          "Convert handles PEM ↔ DER, PKCS#7 bundles, PKCS#8 and traditional private keys, OpenSSH and JWK public keys, and keystores between JKS and PKCS#12. Each converter also shows the matching openssl or keytool command.",
+          "Convert handles PEM ↔ DER, PKCS#7 bundles, certificates into a truststore, PKCS#8, traditional and OpenSSH private keys, OpenSSH, SSH2 and JWK public keys, and keystores between all six formats. Each converter also shows the matching openssl, ssh-keygen or keytool command.",
         ],
         link: { label: "Open Convert", tab: "convert" },
       },

@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useLayoutEffect, useState } from "react";
 import { Eye, EyeOff, FolderOpen, KeyRound, Lock, LockOpen, RotateCcw, ShieldCheck, Trash2 } from "lucide-react";
 import type { SecretSummary } from "../types/crypto";
-import { api, errorMessage, passwordSecretId } from "../lib/api";
+import { api, errorMessage, MIN_MASTER_KEY_LEN, passwordSecretId } from "../lib/api";
 import { useStore } from "../state/store";
 import { Alert, Button, Card, CardHeader, Column, CopyButton, DataTable, EmptyState, IconButton, KpiCard, Modal, Page, PageHeader, PasswordInput, Spinner, useConfirm, useToast } from "../components/ui";
 
@@ -23,7 +23,7 @@ const ChangeMasterKeyDialog: React.FC<{ open: boolean; onClose: () => void }> = 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
-    if (newKey.length < 8) return setError("The new master key must be at least 8 characters.");
+    if ([...newKey].length < MIN_MASTER_KEY_LEN) return setError(`The new master key must be at least ${MIN_MASTER_KEY_LEN} characters.`);
     if (newKey !== confirmKey) return setError("The new keys do not match.");
     setBusy(true);
     try {
@@ -75,7 +75,7 @@ const VaultGate: React.FC<{ setup: boolean }> = ({ setup }) => {
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
-    if (setup && key.length < 8) return setError("The master key must be at least 8 characters.");
+    if (setup && [...key].length < MIN_MASTER_KEY_LEN) return setError(`The master key must be at least ${MIN_MASTER_KEY_LEN} characters.`);
     if (setup && key !== confirmKey) return setError("The keys do not match.");
     setBusy(true);
     try {
@@ -157,7 +157,7 @@ export const VaultView: React.FC = () => {
   if (!vault.exists || !vault.unlocked) {
     return (
       <Page>
-        <PageHeader title="Vault" description="Remember keystore passwords under one master key, so keystores open without retyping them." />
+        <PageHeader icon={KeyRound} title="Vault" description="Remember keystore passwords under one master key, so keystores open without retyping them." />
         <VaultGate setup={!vault.exists} />
       </Page>
     );
@@ -239,6 +239,7 @@ export const VaultView: React.FC = () => {
   return (
     <Page>
       <PageHeader
+        icon={KeyRound}
         title="Vault"
         description="Keystore passwords remembered on this computer, encrypted with your master key."
         actions={

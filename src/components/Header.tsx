@@ -29,14 +29,19 @@ export const Header: React.FC<{ onOpenPalette: () => void }> = ({ onOpenPalette 
           <span className="flex-1 text-left">Search or run…</span>
           <Kbd>Ctrl K</Kbd>
         </button>
-        <IconButton icon={TerminalSquare} label={shortcutLabel("Terminal (Ctrl+`)")} onClick={toggleTerminal} data-testid="header-terminal" className="!w-9 !h-9 shrink-0" />
+        <IconButton icon={TerminalSquare} label={shortcutLabel("Terminal (Ctrl+`)")} onClick={toggleTerminal} data-testid="header-terminal" className="!w-9 !h-9 shrink-0 !text-brand" />
       </div>
 
       <div className="flex items-center gap-1.5 justify-self-end">
-        {vault.unlocked && (
-          <Button size="md" icon={LockOpen} onClick={() => lockVault()} title="Lock the password vault. Open keystores and their keys stay in this window.">
-            Lock password vault
-          </Button>
+        {vault.unlocked && tab !== "vault" && (
+          <Button
+            icon={LockOpen}
+            aria-label="Lock password vault"
+            title="Lock the password vault. Open keystores and their keys stay in this window."
+            onClick={() => lockVault()}
+            className="!w-9 !px-0 !text-success"
+            data-testid="header-lock-vault"
+          />
         )}
         <Button icon={FolderOpen} onClick={() => openFiles()} title={shortcutLabel("Open (Ctrl+O)")} aria-label={shortcutLabel("Open (Ctrl+O)")} className="!w-9 !px-0" data-testid="header-open" />
         <Button variant="primary" icon={FilePlus2} onClick={() => setNewKeystoreOpen(true)} title={shortcutLabel("New keystore (Ctrl+N)")} data-testid="header-new">

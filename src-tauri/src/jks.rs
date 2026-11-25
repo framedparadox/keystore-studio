@@ -149,7 +149,9 @@ fn read_utf(c: &mut Cursor<&[u8]>) -> Res<String> {
     let len = c.read_u16::<BigEndian>().map_err(|_| truncated())? as usize;
     let mut buf = vec![0u8; len];
     c.read_exact(&mut buf).map_err(|_| truncated())?;
-    Ok(String::from_utf8_lossy(&buf).to_string())
+    // Java's DataInput.readUTF: modified UTF-8, which differs from UTF-8 for U+0000 and for
+    // characters outside the Basic Multilingual Plane.
+    java_utf_decode(&buf).ok_or_else(|| "invalid: an alias in the keystore is not valid text".to_string())
 }
 
 fn truncated() -> String {
@@ -262,12 +264,12 @@ pub fn decode(bytes: &[u8], password: &str, key_passwords: &std::collections::Ha
 }
 
 fn write_utf(buf: &mut Vec<u8>, s: &str) -> Res<()> {
-    let b = s.as_bytes();
+    let b = java_utf_encode(s);
     if b.len() > u16::MAX as usize {
         return Err("invalid: alias too long".into());
     }
     buf.write_u16::<BigEndian>(b.len() as u16).map_err(e)?;
-    buf.write_all(b).map_err(e)
+    buf.write_all(&b).map_err(e)
 }
 
 fn write_cert(buf: &mut Vec<u8>, der: &[u8]) -> Res<()> {
@@ -277,7 +279,7 @@ fn write_cert(buf: &mut Vec<u8>, der: &[u8]) -> Res<()> {
 }
 
 fn entry_millis(entry: &KeystoreEntry) -> i64 {
-    chrono::NaiveDate::parse_from_str(&entry.creation_date, "%Y-%m-%d").map(|d| d.and_hms_opt(0, 0, 0).unwrap().and_utc().timestamp_millis()).unwrap_or_else(|_| chrono::Utc::now().timestamp_millis())
+    crate::util::parse_ymd(&entry.creation_date).map(|d| d.ts() * 1000).unwrap_or_else(crate::util::now_millis)
 }
 
 pub fn encode(entries: &[KeystoreEntry], password: &str, kind: Kind) -> Res<Vec<u8>> {

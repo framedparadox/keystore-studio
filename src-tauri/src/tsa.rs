@@ -454,8 +454,7 @@ fn parse_generalized_time(der: &[u8]) -> Option<String> {
     let trimmed = body.trim_end_matches('Z');
     // GeneralizedTime may carry fractional seconds; the whole seconds are enough for display.
     let whole = trimmed.split('.').next()?;
-    let dt = chrono::NaiveDateTime::parse_from_str(whole, "%Y%m%d%H%M%S").ok()?;
-    Some(dt.format("%Y-%m-%d %H:%M:%S UTC").to_string())
+    Some(crate::util::parse_compact(whole)?.display())
 }
 
 /// Requests a timestamp over `signature` from the TSA at `url`.

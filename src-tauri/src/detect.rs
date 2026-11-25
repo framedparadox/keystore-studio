@@ -4,7 +4,7 @@
 use crate::keys::{self, PrivateKey};
 use crate::model::{DetectionResult, KeyInfo};
 use crate::util::*;
-use crate::{cms, jwt, keystore, x509};
+use crate::{cms, convert, jwt, keystore, openssh, x509};
 
 fn base(bytes: &[u8]) -> DetectionResult {
     DetectionResult { sha256: colon_hex(&sha256(bytes)), byte_length: bytes.len(), ..Default::default() }
@@ -64,6 +64,59 @@ fn key_info_public(spki: &[u8], format: &str) -> Res<KeyInfo> {
     })
 }
 
+/// A private key result. `encrypted` says the file protects it, whether or not it was opened.
+fn private_result(mut r: DetectionResult, key: &PrivateKey, title: &str, format: &str, encrypted: bool) -> DetectionResult {
+    r.kind = "private_key".into();
+    r.title = title.into();
+    r.format = format.into();
+    r.summary = format!("{} private key{}", key.describe(), if encrypted { " (decrypted with the supplied password)" } else { "" });
+    if !encrypted {
+        r.warnings.push("this private key is not encrypted".into());
+    }
+    let mut info = key_info_private(key, format);
+    info.encrypted = encrypted;
+    r.key = Some(info);
+    r
+}
+
+/// An encrypted private key that was not opened: what protects it and, when the file shows it
+/// without the password, which public key it belongs to.
+fn locked_key_result(mut r: DetectionResult, title: &str, format: &str, protection: &str, spki: Option<&[u8]>) -> DetectionResult {
+    r.kind = "private_key".into();
+    r.title = title.into();
+    r.format = format.into();
+    r.summary = format!("Protected with {protection}. Enter its password to inspect the key.");
+    let public = spki.and_then(|s| keys::public_key_info(s).ok().map(|i| (i, s)));
+    r.key = Some(match public {
+        Some((info, s)) => KeyInfo {
+            kind: "private".into(),
+            algorithm: info.algorithm,
+            key_size: info.key_size,
+            curve: info.curve,
+            encrypted: true,
+            format: format.into(),
+            public_key_sha256: Some(colon_hex(&sha256(s))),
+            public_key_pem: Some(to_pem("PUBLIC KEY", s)),
+        },
+        None => KeyInfo { kind: "private".into(), algorithm: "encrypted".into(), encrypted: true, format: format.into(), ..Default::default() },
+    });
+    r
+}
+
+fn public_result(mut r: DetectionResult, spki: &[u8], title: &str, format: &str) -> Res<DetectionResult> {
+    let info = key_info_public(spki, format)?;
+    r.kind = "public_key".into();
+    r.title = title.into();
+    r.format = format.into();
+    r.summary = format!("{} {}-bit public key", info.algorithm, info.key_size);
+    r.key = Some(info);
+    Ok(r)
+}
+
+fn pbe_description(der: &[u8]) -> String {
+    crate::pbe::parse_encrypted_pkcs8(der).map(|(alg, _)| crate::pbe::describe_algorithm(&alg)).unwrap_or_else(|_| "an unknown scheme".into())
+}
+
 fn certificates_result(mut r: DetectionResult, ders: Vec<Vec<u8>>, format: &str) -> Res<DetectionResult> {
     let ordered = x509::order_bundle(&ders);
     let certs = ordered.iter().map(|d| x509::parse_certificate(d)).collect::<Res<Vec<_>>>()?;
@@ -93,59 +146,51 @@ fn certificates_result(mut r: DetectionResult, ders: Vec<Vec<u8>>, format: &str)
 fn examine_der(bytes: &[u8], password: Option<&str>, format: &str) -> Res<DetectionResult> {
     let mut r = base(bytes);
     if let Some(fmt) = keystore::detect(bytes) {
+        let label = match fmt {
+            keystore::Format::Pkcs12 => "PKCS#12".to_string(),
+            keystore::Format::Bks | keystore::Format::Uber | keystore::Format::Bcfks => format!("Bouncy Castle {}", fmt.name()),
+            other => other.name().to_string(),
+        };
         r.kind = "keystore".into();
-        r.title = format!("{} keystore", fmt.name());
+        r.title = format!("{label} keystore");
         r.format = fmt.name().into();
         r.keystore_format = Some(fmt.name().into());
-        r.summary = "Open it from the Keystores page to view and edit its entries.".into();
+        r.summary = "Open it from the Keystores page to view, edit or convert its entries.".into();
         if let Some(pw) = password.filter(|p| !p.is_empty()) {
             match keystore::decode(bytes, pw, &Default::default()) {
-                Ok((_, entries)) => {
-                    r.summary = format!("{} entries: {}", entries.len(), entries.iter().map(|e| e.alias.as_str()).collect::<Vec<_>>().join(", "));
-                    r.certificates = entries.iter().filter_map(|e| e.certificate_chain.first().cloned()).collect();
+                Ok(store) => {
+                    r.summary = format!("{} entries: {}", store.entries.len(), store.entries.iter().map(|e| e.alias.as_str()).collect::<Vec<_>>().join(", "));
+                    r.certificates = store.entries.iter().filter_map(|e| e.certificate_chain.first().cloned()).collect();
+                    r.warnings.extend(store.notes);
                 }
                 Err(err) => r.warnings.push(err),
             }
         }
         return Ok(r);
     }
-    if keystore::looks_like_bks_v2(bytes) {
-        r.kind = "keystore".into();
-        r.title = "BKS keystore".into();
-        r.format = "BKS".into();
-        r.keystore_format = Some("BKS".into());
-        r.summary = "Bouncy Castle BKS v2 keystore (read-only). Open it from the Keystores page to inspect or convert to PKCS#12.".into();
-        if let Some(pw) = password.filter(|p| !p.is_empty()) {
-            match keystore::decode(bytes, pw, &Default::default()) {
-                Ok((_, entries)) => {
-                    r.summary = format!("{} entries: {}", entries.len(), entries.iter().map(|e| e.alias.as_str()).collect::<Vec<_>>().join(", "));
-                    r.certificates = entries.iter().filter_map(|e| e.certificate_chain.first().cloned()).collect();
-                }
-                Err(err) => r.warnings.push(err),
-            }
+    if x509::exact_certificate(bytes).is_some() {
+        // One certificate, or several back to back, or one with OpenSSL trust settings after it.
+        let certs = x509::certificates_from_bytes(bytes)?;
+        let mut res = certificates_result(r, certs, format)?;
+        if x509::exact_certificate(bytes).is_some_and(|c| c.len() < bytes.len()) && res.certificates.len() == 1 {
+            res.warnings.push("data follows the certificate (OpenSSL trust settings, or padding); it is not part of the certificate and is not shown".into());
         }
-        return Ok(r);
-    }
-    if let Some(kind) = keystore::detect_unsupported(bytes) {
-        let hint = kind.conversion_hint("your-keystore");
-        r.kind = "keystore".into();
-        r.title = format!("Bouncy Castle {} keystore", kind.name());
-        r.format = kind.store_type().into();
-        r.keystore_format = Some(kind.store_type().into());
-        r.summary = format!("Bouncy Castle {} keystore (unsupported). {hint}", kind.name());
-        r.warnings.push(hint);
-        return Ok(r);
-    }
-    if x509_parser::parse_x509_certificate(bytes).is_ok() {
-        return certificates_result(r, vec![bytes.to_vec()], format);
+        return Ok(res);
     }
     if let Ok(csr) = x509::parse_csr(bytes) {
         r.kind = "csr".into();
         r.title = "Certificate signing request (PKCS#10)".into();
         r.format = format.into();
-        r.summary = format!("{} — {} {}-bit key, signature {}", csr.subject, csr.public_key_algorithm, csr.key_size, if csr.signature_valid { "valid" } else { "INVALID" });
-        if !csr.signature_valid {
+        let state = match (csr.signature_checked, csr.signature_valid) {
+            (true, true) => "valid".to_string(),
+            (true, false) => "INVALID".to_string(),
+            (false, _) => format!("not checked ({} is not computed here)", csr.signature_algorithm),
+        };
+        r.summary = format!("{} — {} {}-bit key, signature {state}", csr.subject, csr.public_key_algorithm, csr.key_size);
+        if csr.signature_checked && !csr.signature_valid {
             r.warnings.push("the request's self-signature does not verify; it was altered or corrupted".into());
+        } else if !csr.signature_checked {
+            r.warnings.push(format!("the request is signed with {}, which Keystore Studio cannot verify, so it cannot be signed here", csr.signature_algorithm));
         }
         r.csr = Some(csr);
         return Ok(r);
@@ -176,30 +221,51 @@ fn examine_der(bytes: &[u8], password: Option<&str>, format: &str) -> Res<Detect
         }
         return Ok(r);
     }
-    if let Ok(key) = PrivateKey::from_pkcs8_der(bytes) {
-        r.kind = "private_key".into();
-        r.title = "Private key (PKCS#8)".into();
-        r.format = format.into();
-        r.summary = format!("{} {}-bit private key", key.algorithm(), key.key_size());
-        r.warnings.push("this private key is not encrypted".into());
-        r.key = Some(key_info_private(&key, "PKCS#8"));
-        return Ok(r);
+    // A Netscape certificate sequence or a PkiPath: certificates in an envelope of their own.
+    if let Ok(certs) = convert::read_certificates(bytes) {
+        return certificates_result(r, certs, format);
     }
-    if keys::split_spki(bytes).is_ok()
-        && let Ok(info) = key_info_public(bytes, "SubjectPublicKeyInfo")
+    if let Ok(key) = PrivateKey::from_pkcs8_der(bytes) {
+        return Ok(private_result(r, &key, "Private key (PKCS#8)", "PKCS#8", false));
+    }
+    if keys::is_encrypted_pkcs8(bytes) {
+        return Ok(match password.filter(|p| !p.is_empty()).map(|pw| PrivateKey::from_bytes(bytes, Some(pw))) {
+            Some(Ok(key)) => private_result(r, &key, "Encrypted private key (PKCS#8)", "encrypted PKCS#8", true),
+            Some(Err(err)) => {
+                let mut res = locked_key_result(r, "Encrypted private key (PKCS#8)", "encrypted PKCS#8", &pbe_description(bytes), None);
+                res.warnings.push(err);
+                res
+            }
+            None => locked_key_result(r, "Encrypted private key (PKCS#8)", "encrypted PKCS#8", &pbe_description(bytes), None),
+        });
+    }
+    if let Some(label) = keys::traditional_label(bytes)
+        && let Ok(key) = PrivateKey::from_bytes(bytes, None)
     {
-        r.kind = "public_key".into();
-        r.title = "Public key".into();
-        r.format = format.into();
-        r.summary = format!("{} {}-bit public key", info.algorithm, info.key_size);
-        r.key = Some(info);
-        return Ok(r);
+        let fmt = traditional_format(label);
+        return Ok(private_result(r, &key, &format!("Private key ({fmt})"), fmt, false));
+    }
+    if keys::split_spki(bytes).is_ok() && key_info_public(bytes, "SubjectPublicKeyInfo").is_ok() {
+        return public_result(r, bytes, "Public key", "SubjectPublicKeyInfo");
+    }
+    if let Ok(key) = keys::rsa_public_from_pkcs1(bytes) {
+        return public_result(r, &keys::rsa_spki(&key), "RSA public key (PKCS#1)", "PKCS#1");
     }
     r.kind = "unknown".into();
     r.title = "Unrecognised data".into();
     r.format = "binary".into();
     r.summary = "Not a certificate, CSR, CRL, PKCS#7, key or keystore that Keystore Studio recognises.".into();
     Ok(r)
+}
+
+/// "PKCS#1", "SEC1" or "DSA" for a traditional private key PEM label.
+fn traditional_format(label: &str) -> &'static str {
+    match label {
+        "RSA PRIVATE KEY" => "PKCS#1",
+        "EC PRIVATE KEY" => "SEC1",
+        "DSA PRIVATE KEY" => "DSA",
+        _ => "PKCS#8",
+    }
 }
 
 pub fn examine(bytes: &[u8], password: Option<&str>) -> Res<DetectionResult> {
@@ -222,54 +288,60 @@ pub fn examine(bytes: &[u8], password: Option<&str>) -> Res<DetectionResult> {
         let first = &blocks[0];
         match first.tag.as_str() {
             t if t.contains("PRIVATE KEY") => {
-                r.kind = "private_key".into();
-                if t == "ENCRYPTED PRIVATE KEY" {
-                    r.title = "Encrypted private key (PKCS#8)".into();
-                    r.format = "PEM (encrypted PKCS#8)".into();
-                    match password.filter(|p| !p.is_empty()) {
-                        Some(pw) => {
-                            let key = PrivateKey::from_bytes(trimmed.as_bytes(), Some(pw))?;
-                            r.summary = format!("{} {}-bit private key (decrypted with the supplied password)", key.algorithm(), key.key_size());
-                            let mut info = key_info_private(&key, "PKCS#8");
-                            info.encrypted = true;
-                            r.key = Some(info);
-                        }
-                        None => {
-                            let alg = yasna::parse_der(&first.der, |r| {
-                                r.read_sequence(|r| {
-                                    let a = crate::pbe::read_algorithm_id(r.next())?;
-                                    r.next().read_der()?;
-                                    Ok(a)
-                                })
-                            })
-                            .ok();
-                            r.summary =
-                                format!("Protected with {}. Enter its password to inspect the key.", alg.as_ref().map(crate::pbe::describe_algorithm).unwrap_or_else(|| "an unknown scheme".into()));
-                            r.key = Some(KeyInfo { kind: "private".into(), algorithm: "encrypted".into(), encrypted: true, format: "PKCS#8".into(), ..Default::default() });
+                let pw = password.filter(|p| !p.is_empty());
+                let mut res = match t {
+                    "OPENSSH PRIVATE KEY" => {
+                        let envelope = openssh::Envelope::parse(&first.der)?;
+                        let spki = openssh::spki_from_blob(envelope.public_blob).ok();
+                        let protection = format!("{} (bcrypt, {} rounds)", envelope.cipher, envelope.rounds().unwrap_or(0));
+                        match (envelope.is_encrypted(), pw) {
+                            (false, _) => private_result(r, &PrivateKey::from_bytes(trimmed.as_bytes(), None)?, "OpenSSH private key", "OpenSSH", false),
+                            (true, Some(pw)) => match PrivateKey::from_bytes(trimmed.as_bytes(), Some(pw)) {
+                                Ok(key) => private_result(r, &key, "OpenSSH private key", "OpenSSH", true),
+                                Err(err) => {
+                                    let mut res = locked_key_result(r, "OpenSSH private key", "OpenSSH", &protection, spki.as_deref());
+                                    res.warnings.push(err);
+                                    res
+                                }
+                            },
+                            (true, None) => locked_key_result(r, "OpenSSH private key", "OpenSSH", &protection, spki.as_deref()),
                         }
                     }
-                } else {
-                    let key = PrivateKey::from_bytes(trimmed.as_bytes(), password)?;
-                    let fmt = match t {
-                        "RSA PRIVATE KEY" => "PKCS#1",
-                        "EC PRIVATE KEY" => "SEC1",
-                        _ => "PKCS#8",
-                    };
-                    r.title = format!("Private key ({fmt})");
-                    r.format = format!("PEM ({fmt})");
-                    r.summary = format!("{} {}-bit private key", key.algorithm(), key.key_size());
-                    r.warnings.push("this private key is not encrypted".into());
-                    r.key = Some(key_info_private(&key, fmt));
-                }
+                    _ => {
+                        let (title, fmt, protection) = match (t, first.legacy_encryption()) {
+                            ("ENCRYPTED PRIVATE KEY", _) => ("Encrypted private key (PKCS#8)".to_string(), "encrypted PKCS#8", Some(pbe_description(&first.der))),
+                            (t, Some(dek)) => {
+                                let fmt = traditional_format(t);
+                                (format!("Encrypted private key ({fmt})"), fmt, Some(format!("{} (OpenSSL traditional encryption)", dek.split(',').next().unwrap_or(dek))))
+                            }
+                            (t, None) => {
+                                let fmt = if t == "PRIVATE KEY" || t == "ANY PRIVATE KEY" { "PKCS#8" } else { traditional_format(t) };
+                                (format!("Private key ({fmt})"), fmt, None)
+                            }
+                        };
+                        match (protection, pw) {
+                            (None, _) => private_result(r, &PrivateKey::from_bytes(trimmed.as_bytes(), None)?, &title, fmt, false),
+                            (Some(protection), None) => locked_key_result(r, &title, fmt, &protection, None),
+                            (Some(protection), Some(pw)) => match PrivateKey::from_bytes(trimmed.as_bytes(), Some(pw)) {
+                                Ok(key) => private_result(r, &key, &title, fmt, true),
+                                Err(err) => {
+                                    let mut res = locked_key_result(r, &title, fmt, &protection, None);
+                                    res.warnings.push(err);
+                                    res
+                                }
+                            },
+                        }
+                    }
+                };
+                res.format = format!("PEM ({})", res.format);
                 if !certs.is_empty() {
-                    r.certificates = certs.iter().filter_map(|d| x509::parse_certificate(d).ok()).collect();
-                    if let (Ok(key), Some(leaf)) = (PrivateKey::from_bytes(trimmed.as_bytes(), password), certs.first()) {
+                    res.certificates = certs.iter().filter_map(|d| x509::parse_certificate(d).ok()).collect();
+                    if let Ok(key) = PrivateKey::from_bytes(trimmed.as_bytes(), pw) {
                         let matches = certs.iter().any(|c| x509::cert_summary(c).map(|s| keys::key_matches_spki(&key, &s.spki)).unwrap_or(false));
-                        let _ = leaf;
-                        r.summary.push_str(if matches { " — matches the included certificate" } else { " — does NOT match the included certificate(s)" });
+                        res.summary.push_str(if matches { " — matches the included certificate" } else { " — does NOT match the included certificate(s)" });
                     }
                 }
-                return Ok(r);
+                return Ok(res);
             }
             "PUBLIC KEY" | "RSA PUBLIC KEY" => {
                 let spki = keys::public_key_from_bytes(trimmed.as_bytes())?;
@@ -331,19 +403,66 @@ pub fn examine(bytes: &[u8], password: Option<&str>) -> Res<DetectionResult> {
         r.jwt = Some(info);
         return Ok(r);
     }
-    // OpenSSH public key line
-    if let Some((kind, rest)) = trimmed.split_once(' ')
-        && (kind.starts_with("ssh-") || kind.starts_with("ecdsa-sha2-"))
-    {
-        let blob = unb64(rest.split_whitespace().next().unwrap_or(""))?;
-        let mut r = base(bytes);
-        r.kind = "public_key".into();
-        r.title = "OpenSSH public key".into();
-        r.format = "OpenSSH".into();
-        let fp = format!("SHA256:{}", base64::Engine::encode(&base64::engine::general_purpose::STANDARD_NO_PAD, sha256(&blob)));
-        r.summary = format!("{kind} key, fingerprint {fp}");
-        r.key = Some(KeyInfo { kind: "public".into(), algorithm: kind.into(), format: "OpenSSH".into(), public_key_sha256: Some(fp), ..Default::default() });
-        return Ok(r);
+    // RFC 4716 ("---- BEGIN SSH2 PUBLIC KEY ----"), as PuTTYgen and commercial SSH write it.
+    if openssh::looks_like_ssh2_public_key(trimmed) {
+        let (blob, comment) = openssh::parse_ssh2_public_key(trimmed)?;
+        let mut res = public_result(base(bytes), &openssh::spki_from_blob(&blob)?, "SSH2 public key (RFC 4716)", "RFC 4716")?;
+        if !comment.is_empty() {
+            res.summary.push_str(&format!(" — {comment}"));
+        }
+        return Ok(res);
+    }
+    // OpenSSH public key line, or an OpenSSH certificate.
+    if let Some(line) = trimmed.lines().map(str::trim).find(|l| !l.is_empty() && !l.starts_with('#')) {
+        let words: Vec<&str> = line.split_whitespace().collect();
+        if let Some(kind) = words.iter().find(|w| w.starts_with("ssh-") || w.starts_with("ecdsa-sha2-") || w.starts_with("sk-")) {
+            let fp = words
+                .iter()
+                .skip_while(|w| *w != kind)
+                .nth(1)
+                .and_then(|b| unb64(b).ok())
+                .map(|blob| format!("SHA256:{}", base64::Engine::encode(&base64::engine::general_purpose::STANDARD_NO_PAD, sha256(&blob))));
+            if kind.contains("-cert-v01@openssh.com") {
+                let mut r = base(bytes);
+                r.kind = "public_key".into();
+                r.title = "OpenSSH certificate".into();
+                r.format = "OpenSSH".into();
+                r.summary = format!("{kind} — an OpenSSH certificate, which is not X.509. Inspect it with ssh-keygen -L -f <file>.");
+                return Ok(r);
+            }
+            return Ok(match openssh::spki_from_line(line) {
+                Ok((spki, comment)) => {
+                    let mut res = public_result(base(bytes), &spki, "OpenSSH public key", "OpenSSH")?;
+                    if let Some(fp) = &fp {
+                        res.summary.push_str(&format!(", fingerprint {fp}"));
+                    }
+                    if !comment.is_empty() {
+                        res.summary.push_str(&format!(" — {comment}"));
+                    }
+                    res
+                }
+                Err(err) => {
+                    let mut r = base(bytes);
+                    r.kind = "public_key".into();
+                    r.title = "OpenSSH public key".into();
+                    r.format = "OpenSSH".into();
+                    r.summary = format!("{kind} key{}", fp.as_ref().map(|f| format!(", fingerprint {f}")).unwrap_or_default());
+                    r.warnings.push(err);
+                    r.key = Some(KeyInfo { kind: "public".into(), algorithm: kind.to_string(), format: "OpenSSH".into(), public_key_sha256: fp, ..Default::default() });
+                    r
+                }
+            });
+        }
+    }
+    // JSON Web Key, or a JWK set.
+    if trimmed.starts_with('{') && serde_json::from_str::<serde_json::Value>(trimmed).is_ok() {
+        if let Ok(key) = PrivateKey::from_jwk(trimmed) {
+            let mut res = private_result(base(bytes), &key, "JSON Web Key (private)", "JWK", false);
+            res.format = "JWK".into();
+            return Ok(res);
+        }
+        let (spki, _) = convert::spki_from_any(trimmed.as_bytes(), None)?;
+        return public_result(base(bytes), &spki, "JSON Web Key (public)", "JWK");
     }
     // Bare base64 of DER
     if let Ok(der) = unb64(trimmed)
@@ -357,7 +476,7 @@ pub fn examine(bytes: &[u8], password: Option<&str>) -> Res<DetectionResult> {
     r.kind = "unknown".into();
     r.title = "Unrecognised text".into();
     r.format = "text".into();
-    r.summary = "Expected PEM (-----BEGIN …-----), a JWT, an OpenSSH public key or base64-encoded DER.".into();
+    r.summary = "Expected PEM (-----BEGIN …-----), a JWT, a JWK, an OpenSSH or SSH2 public key, or base64-encoded DER.".into();
     Ok(r)
 }
 
@@ -410,6 +529,78 @@ mod tests {
         assert_eq!(signed.kind, "pkcs7");
         assert_ne!(signed.format, "PKCS#7 certificate bundle");
         assert!(!signed.certificates.is_empty(), "a signature carries its signer's certificate");
+    }
+
+    #[test]
+    fn encrypted_and_unusual_keys_are_described_not_refused() {
+        let e = crate::ops::generate_key_pair(&crate::ops::tests_support::input("k", "ECDSA", false), None).unwrap();
+        let pem = e.private_key_pem.clone().unwrap();
+        let spki_sha = |r: &DetectionResult| r.key.as_ref().and_then(|k| k.public_key_sha256.clone());
+        let plain = examine(pem.as_bytes(), None).unwrap();
+        assert!(plain.warnings.iter().any(|w| w.contains("not encrypted")));
+
+        // OpenSSH, encrypted: described without the password, opened with it.
+        let ssh = crate::convert::private_key(pem.as_bytes(), None, "openssh", Some("pw-1"), "c").unwrap().bytes;
+        let locked = examine(&ssh, None).unwrap();
+        let info = locked.key.as_ref().unwrap();
+        assert!(info.encrypted && info.algorithm == "ECDSA", "{info:?}");
+        assert!(locked.summary.contains("aes256-ctr"), "{}", locked.summary);
+        assert_eq!(spki_sha(&locked), spki_sha(&plain), "the public key is known without the password");
+        assert!(!locked.warnings.iter().any(|w| w.contains("not encrypted")));
+        let opened = examine(&ssh, Some("pw-1")).unwrap();
+        assert!(opened.summary.contains("decrypted"), "{}", opened.summary);
+        assert!(!examine(&ssh, Some("wrong")).unwrap().warnings.is_empty());
+
+        // Encrypted PKCS#8 as DER, and a SEC1 key as DER.
+        let enc = crate::convert::private_key(pem.as_bytes(), None, "pkcs8_encrypted_der", Some("pw-2"), "").unwrap().bytes;
+        let r = examine(&enc, None).unwrap();
+        assert!(r.key.as_ref().unwrap().encrypted && r.summary.contains("PBES2"), "{}", r.summary);
+        let sec1 = crate::convert::private_key(pem.as_bytes(), None, "traditional_der", None, "").unwrap().bytes;
+        assert_eq!(examine(&sec1, None).unwrap().format, "SEC1");
+
+        // JWK, private and public; RFC 4716.
+        let jwk = String::from_utf8(crate::convert::private_key(pem.as_bytes(), None, "jwk", None, "").unwrap().bytes).unwrap();
+        assert_eq!(examine(jwk.as_bytes(), None).unwrap().kind, "private_key");
+        let public_jwk = crate::convert::public_key(pem.as_bytes(), None, "jwk", "").unwrap().bytes;
+        assert_eq!(spki_sha(&examine(&public_jwk, None).unwrap()), spki_sha(&plain));
+        let ssh2 = crate::convert::public_key(pem.as_bytes(), None, "ssh2", "a comment").unwrap().bytes;
+        let r = examine(&ssh2, None).unwrap();
+        assert_eq!((r.kind.as_str(), r.format.as_str()), ("public_key", "RFC 4716"));
+        assert_eq!(spki_sha(&r), spki_sha(&plain));
+
+        // An OpenSSH certificate is named, not mistaken for a key.
+        let cert = examine(b"ssh-ed25519-cert-v01@openssh.com AAAAIHNzaC1lZDI1NTE5LWNlcnQtdjAxQG9wZW5zc2guY29tAAAA host", None).unwrap();
+        assert_eq!(cert.title, "OpenSSH certificate");
+    }
+
+    #[test]
+    fn certificate_containers_without_pem_are_recognised() {
+        let ca = crate::ops::generate_key_pair(&crate::ops::tests_support::input("ca", "ECDSA", true), None).unwrap();
+        let leaf = crate::ops::generate_key_pair(&crate::ops::tests_support::input("leaf", "ECDSA", false), Some(&ca)).unwrap();
+        let chain = crate::entry::chain_der(&leaf).unwrap();
+        assert_eq!(examine(&chain.concat(), None).unwrap().certificates.len(), 2, "certificates back to back");
+        let pkipath = crate::convert::certificates(&chain.iter().map(|c| to_pem("CERTIFICATE", c)).collect::<String>().into_bytes(), "pkipath", true).unwrap().bytes;
+        assert_eq!(examine(&pkipath, None).unwrap().certificates.len(), 2, "PkiPath");
+        let nseq = yasna::construct_der(|w| {
+            w.write_sequence(|w| {
+                w.next().write_oid(&yasna::models::ObjectIdentifier::from_slice(&[2, 16, 840, 1, 113730, 2, 5]));
+                w.next().write_tagged(yasna::Tag::context(0), |w| {
+                    w.write_sequence(|w| {
+                        for c in &chain {
+                            w.next().write_der(c);
+                        }
+                    })
+                });
+            })
+        });
+        assert_eq!(examine(&nseq, None).unwrap().certificates.len(), 2, "Netscape certificate sequence");
+        // A keystore of each Bouncy Castle format is named for what it is.
+        for (format, name) in [(keystore::Format::Bks, "BKS"), (keystore::Format::Uber, "UBER"), (keystore::Format::Bcfks, "BCFKS")] {
+            let bytes = keystore::encode(std::slice::from_ref(&leaf), "pw123456", format).unwrap();
+            let r = examine(&bytes, Some("pw123456")).unwrap();
+            assert_eq!((r.kind.as_str(), r.keystore_format.as_deref()), ("keystore", Some(name)));
+            assert!(r.summary.starts_with("1 entries"), "{}", r.summary);
+        }
     }
 
     #[test]

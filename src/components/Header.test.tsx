@@ -3,13 +3,11 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import { Header } from "./Header";
 
-const state = vi.hoisted(() => ({ canUndo: false, canRedo: false }));
+const state = vi.hoisted(() => ({ canUndo: false, canRedo: false, tab: "home", vault: { unlocked: false } }));
 
 vi.mock("../state/store", () => ({
   useStore: () => ({
     ...state,
-    tab: "home",
-    vault: { unlocked: false },
     setTab: vi.fn(),
     undo: vi.fn(),
     redo: vi.fn(),
@@ -40,5 +38,27 @@ describe("header history controls", () => {
     if (canUndo) expect(undo).toBeLessThan(search);
     if (canRedo) expect(redo).toBeLessThan(search);
     if (canUndo && canRedo) expect(undo).toBeLessThan(redo);
+  });
+
+  describe("header vault action", () => {
+    it.each([
+      ["home", true, true],
+      ["vault", true, false],
+      ["home", false, false],
+      ["vault", false, false],
+    ])("shows the lock action on %s when unlocked=%s: %s", (tab, unlocked, visible) => {
+      state.tab = tab;
+      state.vault.unlocked = unlocked;
+      const markup = renderToStaticMarkup(<Header onOpenPalette={() => {}} />);
+      const button = markup.match(/<button[^>]*data-testid="header-lock-vault"[\s\S]*?<\/button>/)?.[0];
+      expect(Boolean(button)).toBe(visible);
+      if (button) {
+        expect(button).toContain('aria-label="Lock password vault"');
+        expect(button).not.toContain(">Lock password vault<");
+        expect(button).toContain("<svg");
+        expect(button).toContain("border-line-strong");
+        expect(button).toContain("!w-9 !px-0 !text-success");
+      }
+    });
   });
 });

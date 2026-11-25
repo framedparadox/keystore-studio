@@ -69,8 +69,13 @@ fn build_cert_id(subject_der: &[u8], issuer_der: &[u8]) -> Res<CertId> {
     let issuer = x509::cert_summary(issuer_der)?;
     // RFC 6960 §4.1.1: issuerKeyHash is the SHA-1 of the issuer's subjectPublicKey BIT STRING
     // contents (not the whole SubjectPublicKeyInfo), matching every CA and responder in practice.
-    let key_bits = yasna::parse_der(&issuer.spki, |r| r.read_sequence(|r| { r.next().read_der()?; r.next().read_bitvec_bytes().map(|(b, _)| b) }))
-        .map_err(|err| format!("cannot read the issuer's public key: {err}"))?;
+    let key_bits = yasna::parse_der(&issuer.spki, |r| {
+        r.read_sequence(|r| {
+            r.next().read_der()?;
+            r.next().read_bitvec_bytes().map(|(b, _)| b)
+        })
+    })
+    .map_err(|err| format!("cannot read the issuer's public key: {err}"))?;
     Ok(CertId { issuer_name_hash: sha1(&issuer.subject_raw), issuer_key_hash: sha1(&key_bits), serial: subject.serial })
 }
 
@@ -132,8 +137,7 @@ fn parse_generalized_time(body: &[u8]) -> Option<String> {
     let text = std::str::from_utf8(body).ok()?;
     let trimmed = text.trim_end_matches('Z');
     let whole = trimmed.split('.').next()?;
-    let dt = chrono::NaiveDateTime::parse_from_str(whole, "%Y%m%d%H%M%S").ok()?;
-    Some(dt.format("%Y-%m-%d %H:%M:%S UTC").to_string())
+    Some(crate::util::parse_compact(whole)?.display())
 }
 
 /// Reads a `Time` (GeneralizedTime, tag+length included) and formats it, or "" if unreadable.
@@ -165,9 +169,7 @@ struct SingleResponse {
 fn read_single_response(r: yasna::BERReader, want: &CertId) -> yasna::ASN1Result<SingleResponse> {
     r.read_sequence(|r| {
         let got_id = r.next().read_sequence(read_cert_id)?;
-        let matches = got_id.issuer_name_hash == want.issuer_name_hash
-            && got_id.issuer_key_hash == want.issuer_key_hash
-            && trim_leading_zeros(&got_id.serial) == trim_leading_zeros(&want.serial);
+        let matches = got_id.issuer_name_hash == want.issuer_name_hash && got_id.issuer_key_hash == want.issuer_key_hash && trim_leading_zeros(&got_id.serial) == trim_leading_zeros(&want.serial);
         // CertStatus ::= CHOICE { good [0] IMPLICIT NULL, revoked [1] IMPLICIT RevokedInfo,
         //                         unknown [2] IMPLICIT UnknownInfo }
         let tag = r.next().lookahead_tag()?.tag_number;

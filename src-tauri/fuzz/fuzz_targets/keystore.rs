@@ -1,4 +1,4 @@
-//! Keystore decoding: PKCS#12, JKS and JCEKS, including their password-based decryption, MAC
+//! Keystore decoding: PKCS#12, JKS, JCEKS, BKS, UBER and BCFKS, including their password-based decryption, MAC
 //! checks, Java serialization reader and nested safe contents.
 #![no_main]
 use libfuzzer_sys::fuzz_target;
@@ -11,4 +11,7 @@ fuzz_target!(|data: &[u8]| {
     // a file that fails to sniff would never exercise them.
     let _ = keystore_studio_lib::pkcs12::decode(data, "fuzz");
     let _ = keystore_studio_lib::jks::decode(data, "fuzz", &empty);
+    let _ = keystore_studio_lib::bks::decode(data, "fuzz", &empty);
+    let _ = keystore_studio_lib::bks::decode_uber(data, "fuzz", &empty);
+    let _ = keystore_studio_lib::bcfks::decode(data, "fuzz", &empty);
 });
