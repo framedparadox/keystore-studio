@@ -1,0 +1,14 @@
+{
+  "name": "Keystore Studio",
+  "short_name": "Keystore Studio",
+  "description": "A native desktop workbench for Java keystores, PKCS#12 files and X.509 certificates.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "browser",
+  "background_color": "#fbfbfd",
+  "theme_color": "#fbfbfd",
+  "icons": [
+    { "src": "assets/img/icon-180.png", "sizes": "180x180", "type": "image/png" },
+    { "src": "assets/img/icon.png", "sizes": "1000x1000", "type": "image/png", "purpose": "any" }
+  ]
+}

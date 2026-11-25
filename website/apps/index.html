@@ -1,0 +1,432 @@
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>More apps — Keystore Studio</title>
+    <meta
+      name="description"
+      content="More from the developer of Keystore Studio: Anchor, SwiftX and DockDev for Windows, VsGit, MuleSoft AES, Certificate Utility and Developer Utility for VS Code, and the mcp-secure-remote and pr-comments packages. Local-first, no accounts, no telemetry, open source."
+    />
+    <meta name="theme-color" content="#fbfbfd" />
+    <meta name="color-scheme" content="light dark" />
+    <link rel="canonical" href="https://keystore-studio.app/apps/" />
+    <link rel="icon" type="image/png" href="../assets/img/favicon-64.png" />
+    <link rel="apple-touch-icon" href="../assets/img/icon-180.png" />
+    <link rel="manifest" href="../site.webmanifest" />
+    <meta property="og:url" content="https://keystore-studio.app/apps/" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Keystore Studio" />
+    <meta property="og:title" content="More from the developer — Keystore Studio" />
+    <meta
+      property="og:description"
+      content="Windows apps, VS Code extensions and MCP and CLI tools from the developer of Keystore Studio. Local-first, no accounts, no telemetry, free and open source."
+    />
+    <meta property="og:image" content="https://keystore-studio.app/assets/img/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="Keystore Studio app icon with the words: Keystore Studio. Java keystores and certificates, in one native app." />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="More from the developer — Keystore Studio" />
+    <meta name="twitter:description" content="Windows apps, VS Code extensions and MCP and CLI tools. Local-first, no accounts, no telemetry, open source." />
+    <meta name="twitter:image" content="https://keystore-studio.app/assets/img/og.png" />
+    <script src="../assets/js/theme-init.js"></script>
+    <link rel="stylesheet" href="../assets/css/base.css" />
+    <link rel="stylesheet" href="../assets/css/iso.css" />
+    <link rel="stylesheet" href="../assets/css/pages.css" />
+    <link rel="stylesheet" href="../assets/css/extra.css" />
+  </head>
+  <body class="page-apps">
+    <a class="skip-link" href="#main">Skip to content</a>
+
+    <!-- ============ NAV (shared) ============ -->
+    <header class="nav" role="banner">
+      <div class="container nav-inner">
+        <a class="brand" href="../" aria-label="Keystore Studio home">
+          <img class="brand-mark app-icon" src="../assets/img/icon-180.png" alt="" width="26" height="26" />
+          <span>Keystore Studio</span>
+        </a>
+        <nav aria-label="Primary">
+          <ul class="nav-links" id="nav-links">
+            <li><a href="../#features">Features</a></li>
+            <li><a href="../#privacy">Privacy</a></li>
+            <li><a href="../#specs">Specs</a></li>
+            <li><a href="../changelog/">Changelog</a></li>
+            <li><a href="./" aria-current="page">More apps</a></li>
+            <li><a href="https://github.com/framedparadox/keystore-studio" rel="noopener">GitHub</a></li>
+          </ul>
+        </nav>
+        <div class="nav-actions">
+          <button class="icon-btn theme-toggle" type="button" aria-label="Switch theme">
+            <svg class="i-auto" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 3.5v17" /><path d="M12 3.5a8.5 8.5 0 0 1 0 17z" fill="currentColor" stroke="none"/></svg>
+            <svg class="i-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.3 5.3l1.4 1.4M17.3 17.3l1.4 1.4M5.3 18.7l1.4-1.4M17.3 6.7l1.4-1.4"/></svg>
+            <svg class="i-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5z"/></svg>
+          </button>
+          <a class="btn btn-sm" href="../downloads/">Download</a>
+          <button class="icon-btn nav-menu-btn" type="button" aria-label="Menu" aria-expanded="false" aria-controls="nav-links">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M4 8h16M4 16h16"/></svg>
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <!-- SVG symbols used across the page -->
+    <svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+      <symbol id="g-out" viewBox="0 0 24 24"><path d="M8 16L16.5 7.5M9.5 7h7.5v7.5" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+      <symbol id="g-copy" viewBox="0 0 24 24"><rect x="8.5" y="8.5" width="11" height="11" rx="2.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M15.5 8.5V6a2.5 2.5 0 0 0-2.5-2.5H6A2.5 2.5 0 0 0 3.5 6v7A2.5 2.5 0 0 0 6 15.5h2.5" fill="none" stroke="currentColor" stroke-width="1.8"/></symbol>
+      <symbol id="g-windows" viewBox="0 0 24 24"><rect x="3.5" y="3.5" width="7.6" height="7.6" rx="1.2" fill="currentColor"/><rect x="12.9" y="3.5" width="7.6" height="7.6" rx="1.2" fill="currentColor"/><rect x="3.5" y="12.9" width="7.6" height="7.6" rx="1.2" fill="currentColor"/><rect x="12.9" y="12.9" width="7.6" height="7.6" rx="1.2" fill="currentColor"/></symbol>
+      <symbol id="g-code" viewBox="0 0 24 24"><path d="M8.5 7L3.5 12l5 5M15.5 7l5 5-5 5" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+      <symbol id="g-term" viewBox="0 0 24 24"><rect x="2.75" y="4.25" width="18.5" height="15.5" rx="3" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M7 10l3 2.5L7 15M12.5 15.5h4.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+      <symbol id="g-github" viewBox="0 0 24 24"><path d="M9 19c-4.3 1.4-4.3-2.5-6-3m12 5v-3.5c0-1 .1-1.4-.5-2 2.8-.3 5.5-1.4 5.5-6a4.6 4.6 0 0 0-1.3-3.2 4.2 4.2 0 0 0-.1-3.2s-1.1-.3-3.5 1.3a12.3 12.3 0 0 0-6.2 0C6.5 2.8 5.4 3.1 5.4 3.1a4.2 4.2 0 0 0-.1 3.2A4.6 4.6 0 0 0 4 9.5c0 4.6 2.7 5.7 5.5 6-.6.6-.6 1.2-.5 2V21" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+      <symbol id="g-bag" viewBox="0 0 24 24"><path d="M5 8.5h14l-1 11.5H6L5 8.5z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M9 8.5V7a3 3 0 0 1 6 0v1.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+      <symbol id="g-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M3.5 12h17M12 3.5c2.4 2.6 3.5 5.4 3.5 8.5s-1.1 5.9-3.5 8.5c-2.4-2.6-3.5-5.4-3.5-8.5s1.1-5.9 3.5-8.5z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></symbol>
+      <symbol id="g-pkg" viewBox="0 0 24 24"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9L12 3z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M4 7.5l8 4.5 8-4.5M12 12v9" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></symbol>
+      <symbol id="g-link" viewBox="0 0 24 24"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1.2 1.2M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1.2-1.2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+    </svg>
+
+    <main id="main">
+      <!-- ============ HERO ============ -->
+      <section class="x-hero" aria-labelledby="apps-title">
+        <div class="container x-hero-grid">
+          <div class="x-hero-copy">
+            <p class="eyebrow reveal">More apps</p>
+            <h1 id="apps-title" class="display-l reveal" style="--i: 1">More from the developer.</h1>
+            <p class="lede reveal" style="--i: 2">
+              The same idea as Keystore Studio, applied to a few other things:
+              <strong>local-first, no accounts, no telemetry, free and open source.</strong>
+            </p>
+            <ul class="x-principles reveal" style="--i: 3" aria-label="Shared principles">
+              <li>Local-first</li>
+              <li>No accounts</li>
+              <li>No telemetry</li>
+              <li>Open source</li>
+            </ul>
+            <nav class="x-jump reveal" style="--i: 4" aria-label="Jump to a group">
+              <a href="#windows"><svg aria-hidden="true"><use href="#g-windows" /></svg>Windows apps <span class="x-count">3</span></a>
+              <a href="#vscode"><svg aria-hidden="true"><use href="#g-code" /></svg>VS Code extensions <span class="x-count">4</span></a>
+              <a href="#cli"><svg aria-hidden="true"><use href="#g-term" /></svg>MCP &amp; CLI tools <span class="x-count">2</span></a>
+            </nav>
+          </div>
+          <div class="x-hero-scene reveal-scale" style="--i: 2">
+            <div class="iso-scene" data-scene="apps" data-label="Nine apps by the same developer on three shelves: three Windows apps, four VS Code extensions and two MCP and CLI tools"></div>
+            <p class="x-scene-hint small" aria-hidden="true">Hover a block to see which app it is. Click to jump to it.</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============ WINDOWS ============ -->
+      <section class="section x-group" id="windows" aria-labelledby="windows-title">
+        <div class="container">
+          <header class="x-group-head reveal">
+            <span class="os-badge"><svg aria-hidden="true"><use href="#g-windows" /></svg></span>
+            <div>
+              <h2 id="windows-title" class="display-s">Windows apps</h2>
+              <p>Floating, dock-style desktop utilities, built on WinUI 3.</p>
+            </div>
+          </header>
+
+          <div class="x-feature-grid">
+            <article class="x-feature reveal" id="app-anchor" data-app="anchor" aria-labelledby="anchor-name">
+              <div class="x-feature-top">
+                <img class="x-icon x-icon-lg" src="../assets/img/apps/anchor.png" alt="" width="88" height="88" loading="lazy" decoding="async" />
+                <span class="x-kind"><svg aria-hidden="true"><use href="#g-windows" /></svg>Windows app</span>
+              </div>
+              <h3 id="anchor-name" class="x-feature-name">Anchor</h3>
+              <p class="x-feature-tag">A dock for Windows.</p>
+              <p class="x-feature-desc">
+                A floating dock for pinning the apps, files, folders and links you use most, kept where you can reach them.
+              </p>
+              <div class="x-links">
+                <a class="btn btn-sm" href="https://anchordock-app.com/" rel="noopener"><svg aria-hidden="true"><use href="#g-globe" /></svg>Website</a>
+                <a class="chip-link" href="https://apps.microsoft.com/detail/9nlp5cwmkdj0" rel="noopener"><svg aria-hidden="true"><use href="#g-bag" /></svg>Microsoft Store</a>
+                <a class="chip-link" href="https://github.com/framedparadox/anchor-dock" rel="noopener"><svg aria-hidden="true"><use href="#g-github" /></svg>GitHub</a>
+              </div>
+            </article>
+
+            <article class="x-feature reveal" style="--i: 1" id="app-swiftx" data-app="swiftx" aria-labelledby="swiftx-name">
+              <div class="x-feature-top">
+                <img class="x-icon x-icon-lg" src="../assets/img/apps/swiftx.svg" alt="" width="88" height="88" loading="lazy" decoding="async" />
+                <span class="x-kind"><svg aria-hidden="true"><use href="#g-windows" /></svg>Windows app</span>
+              </div>
+              <h3 id="swiftx-name" class="x-feature-name">SwiftX</h3>
+              <p class="x-feature-tag">Everything you reach for, right where you are.</p>
+              <p class="x-feature-desc">
+                A quick-access orbit for apps, files, folders and links. Open it with a shortcut, a screen corner or the
+                system tray.
+              </p>
+              <div class="x-links">
+                <a class="btn btn-sm" href="https://swiftx-app.com/" rel="noopener"><svg aria-hidden="true"><use href="#g-globe" /></svg>Website</a>
+                <a class="chip-link" href="https://apps.microsoft.com/detail/9pk5wx5sswts" rel="noopener"><svg aria-hidden="true"><use href="#g-bag" /></svg>Microsoft Store</a>
+                <a class="chip-link" href="https://github.com/framedparadox/SwiftX" rel="noopener"><svg aria-hidden="true"><use href="#g-github" /></svg>GitHub</a>
+              </div>
+            </article>
+          </div>
+
+          <ul class="x-list" aria-label="More Windows apps">
+            <li class="x-row reveal" id="app-dockdev" data-app="dockdev">
+              <img class="x-icon" src="../assets/img/apps/dockdev.png" alt="" width="56" height="56" loading="lazy" decoding="async" />
+              <div class="x-row-main">
+                <h3 class="x-row-name">DockDev <span class="x-kind x-kind-sm">Windows app</span></h3>
+                <p>A floating toolbox for developers. Format JSON, decode JWTs, hash files and mask personal data, all processed on your PC.</p>
+              </div>
+              <div class="x-links x-row-links">
+                <a class="chip-link" href="https://apps.microsoft.com/detail/9n9p794jzq7p" rel="noopener"><svg aria-hidden="true"><use href="#g-bag" /></svg>Microsoft Store</a>
+                <a class="chip-link" href="https://github.com/framedparadox/dockdev" rel="noopener"><svg aria-hidden="true"><use href="#g-github" /></svg>GitHub</a>
+              </div>
+            </li>
+          </ul>
+        </div>
+      </section>
+
+      <!-- ============ VS CODE ============ -->
+      <section class="section x-group section-tint" id="vscode" aria-labelledby="vscode-title">
+        <div class="container">
+          <header class="x-group-head reveal">
+            <span class="os-badge"><svg aria-hidden="true"><use href="#g-code" /></svg></span>
+            <div>
+              <h2 id="vscode-title" class="display-s">VS Code extensions</h2>
+              <p>Focused tools that stay inside the editor, on the VS Code Marketplace and Open VSX.</p>
+            </div>
+          </header>
+
+          <!-- Companion highlight -->
+          <article class="x-pair reveal" id="app-certi" data-app="certi" aria-labelledby="certi-name">
+            <div class="x-pair-copy">
+              <p class="x-pair-eyebrow"><span class="x-pair-dot" aria-hidden="true"></span>Pairs well with Keystore Studio</p>
+              <h3 id="certi-name" class="x-pair-name">Certificate Utility</h3>
+              <p class="x-pair-desc">
+                Keystore Studio is the workbench; Certificate Utility keeps the quick checks in your editor. Inspect and
+                validate certificates, convert them, work through keystore tasks, and scan for certificates that are
+                about to expire, without leaving VS Code.
+              </p>
+              <div class="term term-inline x-cmd">
+                <pre id="cmd-certi"><span class="p">code --install-extension framedparadox.certi</span></pre>
+                <button class="copy-btn" type="button" data-copy="code --install-extension framedparadox.certi" aria-label="Copy install command for Certificate Utility"><svg aria-hidden="true"><use href="#g-copy" /></svg><span data-copy-label>Copy</span></button>
+              </div>
+              <div class="x-links">
+                <a class="chip-link" href="https://marketplace.visualstudio.com/items?itemName=framedparadox.certi" rel="noopener"><svg aria-hidden="true"><use href="#g-pkg" /></svg>Marketplace</a>
+                <a class="chip-link" href="https://open-vsx.org/extension/framedparadox/certi" rel="noopener"><svg aria-hidden="true"><use href="#g-pkg" /></svg>Open VSX</a>
+                <a class="chip-link" href="https://github.com/framedparadox/cert-util-vscode" rel="noopener"><svg aria-hidden="true"><use href="#g-github" /></svg>GitHub</a>
+              </div>
+            </div>
+            <div class="x-pair-art" aria-hidden="true">
+              <div class="x-pair-stack">
+                <span class="x-pair-tile"><img src="../assets/img/apps/certi.png" alt="" width="96" height="96" loading="lazy" decoding="async" /></span>
+                <span class="x-pair-plus">+</span>
+                <span class="x-pair-tile"><img class="app-icon" src="../assets/img/icon-180.png" alt="" width="96" height="96" loading="lazy" decoding="async" /></span>
+              </div>
+              <p class="x-pair-caption">In the editor <span>·</span> On the desktop</p>
+            </div>
+          </article>
+
+          <ul class="x-list" aria-label="More VS Code extensions">
+            <li class="x-row reveal" id="app-vsgit" data-app="vsgit">
+              <img class="x-icon" src="../assets/img/apps/vsgit.png" alt="" width="56" height="56" loading="lazy" decoding="async" />
+              <div class="x-row-main">
+                <h3 class="x-row-name">VsGit <span class="x-kind x-kind-sm">Extension</span></h3>
+                <p>A full Git client for VS Code that drives the real git binary, with 173 commands and a commit graph.</p>
+                <button class="x-cmd-chip" type="button" data-copy="code --install-extension framedparadox.vsgit-vscode" aria-label="Copy install command for VsGit"><code>code --install-extension framedparadox.vsgit-vscode</code><span class="x-cmd-act"><svg aria-hidden="true"><use href="#g-copy" /></svg><span data-copy-label>Copy</span></span></button>
+              </div>
+              <div class="x-links x-row-links">
+                <a class="chip-link" href="https://marketplace.visualstudio.com/items?itemName=framedparadox.vsgit-vscode" rel="noopener"><svg aria-hidden="true"><use href="#g-pkg" /></svg>Marketplace</a>
+                <a class="chip-link" href="https://open-vsx.org/extension/framedparadox/vsgit-vscode" rel="noopener"><svg aria-hidden="true"><use href="#g-pkg" /></svg>Open VSX</a>
+                <a class="chip-link" href="https://github.com/framedparadox/vsgit-vscode" rel="noopener"><svg aria-hidden="true"><use href="#g-github" /></svg>GitHub</a>
+              </div>
+            </li>
+            <li class="x-row reveal" style="--i: 1" id="app-mule-aes" data-app="mule-aes">
+              <img class="x-icon" src="../assets/img/apps/mule-aes.png" alt="" width="56" height="56" loading="lazy" decoding="async" />
+              <div class="x-row-main">
+                <h3 class="x-row-name">MuleSoft AES <span class="x-kind x-kind-sm">Extension</span></h3>
+                <p>Encrypt and decrypt MuleSoft secure configuration properties in VS Code. The cryptography and your keys stay on your machine.</p>
+                <button class="x-cmd-chip" type="button" data-copy="code --install-extension framedparadox.mule-aes" aria-label="Copy install command for MuleSoft AES"><code>code --install-extension framedparadox.mule-aes</code><span class="x-cmd-act"><svg aria-hidden="true"><use href="#g-copy" /></svg><span data-copy-label>Copy</span></span></button>
+              </div>
+              <div class="x-links x-row-links">
+                <a class="chip-link" href="https://marketplace.visualstudio.com/items?itemName=framedparadox.mule-aes" rel="noopener"><svg aria-hidden="true"><use href="#g-pkg" /></svg>Marketplace</a>
+                <a class="chip-link" href="https://open-vsx.org/extension/framedparadox/mule-aes" rel="noopener"><svg aria-hidden="true"><use href="#g-pkg" /></svg>Open VSX</a>
+                <a class="chip-link" href="https://github.com/framedparadox/mulesoft-aes-vscode" rel="noopener"><svg aria-hidden="true"><use href="#g-github" /></svg>GitHub</a>
+              </div>
+            </li>
+            <li class="x-row reveal" style="--i: 2" id="app-dev-x" data-app="dev-x">
+              <img class="x-icon" src="../assets/img/apps/dev-x.png" alt="" width="56" height="56" loading="lazy" decoding="async" />
+              <div class="x-row-main">
+                <h3 class="x-row-name">Developer Utility <span class="x-kind x-kind-sm">Extension</span></h3>
+                <p>A VS Code toolkit for formatting data, managing certificates, and encoding and decoding, in one place.</p>
+                <button class="x-cmd-chip" type="button" data-copy="code --install-extension framedparadox.dev-x" aria-label="Copy install command for Developer Utility"><code>code --install-extension framedparadox.dev-x</code><span class="x-cmd-act"><svg aria-hidden="true"><use href="#g-copy" /></svg><span data-copy-label>Copy</span></span></button>
+              </div>
+              <div class="x-links x-row-links">
+                <a class="chip-link" href="https://marketplace.visualstudio.com/items?itemName=framedparadox.dev-x" rel="noopener"><svg aria-hidden="true"><use href="#g-pkg" /></svg>Marketplace</a>
+                <a class="chip-link" href="https://open-vsx.org/extension/framedparadox/dev-x" rel="noopener"><svg aria-hidden="true"><use href="#g-pkg" /></svg>Open VSX</a>
+                <a class="chip-link" href="https://github.com/framedparadox/developer-util-vscode" rel="noopener"><svg aria-hidden="true"><use href="#g-github" /></svg>GitHub</a>
+              </div>
+            </li>
+          </ul>
+        </div>
+      </section>
+
+      <!-- ============ MCP & CLI ============ -->
+      <section class="section x-group" id="cli" aria-labelledby="cli-title">
+        <div class="container">
+          <header class="x-group-head reveal">
+            <span class="os-badge"><svg aria-hidden="true"><use href="#g-term" /></svg></span>
+            <div>
+              <h2 id="cli-title" class="display-s">MCP &amp; CLI tools</h2>
+              <p>Small, single-purpose packages on npm and PyPI. Run them with <code>npx</code> or <code>uvx</code>.</p>
+            </div>
+          </header>
+
+          <div class="x-tool-grid">
+            <article class="x-tool reveal" id="app-mcp-secure-remote" data-app="mcp-secure-remote" aria-labelledby="mcp-name">
+              <div class="x-tool-head">
+                <span class="x-glyph" aria-hidden="true">
+                  <svg viewBox="0 0 48 48"><rect x="7" y="13" width="14" height="22" rx="4" fill="none" stroke="currentColor" stroke-width="2.4"/><rect x="27" y="13" width="14" height="22" rx="4" fill="none" stroke="currentColor" stroke-width="2.4"/><path d="M21 20h6M21 28h6" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/><circle cx="14" cy="24" r="2.6" fill="currentColor"/><circle cx="34" cy="24" r="2.6" fill="currentColor"/></svg>
+                </span>
+                <div>
+                  <h3 id="mcp-name" class="x-tool-name">mcp-secure-remote</h3>
+                  <span class="x-kind x-kind-sm">MCP proxy</span>
+                </div>
+              </div>
+              <p class="x-tool-desc">A remote proxy for Model Context Protocol servers, with mutual-TLS client certificate authentication.</p>
+              <div class="x-run" data-tabs>
+                <div class="x-run-tabs" role="tablist" aria-label="Run mcp-secure-remote with">
+                  <button type="button" role="tab" id="mcp-tab-npx" aria-controls="mcp-npx" aria-selected="true">npx</button>
+                  <button type="button" role="tab" id="mcp-tab-uvx" aria-controls="mcp-uvx" aria-selected="false" tabindex="-1">uvx</button>
+                </div>
+                <div class="term term-inline term-panel" id="mcp-npx" role="tabpanel" aria-labelledby="mcp-tab-npx">
+                  <pre id="cmd-mcp-npx"><span class="p">npx mcp-secure-remote</span></pre>
+                  <button class="copy-btn" type="button" data-copy-target="#cmd-mcp-npx" aria-label="Copy npx command"><svg aria-hidden="true"><use href="#g-copy" /></svg><span data-copy-label>Copy</span></button>
+                </div>
+                <div class="term term-inline term-panel" id="mcp-uvx" role="tabpanel" aria-labelledby="mcp-tab-uvx" hidden>
+                  <pre id="cmd-mcp-uvx"><span class="p">uvx mcp-secure-remote</span></pre>
+                  <button class="copy-btn" type="button" data-copy-target="#cmd-mcp-uvx" aria-label="Copy uvx command"><svg aria-hidden="true"><use href="#g-copy" /></svg><span data-copy-label>Copy</span></button>
+                </div>
+              </div>
+              <div class="x-links">
+                <a class="chip-link" href="https://www.npmjs.com/package/mcp-secure-remote" rel="noopener"><svg aria-hidden="true"><use href="#g-pkg" /></svg>npm</a>
+                <a class="chip-link" href="https://pypi.org/project/mcp-secure-remote/" rel="noopener"><svg aria-hidden="true"><use href="#g-pkg" /></svg>PyPI</a>
+                <a class="chip-link" href="https://github.com/framedparadox/mcp-secure-remote" rel="noopener"><svg aria-hidden="true"><use href="#g-github" /></svg>GitHub</a>
+              </div>
+            </article>
+
+            <article class="x-tool reveal" style="--i: 1" id="app-pr-comments" data-app="pr-comments" aria-labelledby="prc-name">
+              <div class="x-tool-head">
+                <span class="x-glyph" aria-hidden="true">
+                  <svg viewBox="0 0 48 48"><path d="M10 11h28a3 3 0 0 1 3 3v15a3 3 0 0 1-3 3H22l-8 6v-6h-4a3 3 0 0 1-3-3V14a3 3 0 0 1 3-3z" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linejoin="round"/><path d="M15 19h18M15 25h11" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>
+                </span>
+                <div>
+                  <h3 id="prc-name" class="x-tool-name">pr-comments</h3>
+                  <span class="x-kind x-kind-sm">CLI</span>
+                </div>
+              </div>
+              <p class="x-tool-desc">Extracts every pull request comment, including those from deactivated authors, into a CSV and a local review dashboard.</p>
+              <div class="x-run" data-tabs>
+                <div class="x-run-tabs" role="tablist" aria-label="Run pr-comments with">
+                  <button type="button" role="tab" id="prc-tab-npx" aria-controls="prc-npx" aria-selected="true">npx</button>
+                  <button type="button" role="tab" id="prc-tab-uvx" aria-controls="prc-uvx" aria-selected="false" tabindex="-1">uvx</button>
+                </div>
+                <div class="term term-inline term-panel" id="prc-npx" role="tabpanel" aria-labelledby="prc-tab-npx">
+                  <pre id="cmd-prc-npx"><span class="p">npx pr-comments</span></pre>
+                  <button class="copy-btn" type="button" data-copy-target="#cmd-prc-npx" aria-label="Copy npx command"><svg aria-hidden="true"><use href="#g-copy" /></svg><span data-copy-label>Copy</span></button>
+                </div>
+                <div class="term term-inline term-panel" id="prc-uvx" role="tabpanel" aria-labelledby="prc-tab-uvx" hidden>
+                  <pre id="cmd-prc-uvx"><span class="p">uvx pr-comments</span></pre>
+                  <button class="copy-btn" type="button" data-copy-target="#cmd-prc-uvx" aria-label="Copy uvx command"><svg aria-hidden="true"><use href="#g-copy" /></svg><span data-copy-label>Copy</span></button>
+                </div>
+              </div>
+              <div class="x-links">
+                <a class="chip-link" href="https://www.npmjs.com/package/pr-comments" rel="noopener"><svg aria-hidden="true"><use href="#g-pkg" /></svg>npm</a>
+                <a class="chip-link" href="https://pypi.org/project/pr-comments/" rel="noopener"><svg aria-hidden="true"><use href="#g-pkg" /></svg>PyPI</a>
+                <a class="chip-link" href="https://github.com/framedparadox/pr-comments" rel="noopener"><svg aria-hidden="true"><use href="#g-github" /></svg>GitHub</a>
+              </div>
+            </article>
+          </div>
+
+          <div class="x-fineprint reveal">
+            <p>
+              Each project is developed and versioned on its own. See its repository for details, releases and support.
+            </p>
+            <p>
+              Windows, Microsoft Store and Visual Studio Code are trademarks of the Microsoft group of companies. These
+              projects are independent and are not affiliated with or endorsed by Microsoft.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============ CLOSING ============ -->
+      <section class="section closing" aria-labelledby="closing-title">
+        <div class="container closing-inner reveal">
+          <img class="app-icon closing-icon" src="../assets/img/icon.png" alt="" width="88" height="88" loading="lazy" decoding="async" />
+          <h2 id="closing-title" class="display-m">Back to your keystores.</h2>
+          <p class="lede">Keystore Studio 1.0.0 is free, open source and runs entirely on your computer.</p>
+          <div class="closing-actions">
+            <a class="btn" href="../downloads/">Download Keystore Studio</a>
+            <a class="btn btn-secondary" href="../changelog/">What's new in 1.0.0</a>
+            <a class="btn btn-secondary" href="../feedback/">Send feedback</a>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <!-- ============ FOOTER (shared) ============ -->
+    <footer class="footer" role="contentinfo">
+      <div class="container">
+        <div class="footer-grid">
+          <div class="footer-brand">
+            <a class="brand" href="../">
+              <img class="brand-mark app-icon" src="../assets/img/icon-180.png" alt="" width="26" height="26" />
+              <span>Keystore Studio</span>
+            </a>
+            <p>A native workbench for Java keystores, PKCS#12 files and X.509 certificates. Built with Rust and Tauri.</p>
+          </div>
+          <div>
+            <h4>Product</h4>
+            <ul>
+              <li><a href="../#features">Features</a></li>
+              <li><a href="../#formats">Formats</a></li>
+              <li><a href="../#specs">Tech specs</a></li>
+              <li><a href="../#faq">FAQ</a></li>
+              <li><a href="../changelog/">Changelog</a></li>
+            </ul>
+          </div>
+          <div>
+            <h4>Get it</h4>
+            <ul>
+              <li><a href="../downloads/">Downloads</a></li>
+              <li><a href="../downloads/#windows">Windows</a></li>
+              <li><a href="../downloads/#macos">macOS</a></li>
+              <li><a href="../downloads/#linux">Linux</a></li>
+              <li><a href="../downloads/#source">Build from source</a></li>
+            </ul>
+          </div>
+          <div>
+            <h4>Trust</h4>
+            <ul>
+              <li><a href="../privacy/">Privacy</a></li>
+              <li><a href="../#privacy">Network activity</a></li>
+              <li><a href="../downloads/#verify">Verify a download</a></li>
+            </ul>
+          </div>
+          <div>
+            <h4>Open source</h4>
+            <ul>
+              <li><a href="https://github.com/framedparadox/keystore-studio" rel="noopener">GitHub</a></li>
+              <li><a href="https://github.com/framedparadox/keystore-studio/issues" rel="noopener">Report an issue</a></li>
+              <li><a href="../feedback/">Send feedback</a></li>
+              <li><a href="./">More apps</a></li>
+              <li><a href="https://github.com/framedparadox/keystore-studio/blob/main/LICENSE" rel="noopener">MIT License</a></li>
+            </ul>
+          </div>
+        </div>
+        <div class="footer-bottom">
+          <span>© <span data-year>2026</span> Keystore Studio contributors. Released under the MIT License.</span>
+          <span>Java is a trademark of Oracle. OpenSSL is a trademark of the OpenSSL Software Foundation. Keystore Studio is not affiliated with either.</span>
+        </div>
+      </div>
+    </footer>
+
+    <script src="../assets/js/site.js" defer></script>
+    <script src="../assets/js/iso.js" defer></script>
+    <script src="../assets/js/pages.js" defer></script>
+    <script src="../assets/js/extra.js" defer></script>
+  </body>
+</html>

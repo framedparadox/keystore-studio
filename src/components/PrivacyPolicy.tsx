@@ -6,10 +6,11 @@ import { openUrl } from "@tauri-apps/plugin-opener";
  * The privacy policy, shown under Settings → About. It describes what the code does: keep it in
  * step with any change that stores data, reads files or makes a network request. The network
  * requests today are the TLS inspection and connection test in Examine (src-tauri/src/tls.rs,
- * netcheck.rs) and RFC 3161 timestamps (tsa.rs). There is no telemetry, update check or crash
+ * netcheck.rs), revocation checks against a CA's OCSP responder or CRL server (ocsp.rs,
+ * revocation.rs) and RFC 3161 timestamps (tsa.rs). There is no telemetry, update check or crash
  * reporting.
  */
-export const PRIVACY_UPDATED = "9 November 2026";
+export const PRIVACY_UPDATED = "25 November 2026";
 export const ISSUES_URL = "https://github.com/framedparadox/keystore-studio/issues";
 
 const Section: React.FC<{ title: string; children: React.ReactNode }> = ({ title, children }) => (
@@ -54,6 +55,11 @@ export const PrivacyPolicy: React.FC<{ dataDir?: string }> = ({ dataDir }) => {
             <>
               <strong className="font-medium text-ink-2">Inspecting a TLS server or testing a connection</strong> (Examine) connects to the host and port you enter, the same way a
               browser or openssl would.
+            </>,
+            <>
+              <strong className="font-medium text-ink-2">Checking revocation</strong>, when you press Check revocation (OCSP) or tick the revocation option when validating a
+              chain, contacts the OCSP responder or CRL server named in the certificate. An OCSP request carries the certificate's serial number and hashes of its issuer's name
+              and key, which tells the CA that the certificate is being checked. Keys and passwords are not sent.
             </>,
             <>
               <strong className="font-medium text-ink-2">Trusted timestamps</strong>, when you turn them on under Settings → Signing, send a hash of what you signed to the

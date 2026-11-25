@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>OG card — Keystore Studio</title>
+    <meta name="robots" content="noindex" />
+    <!--
+      Development page: the source of assets/img/og.png (1200 × 630).
+      Render it with headless Chrome from the website/ folder, for example:
+        "<Chrome>" --headless=new --hide-scrollbars --force-device-scale-factor=1 \
+          --window-size=1200,630 --screenshot=assets/img/og.png "http://localhost:8000/og.html"
+    -->
+    <style>
+      html, body { margin: 0; width: 1200px; height: 630px; overflow: hidden; }
+      body {
+        position: relative;
+        background: #fbfbfd;
+        color: #1d1d1f;
+        font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Helvetica Neue", "Segoe UI", system-ui, sans-serif;
+        -webkit-font-smoothing: antialiased;
+      }
+      .dots {
+        position: absolute;
+        inset: 0;
+        background-image: radial-gradient(circle at 1px 1px, rgba(0, 0, 0, 0.13) 1px, transparent 0);
+        background-size: 24px 24px;
+        -webkit-mask-image: radial-gradient(ellipse 46% 70% at 82% 50%, #000 10%, transparent 75%);
+        mask-image: radial-gradient(ellipse 46% 70% at 82% 50%, #000 10%, transparent 75%);
+      }
+      .card {
+        position: absolute;
+        inset: 0;
+        display: grid;
+        grid-template-columns: 1fr 360px;
+        align-items: center;
+        padding: 0 88px;
+      }
+      .eyebrow {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        margin: 0 0 26px;
+        font-size: 20px;
+        font-weight: 600;
+        letter-spacing: 0.02em;
+        text-transform: uppercase;
+        color: #6e6e73;
+      }
+      .eyebrow::before { content: ""; width: 8px; height: 8px; border-radius: 2px; background: currentColor; transform: rotate(45deg); }
+      h1 { margin: 0; font-size: 104px; line-height: 0.98; letter-spacing: -0.05em; font-weight: 700; }
+      p.tag { margin: 26px 0 0; max-width: 620px; font-size: 34px; line-height: 1.22; letter-spacing: -0.022em; font-weight: 500; color: #6e6e73; }
+      p.tag b { color: #1d1d1f; font-weight: 600; }
+      .meta { display: flex; gap: 10px; margin-top: 44px; }
+      .meta span {
+        display: inline-flex; align-items: center; gap: 9px; height: 40px; padding: 0 16px;
+        border-radius: 999px; background: #fff; border: 1px solid rgba(0, 0, 0, 0.1);
+        font-size: 19px; font-weight: 600; color: #424245;
+      }
+      .meta i { width: 8px; height: 8px; border-radius: 50%; background: #1f9d55; }
+      .icon-wrap {
+        justify-self: end;
+        display: grid;
+        place-items: center;
+        width: 330px;
+        height: 330px;
+        border-radius: 76px;
+        background: #fff;
+        box-shadow: 0 50px 90px -40px rgba(0, 0, 0, 0.35), 0 0 0 1px rgba(0, 0, 0, 0.06);
+      }
+      .icon-wrap img { width: 232px; height: 232px; }
+    </style>
+  </head>
+  <body>
+    <div class="dots"></div>
+    <div class="card">
+      <div>
+        <p class="eyebrow">Rust · Tauri · Open source</p>
+        <h1>Keystore Studio</h1>
+        <p class="tag"><b>Java keystores and certificates,</b><br />in one native app.</p>
+        <div class="meta">
+          <span><i></i>Local only</span>
+          <span>No telemetry</span>
+          <span>Windows · macOS · Linux</span>
+        </div>
+      </div>
+      <div class="icon-wrap"><img src="assets/img/icon.png" alt="" /></div>
+    </div>
+  </body>
+</html>

@@ -1,0 +1,8 @@
+# Short and familiar URLs.
+/download        /downloads/   301
+/changes         /changelog/   301
+/releases        /changelog/   301
+/more-apps       /apps/        301
+/contact         /feedback/    301
+# Direct link to the current Windows installer (kept in step with RELEASE in assets/js/pages.js).
+/download/windows  https://downloads.keystore-studio.app/v1.0.0/Keystore%20Studio_1.0.0_x64-setup.exe  302

@@ -1,0 +1,914 @@
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Download Keystore Studio 1.0.0 — Windows installer, macOS and Linux from source</title>
+    <meta
+      name="description"
+      content="Download Keystore Studio 1.0.0 for Windows 10 and 11 (x64), or build it from source on macOS and Linux. SHA-256 checksum, SmartScreen walkthrough, system requirements and where your data lives."
+    />
+    <meta name="theme-color" content="#fbfbfd" />
+    <meta name="color-scheme" content="light dark" />
+    <link rel="canonical" href="https://keystore-studio.app/downloads/" />
+    <link rel="icon" type="image/png" href="../assets/img/favicon-64.png" />
+    <link rel="apple-touch-icon" href="../assets/img/icon-180.png" />
+    <link rel="manifest" href="../site.webmanifest" />
+    <meta property="og:url" content="https://keystore-studio.app/downloads/" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Keystore Studio" />
+    <meta property="og:title" content="Download Keystore Studio 1.0.0" />
+    <meta
+      property="og:description"
+      content="Windows 10 and 11 (x64) installer, plus build-from-source instructions for macOS and Linux. Free and open source, MIT licensed."
+    />
+    <meta property="og:image" content="https://keystore-studio.app/assets/img/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="Keystore Studio app icon with the words: Keystore Studio. Java keystores and certificates, in one native app." />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Download Keystore Studio 1.0.0" />
+    <meta name="twitter:description" content="Windows installer, plus build-from-source instructions for macOS and Linux. MIT licensed." />
+    <meta name="twitter:image" content="https://keystore-studio.app/assets/img/og.png" />
+    <script src="../assets/js/theme-init.js"></script>
+    <link rel="stylesheet" href="../assets/css/base.css" />
+    <link rel="stylesheet" href="../assets/css/iso.css" />
+    <link rel="stylesheet" href="../assets/css/pages.css" />
+  </head>
+  <body class="page-downloads">
+    <a class="skip-link" href="#main">Skip to content</a>
+
+    <!-- ============ NAV (shared) ============ -->
+    <header class="nav" role="banner">
+      <div class="container nav-inner">
+        <a class="brand" href="../" aria-label="Keystore Studio home">
+          <img class="brand-mark app-icon" src="../assets/img/icon-180.png" alt="" width="26" height="26" />
+          <span>Keystore Studio</span>
+        </a>
+        <nav aria-label="Primary">
+          <ul class="nav-links" id="nav-links">
+            <li><a href="../#features">Features</a></li>
+            <li><a href="../#privacy">Privacy</a></li>
+            <li><a href="../#specs">Specs</a></li>
+            <li><a href="../changelog/">Changelog</a></li>
+            <li><a href="../apps/">More apps</a></li>
+            <li><a href="https://github.com/framedparadox/keystore-studio" rel="noopener">GitHub</a></li>
+          </ul>
+        </nav>
+        <div class="nav-actions">
+          <button class="icon-btn theme-toggle" type="button" aria-label="Switch theme">
+            <svg class="i-auto" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 3.5v17" /><path d="M12 3.5a8.5 8.5 0 0 1 0 17z" fill="currentColor" stroke="none"/></svg>
+            <svg class="i-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.3 5.3l1.4 1.4M17.3 17.3l1.4 1.4M5.3 18.7l1.4-1.4M17.3 6.7l1.4-1.4"/></svg>
+            <svg class="i-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5z"/></svg>
+          </button>
+          <a class="btn btn-sm" href="./" aria-current="page">Download</a>
+          <button class="icon-btn nav-menu-btn" type="button" aria-label="Menu" aria-expanded="false" aria-controls="nav-links">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M4 8h16M4 16h16"/></svg>
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <!-- SVG symbols used across the page -->
+    <svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+      <symbol id="g-windows" viewBox="0 0 24 24"><rect x="3.5" y="3.5" width="7.6" height="7.6" rx="1.2" fill="currentColor"/><rect x="12.9" y="3.5" width="7.6" height="7.6" rx="1.2" fill="currentColor"/><rect x="3.5" y="12.9" width="7.6" height="7.6" rx="1.2" fill="currentColor"/><rect x="12.9" y="12.9" width="7.6" height="7.6" rx="1.2" fill="currentColor"/></symbol>
+      <symbol id="g-macos" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" d="M9 9V6.5A2.5 2.5 0 1 0 6.5 9H9zm0 0h6m-6 0v6m6-6V6.5A2.5 2.5 0 1 1 17.5 9H15zm0 0v6m0 0h-6m6 0v2.5a2.5 2.5 0 1 0 2.5-2.5H15zm-6 0v2.5A2.5 2.5 0 1 1 6.5 15H9z"/></symbol>
+      <symbol id="g-linux" viewBox="0 0 24 24"><rect x="2.75" y="4.25" width="18.5" height="15.5" rx="3" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M7 10l3 2.5L7 15M12.5 15.5h4.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+      <symbol id="g-source" viewBox="0 0 24 24"><path d="M8.5 7L3.5 12l5 5M15.5 7l5 5-5 5M13.5 4.5l-3 15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+      <symbol id="g-download" viewBox="0 0 24 24"><path d="M12 4v11m0 0l-4.5-4.5M12 15l4.5-4.5M5 19.5h14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+      <symbol id="g-copy" viewBox="0 0 24 24"><rect x="8.5" y="8.5" width="11" height="11" rx="2.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M15.5 8.5V6a2.5 2.5 0 0 0-2.5-2.5H6A2.5 2.5 0 0 0 3.5 6v7A2.5 2.5 0 0 0 6 15.5h2.5" fill="none" stroke="currentColor" stroke-width="1.8"/></symbol>
+      <symbol id="g-check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+      <symbol id="g-shield" viewBox="0 0 24 24"><path d="M12 3l7.5 3v5.5c0 4.6-3.2 8.3-7.5 9.5-4.3-1.2-7.5-4.9-7.5-9.5V6L12 3z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M12 8v4.5M12 15.6v.4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+      <symbol id="g-arrow" viewBox="0 0 24 24"><path d="M5 12h13m-5-5l5 5-5 5" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+      <symbol id="g-folder" viewBox="0 0 24 24"><path d="M3.5 7.5A2 2 0 0 1 5.5 5.5h4l2 2h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2v-10z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></symbol>
+      <symbol id="g-trash" viewBox="0 0 24 24"><path d="M4.5 7h15M9.5 7V5h5v2M6.5 7l1 12.5h9l1-12.5M10.5 11v5M13.5 11v5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+      <symbol id="g-box" viewBox="0 0 24 24"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9L12 3zm0 0v0M4 7.5l8 4.5 8-4.5M12 12v9" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></symbol>
+    </svg>
+
+    <main id="main">
+      <!-- ============ HERO ============ -->
+      <section class="dl-hero" aria-labelledby="dl-title">
+        <div class="container dl-hero-grid">
+          <div class="dl-hero-copy">
+            <p class="eyebrow reveal">Downloads</p>
+            <h1 id="dl-title" class="display-l reveal" style="--i: 1">Download Keystore&nbsp;Studio.</h1>
+            <p class="lede reveal" style="--i: 2">
+              Version 1.0.0 for <strong>Windows</strong> is ready to install. On <strong>macOS</strong> and
+              <strong>Linux</strong>, build it from source with a handful of commands.
+            </p>
+            <div class="dl-hero-cta reveal" style="--i: 3">
+              <a class="btn btn-lg os-cta os-cta-windows" href="https://downloads.keystore-studio.app/v1.0.0/Keystore%20Studio_1.0.0_x64-setup.exe" data-download="windows-x64">
+                <svg aria-hidden="true"><use href="#g-download" /></svg>
+                Download for Windows
+              </a>
+              <a class="btn btn-lg os-cta os-cta-macos" href="#get">
+                <svg aria-hidden="true"><use href="#g-source" /></svg>
+                Build for macOS
+              </a>
+              <a class="btn btn-lg os-cta os-cta-linux" href="#get">
+                <svg aria-hidden="true"><use href="#g-source" /></svg>
+                Build for Linux
+              </a>
+              <a class="btn btn-lg btn-secondary" href="#verify">Verify a download</a>
+            </div>
+            <dl class="dl-meta reveal" style="--i: 4">
+              <div><dt>Version</dt><dd>1.0.0</dd></div>
+              <div><dt>Licence</dt><dd><a href="https://github.com/framedparadox/keystore-studio/blob/main/LICENSE" rel="noopener">MIT</a></dd></div>
+              <div><dt>Price</dt><dd>Free, open source</dd></div>
+              <div><dt>Windows setup</dt><dd><span data-release="size">287.9 MB</span></dd></div>
+            </dl>
+          </div>
+          <div class="dl-hero-scene reveal-scale" style="--i: 2">
+            <div class="iso-scene" data-scene="platforms" data-label="Windows available now; macOS and Linux build from source"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============ LOCAL NAV ============ -->
+      <nav class="subnav" aria-label="On this page">
+        <div class="container subnav-inner">
+          <span class="subnav-title">Keystore Studio 1.0.0</span>
+          <ul>
+            <li><a href="#get">Get it</a></li>
+            <li><a href="#platforms">Platforms</a></li>
+            <li><a href="#source">Build from source</a></li>
+            <li><a href="#verify">Verify</a></li>
+            <li><a href="#requirements">Requirements</a></li>
+            <li><a href="#data">Your data</a></li>
+            <li><a href="#whats-new">What's in 1.0.0</a></li>
+          </ul>
+        </div>
+      </nav>
+
+      <!-- ============ OS-AWARE PICKER ============ -->
+      <section class="section dl-get" id="get" aria-labelledby="get-title">
+        <div class="container">
+          <div class="section-head reveal">
+            <h2 id="get-title" class="display-m">Pick your platform.</h2>
+            <p class="lede" data-os-note>Windows installs in one step. macOS and Linux build from source.</p>
+          </div>
+
+          <div class="os-pick" data-pick="windows">
+            <div class="os-switch reveal" role="group" aria-label="Platform">
+              <span class="os-switch-thumb" aria-hidden="true"></span>
+              <button type="button" data-pick-btn="windows" aria-pressed="true">
+                <svg aria-hidden="true"><use href="#g-windows" /></svg>Windows
+              </button>
+              <button type="button" data-pick-btn="macos" aria-pressed="false">
+                <svg aria-hidden="true"><use href="#g-macos" /></svg>macOS
+              </button>
+              <button type="button" data-pick-btn="linux" aria-pressed="false">
+                <svg aria-hidden="true"><use href="#g-linux" /></svg>Linux
+              </button>
+            </div>
+
+            <!-- Windows -->
+            <div class="os-panel" data-for="windows">
+              <article class="pick-card pick-primary reveal" aria-labelledby="pick-win-title">
+                <div class="pick-head">
+                  <span class="pick-tag"><span class="dot"></span>Recommended</span>
+                  <span class="os-badge"><svg aria-hidden="true"><use href="#g-windows" /></svg></span>
+                  <h3 id="pick-win-title" class="display-s">Keystore Studio for Windows</h3>
+                  <p class="pick-sub">Windows 10 and 11 · 64-bit (x64) · NSIS setup</p>
+                </div>
+
+                <div class="pick-download">
+                  <a class="btn btn-lg dl-button" href="https://downloads.keystore-studio.app/v1.0.0/Keystore%20Studio_1.0.0_x64-setup.exe" data-download="windows-x64">
+                    <svg aria-hidden="true"><use href="#g-download" /></svg>
+                    Download for Windows
+                  </a>
+                  <div class="pick-file">
+                    <span class="mono" data-release="file">Keystore Studio_1.0.0_x64-setup.exe</span>
+                    <span><span data-release="size">287.9 MB</span> · SHA-256 <span class="mono" data-release="sha256-short" title="0e5715def11e0b6fceefe942080ea18e367698a2cb0d9c0117d8c7f92e730e1f">0e5715de…2e730e1f</span></span>
+                  </div>
+                </div>
+
+                <div class="callout callout-warn">
+                  <svg aria-hidden="true"><use href="#g-shield" /></svg>
+                  <p>
+                    <strong>This installer is not code-signed yet.</strong> Windows SmartScreen will say
+                    “Windows protected your PC”. Choose <b>More info</b>, then <b>Run anyway</b>.
+                    <a class="text-link" href="#verify">Check the SHA-256 first <span class="chev">›</span></a>
+                  </p>
+                </div>
+
+                <ol class="steps">
+                  <li><span class="step-n">1</span><div><b>Download</b> the setup file above.</div></li>
+                  <li><span class="step-n">2</span><div><b>Verify</b> its SHA-256 matches the one on this page. <a class="text-link" href="#verify">How</a></div></li>
+                  <li><span class="step-n">3</span><div><b>Run the setup.</b> At the SmartScreen prompt, choose More info, then Run anyway. Setup installs Microsoft WebView2 if it is missing.</div></li>
+                  <li><span class="step-n">4</span><div><b>Open Keystore Studio</b> from the Start menu.</div></li>
+                </ol>
+              </article>
+
+              <aside class="pick-card pick-alt reveal" style="--i: 1" aria-labelledby="pick-win-alt">
+                <span class="pick-tag pick-tag-quiet">Alternative</span>
+                <span class="os-badge os-badge-quiet"><svg aria-hidden="true"><use href="#g-source" /></svg></span>
+                <h3 id="pick-win-alt" class="title">Build it yourself</h3>
+                <p>Prefer an <b>.msi</b> for Intune or Group Policy, or an ARM64 build? Build the installer on your own Windows machine.</p>
+                <a class="text-link" href="#source">Build from source <span class="chev">›</span></a>
+                <hr />
+                <p class="small">On a Mac or a Linux PC? Installers aren't published yet, but both build from the same source.</p>
+                <div class="pick-alt-links">
+                  <button type="button" class="chip-link" data-pick-btn="macos"><svg aria-hidden="true"><use href="#g-macos" /></svg>macOS</button>
+                  <button type="button" class="chip-link" data-pick-btn="linux"><svg aria-hidden="true"><use href="#g-linux" /></svg>Linux</button>
+                </div>
+              </aside>
+            </div>
+
+            <!-- macOS -->
+            <div class="os-panel" data-for="macos">
+              <article class="pick-card pick-primary reveal" aria-labelledby="pick-mac-title">
+                <div class="pick-head">
+                  <span class="pick-tag"><span class="dot warn"></span>Build from source</span>
+                  <span class="os-badge"><svg aria-hidden="true"><use href="#g-macos" /></svg></span>
+                  <h3 id="pick-mac-title" class="display-s">Keystore Studio for macOS</h3>
+                  <p class="pick-sub">macOS 11 Big Sur or later · Apple silicon or Intel · .dmg</p>
+                </div>
+                <p class="pick-note">
+                  A signed and notarized <b>.dmg</b> isn't published yet. You can build one on your Mac; it runs on the
+                  Mac that built it.
+                </p>
+                <ol class="steps">
+                  <li>
+                    <span class="step-n">1</span>
+                    <div>
+                      <b>Install the Xcode Command Line Tools.</b>
+                      <div class="term term-inline">
+                        <pre id="mac-step-1"><span class="p">xcode-select --install</span></pre>
+                        <button class="copy-btn" type="button" data-copy-target="#mac-step-1" aria-label="Copy command"><svg aria-hidden="true"><use href="#g-copy" /></svg><span data-copy-label>Copy</span></button>
+                      </div>
+                    </div>
+                  </li>
+                  <li>
+                    <span class="step-n">2</span>
+                    <div><b>Install Node 22, pnpm 10 and Rust</b> (stable, via <a class="text-link" href="https://rustup.rs" rel="noopener">rustup</a>).</div>
+                  </li>
+                  <li>
+                    <span class="step-n">3</span>
+                    <div>
+                      <b>Clone and build the .dmg.</b>
+                      <div class="term term-inline">
+                        <pre id="mac-step-3"><span class="p">git clone https://github.com/framedparadox/keystore-studio.git</span>
+<span class="p">cd keystore-studio</span>
+<span class="p">pnpm install --frozen-lockfile</span>
+<span class="p">pnpm tauri build --bundles dmg</span></pre>
+                        <button class="copy-btn" type="button" data-copy-target="#mac-step-3" aria-label="Copy commands"><svg aria-hidden="true"><use href="#g-copy" /></svg><span data-copy-label>Copy</span></button>
+                      </div>
+                    </div>
+                  </li>
+                  <li>
+                    <span class="step-n">4</span>
+                    <div>
+                      <b>Open the .dmg</b> from <code>src-tauri/target/release/bundle/dmg/</code> and drag the app to
+                      Applications. It is named <code>Keystore Studio_1.0.0_aarch64.dmg</code> on Apple silicon and
+                      <code>_x64.dmg</code> on Intel.
+                    </div>
+                  </li>
+                </ol>
+                <p class="small">
+                  Moving the app to another Mac? Gatekeeper blocks unsigned apps there. See
+                  <a class="text-link" href="#source-notes">notes on unsigned builds</a>.
+                </p>
+              </article>
+
+              <aside class="pick-card pick-alt reveal" style="--i: 1" aria-labelledby="pick-mac-alt">
+                <span class="pick-tag pick-tag-quiet">Also available</span>
+                <span class="os-badge os-badge-quiet"><svg aria-hidden="true"><use href="#g-windows" /></svg></span>
+                <h3 id="pick-mac-alt" class="title">The Windows installer is ready</h3>
+                <p>Using a Windows 10 or 11 PC as well? Version 1.0.0 installs there in one step.</p>
+                <a class="btn btn-secondary" href="https://downloads.keystore-studio.app/v1.0.0/Keystore%20Studio_1.0.0_x64-setup.exe" data-download="windows-x64">
+                  <svg aria-hidden="true"><use href="#g-download" /></svg><span>Windows x64 · <span data-release="size">287.9 MB</span></span>
+                </a>
+                <hr />
+                <p class="small">Want a universal build for Apple silicon and Intel in one .dmg?</p>
+                <a class="text-link" href="#source">Universal build <span class="chev">›</span></a>
+              </aside>
+            </div>
+
+            <!-- Linux -->
+            <div class="os-panel" data-for="linux">
+              <article class="pick-card pick-primary reveal" aria-labelledby="pick-linux-title">
+                <div class="pick-head">
+                  <span class="pick-tag"><span class="dot warn"></span>Build from source</span>
+                  <span class="os-badge"><svg aria-hidden="true"><use href="#g-linux" /></svg></span>
+                  <h3 id="pick-linux-title" class="display-s">Keystore Studio for Linux</h3>
+                  <p class="pick-sub">Ubuntu 22.04+, Debian 12+, Fedora 38+ · .deb, .rpm, .AppImage</p>
+                </div>
+                <p class="pick-note">
+                  Packages aren't published yet. Build them on the <b>oldest</b> distribution you want to run them on:
+                  the binary links against that system's glibc and WebKitGTK.
+                </p>
+                <ol class="steps">
+                  <li>
+                    <span class="step-n">1</span>
+                    <div>
+                      <b>Install the system packages</b> (Debian and Ubuntu shown; <a class="text-link" href="#source">Fedora</a>).
+                      <div class="term term-inline">
+                        <pre id="linux-step-1"><span class="p">sudo apt-get update</span>
+<span class="p">sudo apt-get install -y \</span>
+<span class="k">  build-essential curl wget file \</span>
+<span class="k">  libwebkit2gtk-4.1-dev libgtk-3-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev \</span>
+<span class="k">  librsvg2-dev libayatana-appindicator3-dev libssl-dev libxdo-dev</span></pre>
+                        <button class="copy-btn" type="button" data-copy-target="#linux-step-1" aria-label="Copy commands"><svg aria-hidden="true"><use href="#g-copy" /></svg><span data-copy-label>Copy</span></button>
+                      </div>
+                    </div>
+                  </li>
+                  <li>
+                    <span class="step-n">2</span>
+                    <div><b>Install Node 22, pnpm 10 and Rust</b> (stable, via <a class="text-link" href="https://rustup.rs" rel="noopener">rustup</a>).</div>
+                  </li>
+                  <li>
+                    <span class="step-n">3</span>
+                    <div>
+                      <b>Clone and build a .deb</b> (or <code>--bundles rpm</code>, <code>--bundles appimage</code>).
+                      <div class="term term-inline">
+                        <pre id="linux-step-3"><span class="p">git clone https://github.com/framedparadox/keystore-studio.git</span>
+<span class="p">cd keystore-studio</span>
+<span class="p">pnpm install --frozen-lockfile</span>
+<span class="p">pnpm tauri build --bundles deb</span></pre>
+                        <button class="copy-btn" type="button" data-copy-target="#linux-step-3" aria-label="Copy commands"><svg aria-hidden="true"><use href="#g-copy" /></svg><span data-copy-label>Copy</span></button>
+                      </div>
+                    </div>
+                  </li>
+                  <li>
+                    <span class="step-n">4</span>
+                    <div>
+                      <b>Install the package</b> from <code>src-tauri/target/release/bundle/deb/</code>:
+                      <code>keystore-studio_1.0.0_amd64.deb</code>. The AppImage needs FUSE 2
+                      (<code>sudo apt install libfuse2</code> on Ubuntu 22.04+).
+                    </div>
+                  </li>
+                </ol>
+              </article>
+
+              <aside class="pick-card pick-alt reveal" style="--i: 1" aria-labelledby="pick-linux-alt">
+                <span class="pick-tag pick-tag-quiet">Also available</span>
+                <span class="os-badge os-badge-quiet"><svg aria-hidden="true"><use href="#g-windows" /></svg></span>
+                <h3 id="pick-linux-alt" class="title">The Windows installer is ready</h3>
+                <p>Using a Windows 10 or 11 PC as well? Version 1.0.0 installs there in one step.</p>
+                <a class="btn btn-secondary" href="https://downloads.keystore-studio.app/v1.0.0/Keystore%20Studio_1.0.0_x64-setup.exe" data-download="windows-x64">
+                  <svg aria-hidden="true"><use href="#g-download" /></svg><span>Windows x64 · <span data-release="size">287.9 MB</span></span>
+                </a>
+                <hr />
+                <p class="small">On ARM64? Build on an ARM64 machine; the commands are the same.</p>
+                <a class="text-link" href="#source">All build options <span class="chev">›</span></a>
+              </aside>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============ PLATFORMS ============ -->
+      <section class="section section-tint" id="platforms" aria-labelledby="platforms-title">
+        <div class="container">
+          <div class="section-head reveal">
+            <p class="eyebrow">Platforms</p>
+            <h2 id="platforms-title" class="display-m">One app. Three platforms.</h2>
+            <p class="lede">The same Rust engine and the same interface on every system. Only the installer differs.</p>
+          </div>
+          <div class="platform-grid">
+            <article class="platform-card reveal" id="windows">
+              <div class="platform-top">
+                <span class="os-badge"><svg aria-hidden="true"><use href="#g-windows" /></svg></span>
+                <span class="status status-ok"><span class="dot"></span>Available</span>
+              </div>
+              <h3 class="display-s">Windows</h3>
+              <dl class="kv">
+                <div><dt>Versions</dt><dd>Windows 10 and 11</dd></div>
+                <div><dt>Architecture</dt><dd>x64</dd></div>
+                <div><dt>Package</dt><dd>NSIS setup (.exe)</dd></div>
+                <div><dt>Size</dt><dd data-release="size">287.9 MB</dd></div>
+                <div><dt>Webview</dt><dd>WebView2, installed by setup if missing</dd></div>
+                <div><dt>Signed</dt><dd><span class="status status-warn"><span class="dot warn"></span>Not yet</span></dd></div>
+              </dl>
+              <a class="btn dl-button-sm" href="https://downloads.keystore-studio.app/v1.0.0/Keystore%20Studio_1.0.0_x64-setup.exe" data-download="windows-x64">
+                <svg aria-hidden="true"><use href="#g-download" /></svg>Download
+              </a>
+            </article>
+
+            <article class="platform-card reveal" style="--i: 1" id="macos">
+              <div class="platform-top">
+                <span class="os-badge"><svg aria-hidden="true"><use href="#g-macos" /></svg></span>
+                <span class="status status-warn"><span class="dot warn"></span>Build from source</span>
+              </div>
+              <h3 class="display-s">macOS</h3>
+              <dl class="kv">
+                <div><dt>Versions</dt><dd>11 Big Sur or later, Safari 16.4+</dd></div>
+                <div><dt>Architecture</dt><dd>Apple silicon, Intel or universal</dd></div>
+                <div><dt>Package</dt><dd>.dmg (and .app)</dd></div>
+                <div><dt>Webview</dt><dd>WKWebView, part of macOS</dd></div>
+                <div><dt>Build tools</dt><dd>Xcode Command Line Tools</dd></div>
+                <div><dt>Signed</dt><dd>Not published yet</dd></div>
+              </dl>
+              <button type="button" class="btn btn-secondary dl-button-sm" data-pick-btn="macos" data-pick-scroll>
+                <svg aria-hidden="true"><use href="#g-source" /></svg>Build steps
+              </button>
+            </article>
+
+            <article class="platform-card reveal" style="--i: 2" id="linux">
+              <div class="platform-top">
+                <span class="os-badge"><svg aria-hidden="true"><use href="#g-linux" /></svg></span>
+                <span class="status status-warn"><span class="dot warn"></span>Build from source</span>
+              </div>
+              <h3 class="display-s">Linux</h3>
+              <dl class="kv">
+                <div><dt>Distributions</dt><dd>Ubuntu 22.04+, Debian 12+, Fedora 38+ or similar</dd></div>
+                <div><dt>Architecture</dt><dd>x86_64; ARM64 when built on ARM64</dd></div>
+                <div><dt>Packages</dt><dd>.deb, .rpm, .AppImage</dd></div>
+                <div><dt>Webview</dt><dd>WebKitGTK 4.1, 2.40 or later</dd></div>
+                <div><dt>AppImage</dt><dd>Needs FUSE 2</dd></div>
+                <div><dt>Signed</dt><dd>Not published yet</dd></div>
+              </dl>
+              <button type="button" class="btn btn-secondary dl-button-sm" data-pick-btn="linux" data-pick-scroll>
+                <svg aria-hidden="true"><use href="#g-source" /></svg>Build steps
+              </button>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============ BUILD FROM SOURCE ============ -->
+      <section class="section" id="source" aria-labelledby="source-title">
+        <div class="container">
+          <div class="section-head left reveal">
+            <p class="eyebrow">Build from source</p>
+            <h2 id="source-title" class="display-m">Four prerequisites. One build.</h2>
+            <p class="lede">
+              Tauri builds each installer on its own operating system, so build on the platform you want to run.
+              A plain <code>pnpm tauri build</code> produces every format that system supports.
+            </p>
+          </div>
+
+          <ul class="prereq-grid">
+            <li class="prereq reveal"><span class="prereq-k">Node</span><span class="prereq-v">22</span><span class="small">JavaScript runtime for the UI build</span></li>
+            <li class="prereq reveal" style="--i: 1"><span class="prereq-k">pnpm</span><span class="prereq-v">10</span><span class="small">Package manager</span></li>
+            <li class="prereq reveal" style="--i: 2"><span class="prereq-k">Rust</span><span class="prereq-v">stable</span><span class="small">Edition 2024, via <a class="text-link" href="https://rustup.rs" rel="noopener">rustup</a></span></li>
+            <li class="prereq reveal" style="--i: 3"><span class="prereq-k">Tauri</span><span class="prereq-v">v2</span><span class="small"><a class="text-link" href="https://v2.tauri.app/start/prerequisites/" rel="noopener">System dependencies <span class="chev">›</span></a></span></li>
+          </ul>
+
+          <div class="source-steps">
+            <div class="source-step reveal">
+              <div class="source-step-label"><span class="step-n">1</span><h3 class="title">Install the system dependencies</h3></div>
+              <div class="term term-tabs" data-tabs>
+                <div class="term-bar">
+                  <div class="term-tablist" role="tablist" aria-label="Operating system">
+                    <button role="tab" type="button" id="tab-src-win" aria-controls="src-win" aria-selected="true">Windows</button>
+                    <button role="tab" type="button" id="tab-src-mac" aria-controls="src-mac" aria-selected="false" tabindex="-1">macOS</button>
+                    <button role="tab" type="button" id="tab-src-deb" aria-controls="src-deb" aria-selected="false" tabindex="-1">Debian · Ubuntu</button>
+                    <button role="tab" type="button" id="tab-src-fed" aria-controls="src-fed" aria-selected="false" tabindex="-1">Fedora</button>
+                  </div>
+                </div>
+                <div class="term-panel" role="tabpanel" id="src-win" aria-labelledby="tab-src-win">
+                  <p class="term-note">
+                    Install <a href="https://visualstudio.microsoft.com/visual-cpp-build-tools/" rel="noopener">Visual Studio Build Tools</a>
+                    with the <b>Desktop development with C++</b> workload, then use the MSVC Rust toolchain:
+                  </p>
+                  <div class="term-body">
+                    <pre id="src-win-cmd" data-shell="ps"><span class="p">rustup default stable-msvc</span></pre>
+                    <button class="copy-btn" type="button" data-copy-target="#src-win-cmd" aria-label="Copy command"><svg aria-hidden="true"><use href="#g-copy" /></svg><span data-copy-label>Copy</span></button>
+                  </div>
+                  <p class="term-note">
+                    WebView2 is already on current Windows 10 and 11. MSI builds use WiX v3, which needs the
+                    <b>VBSCRIPT</b> optional feature on Windows 11 24H2 and later (Settings → System → Optional features).
+                  </p>
+                </div>
+                <div class="term-panel" role="tabpanel" id="src-mac" aria-labelledby="tab-src-mac" hidden>
+                  <div class="term-body">
+                    <pre id="src-mac-cmd"><span class="p">xcode-select --install</span>   <span class="c"># Xcode Command Line Tools</span></pre>
+                    <button class="copy-btn" type="button" data-copy-target="#src-mac-cmd" aria-label="Copy command"><svg aria-hidden="true"><use href="#g-copy" /></svg><span data-copy-label>Copy</span></button>
+                  </div>
+                </div>
+                <div class="term-panel" role="tabpanel" id="src-deb" aria-labelledby="tab-src-deb" hidden>
+                  <div class="term-body">
+                    <pre id="src-deb-cmd"><span class="p">sudo apt-get update</span>
+<span class="p">sudo apt-get install -y \</span>
+<span class="k">  build-essential curl wget file \</span>
+<span class="k">  libwebkit2gtk-4.1-dev libgtk-3-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev \</span>
+<span class="k">  librsvg2-dev libayatana-appindicator3-dev libssl-dev libxdo-dev</span></pre>
+                    <button class="copy-btn" type="button" data-copy-target="#src-deb-cmd" aria-label="Copy commands"><svg aria-hidden="true"><use href="#g-copy" /></svg><span data-copy-label>Copy</span></button>
+                  </div>
+                </div>
+                <div class="term-panel" role="tabpanel" id="src-fed" aria-labelledby="tab-src-fed" hidden>
+                  <div class="term-body">
+                    <pre id="src-fed-cmd"><span class="p">sudo dnf install -y \</span>
+<span class="k">  gcc gcc-c++ make curl wget file \</span>
+<span class="k">  webkit2gtk4.1-devel gtk3-devel libsoup3-devel javascriptcoregtk4.1-devel \</span>
+<span class="k">  librsvg2-devel libappindicator-gtk3-devel openssl-devel libxdo-devel</span></pre>
+                    <button class="copy-btn" type="button" data-copy-target="#src-fed-cmd" aria-label="Copy commands"><svg aria-hidden="true"><use href="#g-copy" /></svg><span data-copy-label>Copy</span></button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="source-step reveal">
+              <div class="source-step-label"><span class="step-n">2</span><h3 class="title">Clone and build</h3></div>
+              <div class="term">
+                <div class="term-bar"><span class="term-lights" aria-hidden="true"><i></i><i></i><i></i></span><span class="term-title">Terminal</span></div>
+                <div class="term-body">
+                  <pre id="src-build"><span class="p">git clone https://github.com/framedparadox/keystore-studio.git</span>
+<span class="p">cd keystore-studio</span>
+<span class="p">pnpm install --frozen-lockfile</span>
+<span class="p">pnpm tauri build</span>        <span class="c"># writes installers to src-tauri/target/release/bundle/</span></pre>
+                  <button class="copy-btn" type="button" data-copy-target="#src-build" aria-label="Copy commands"><svg aria-hidden="true"><use href="#g-copy" /></svg><span data-copy-label>Copy</span></button>
+                </div>
+              </div>
+              <p class="small source-aside"><code>pnpm tauri build</code> runs the TypeScript check and the Vite bundle first, then compiles the Rust app in release mode.</p>
+            </div>
+
+            <div class="source-step reveal">
+              <div class="source-step-label"><span class="step-n">3</span><h3 class="title">Pick up your installer</h3></div>
+              <div class="table-wrap">
+                <table class="spec-table">
+                  <caption class="visually-hidden">Build commands and output paths per platform</caption>
+                  <thead>
+                    <tr><th scope="col">Platform</th><th scope="col">Only one format</th><th scope="col">Output, under <code>src-tauri/target/release/bundle/</code></th></tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <th scope="row">macOS</th>
+                      <td><code>pnpm tauri build --bundles dmg</code></td>
+                      <td><code>dmg/Keystore Studio_1.0.0_aarch64.dmg</code> or <code>_x64.dmg</code>, <code>macos/Keystore Studio.app</code></td>
+                    </tr>
+                    <tr>
+                      <th scope="row">Windows</th>
+                      <td><code>--bundles nsis</code> or <code>--bundles msi</code></td>
+                      <td><code>nsis/Keystore Studio_1.0.0_x64-setup.exe</code>, <code>msi/Keystore Studio_1.0.0_x64_en-US.msi</code></td>
+                    </tr>
+                    <tr>
+                      <th scope="row">Linux</th>
+                      <td><code>--bundles deb</code>, <code>rpm</code> or <code>appimage</code></td>
+                      <td><code>deb/keystore-studio_1.0.0_amd64.deb</code>, <code>rpm/keystore-studio-1.0.0-1.x86_64.rpm</code>, <code>appimage/keystore-studio_1.0.0_amd64.AppImage</code></td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          <div class="note-grid" id="source-notes">
+            <div class="note reveal">
+              <h3 class="title">Universal Mac build</h3>
+              <p>One .dmg for Apple silicon and Intel.</p>
+              <div class="term term-inline">
+                <pre id="src-universal"><span class="p">rustup target add aarch64-apple-darwin x86_64-apple-darwin</span>
+<span class="p">pnpm tauri build --target universal-apple-darwin --bundles dmg</span></pre>
+                <button class="copy-btn" type="button" data-copy-target="#src-universal" aria-label="Copy commands"><svg aria-hidden="true"><use href="#g-copy" /></svg><span data-copy-label>Copy</span></button>
+              </div>
+            </div>
+            <div class="note reveal" style="--i: 1">
+              <h3 class="title">Unsigned on another Mac</h3>
+              <p>An unsigned app opens on the Mac that built it. Elsewhere Gatekeeper reports it as damaged. To test it, right-click the app and choose Open, or clear the quarantine flag:</p>
+              <div class="term term-inline">
+                <pre id="src-xattr"><span class="p">xattr -dr com.apple.quarantine "/Applications/Keystore Studio.app"</span></pre>
+                <button class="copy-btn" type="button" data-copy-target="#src-xattr" aria-label="Copy command"><svg aria-hidden="true"><use href="#g-copy" /></svg><span data-copy-label>Copy</span></button>
+              </div>
+            </div>
+            <div class="note reveal" style="--i: 2">
+              <h3 class="title">Windows on ARM64</h3>
+              <p>WiX can't build ARM64 MSIs, so use NSIS. You also need the MSVC ARM64 build tools.</p>
+              <div class="term term-inline">
+                <pre id="src-arm" data-shell="ps"><span class="p">rustup target add aarch64-pc-windows-msvc</span>
+<span class="p">pnpm tauri build --target aarch64-pc-windows-msvc --bundles nsis</span></pre>
+                <button class="copy-btn" type="button" data-copy-target="#src-arm" aria-label="Copy commands"><svg aria-hidden="true"><use href="#g-copy" /></svg><span data-copy-label>Copy</span></button>
+              </div>
+            </div>
+          </div>
+          <p class="small more-link reveal">
+            Signing, notarization, CI builds and troubleshooting are in
+            <a class="text-link" href="https://github.com/framedparadox/keystore-studio/blob/main/docs/INSTALLERS.md" rel="noopener">docs/INSTALLERS.md <span class="chev">›</span></a>
+          </p>
+        </div>
+      </section>
+
+      <!-- ============ VERIFY ============ -->
+      <section class="section section-tint" id="verify" aria-labelledby="verify-title">
+        <div class="container">
+          <div class="section-head reveal">
+            <p class="eyebrow">Verify</p>
+            <h2 id="verify-title" class="display-m">Check it before you run it.</h2>
+            <p class="lede">
+              The Windows installer isn't code-signed yet, so its checksum is how you know the file is the one we
+              published. It takes one command.
+            </p>
+          </div>
+
+          <div class="hash-card reveal-scale">
+            <div class="hash-label">
+              <span class="hash-algo">SHA-256</span>
+              <span class="mono small" data-release="file">Keystore Studio_1.0.0_x64-setup.exe</span>
+            </div>
+            <p class="hash-value mono" aria-label="SHA-256 checksum" data-release="sha256-grouped">
+              <span>0e5715de</span><span>f11e0b6f</span><span>ceefe942</span><span>080ea18e</span><span>367698a2</span><span>cb0d9c01</span><span>17d8c7f9</span><span>2e730e1f</span>
+            </p>
+            <div class="hash-actions">
+              <button class="btn btn-sm copy-btn-lg" type="button" data-copy="0e5715def11e0b6fceefe942080ea18e367698a2cb0d9c0117d8c7f92e730e1f" data-release-copy="sha256">
+                <svg aria-hidden="true"><use href="#g-copy" /></svg><span data-copy-label>Copy SHA-256</span>
+              </button>
+              <span class="small"><span data-release="bytes">301,845,656</span> bytes</span>
+            </div>
+            <form class="hash-check" data-hash-check autocomplete="off">
+              <label for="hash-input">Paste the output of the command to compare</label>
+              <div class="hash-check-row">
+                <input id="hash-input" type="text" spellcheck="false" placeholder="e.g. 0E5715DEF11E0B6F…" />
+                <output for="hash-input" class="hash-result" aria-live="polite"></output>
+              </div>
+            </form>
+          </div>
+
+          <div class="verify-grid">
+            <div class="verify-col reveal">
+              <h3 class="title"><svg aria-hidden="true"><use href="#g-windows" /></svg>Windows PowerShell</h3>
+              <p class="small">Run it in the folder you downloaded to. PowerShell prints the hash in capitals; case doesn't matter.</p>
+              <div class="term term-inline">
+                <pre id="v-win" data-shell="ps"><span class="p">Get-FileHash ".\Keystore Studio_1.0.0_x64-setup.exe" -Algorithm SHA256</span></pre>
+                <button class="copy-btn" type="button" data-copy-target="#v-win" aria-label="Copy command"><svg aria-hidden="true"><use href="#g-copy" /></svg><span data-copy-label>Copy</span></button>
+              </div>
+              <p class="small">Or let PowerShell compare it for you. It prints <code>True</code> when they match.</p>
+              <div class="term term-inline">
+                <pre id="v-win-eq" data-shell="ps"><span class="p">(Get-FileHash ".\Keystore Studio_1.0.0_x64-setup.exe" -Algorithm SHA256).Hash -eq "0e5715def11e0b6fceefe942080ea18e367698a2cb0d9c0117d8c7f92e730e1f"</span></pre>
+                <button class="copy-btn" type="button" data-copy-target="#v-win-eq" aria-label="Copy command"><svg aria-hidden="true"><use href="#g-copy" /></svg><span data-copy-label>Copy</span></button>
+              </div>
+            </div>
+            <div class="verify-col reveal" style="--i: 1">
+              <h3 class="title"><svg aria-hidden="true"><use href="#g-macos" /></svg>macOS</h3>
+              <p class="small">Checking a copy on a Mac before moving it to a PC.</p>
+              <div class="term term-inline">
+                <pre id="v-mac"><span class="p">shasum -a 256 "Keystore Studio_1.0.0_x64-setup.exe"</span></pre>
+                <button class="copy-btn" type="button" data-copy-target="#v-mac" aria-label="Copy command"><svg aria-hidden="true"><use href="#g-copy" /></svg><span data-copy-label>Copy</span></button>
+              </div>
+            </div>
+            <div class="verify-col reveal" style="--i: 2">
+              <h3 class="title"><svg aria-hidden="true"><use href="#g-linux" /></svg>Linux</h3>
+              <p class="small">The same check with coreutils.</p>
+              <div class="term term-inline">
+                <pre id="v-linux"><span class="p">sha256sum "Keystore Studio_1.0.0_x64-setup.exe"</span></pre>
+                <button class="copy-btn" type="button" data-copy-target="#v-linux" aria-label="Copy command"><svg aria-hidden="true"><use href="#g-copy" /></svg><span data-copy-label>Copy</span></button>
+              </div>
+            </div>
+          </div>
+
+          <!-- SmartScreen walkthrough -->
+          <div class="smartscreen" id="smartscreen">
+            <div class="smartscreen-copy reveal">
+              <p class="eyebrow">Windows SmartScreen</p>
+              <h3 class="display-s">“Windows protected your PC.”</h3>
+              <p>
+                SmartScreen shows this for any installer that isn't signed with a code-signing certificate yet.
+                Signing is on the way. Until then, once the checksum matches:
+              </p>
+              <ol class="steps steps-tight" data-ss-steps>
+                <li data-ss-step="1"><span class="step-n">1</span><div><b>Open the setup file.</b> SmartScreen stops it and offers only “Don't run”.</div></li>
+                <li data-ss-step="2"><span class="step-n">2</span><div><b>Click More info.</b> Check the app name reads <code>Keystore Studio_1.0.0_x64-setup.exe</code>. The publisher shows as “Unknown publisher” because the file is unsigned.</div></li>
+                <li data-ss-step="3"><span class="step-n">3</span><div><b>Click Run anyway.</b> Setup starts, and installs WebView2 if your PC doesn't have it.</div></li>
+              </ol>
+              <button type="button" class="text-link replay" data-ss-replay>Replay <span class="chev">↻</span></button>
+            </div>
+
+            <figure class="ss-figure reveal-scale" style="--i: 1">
+              <div class="ss-mock" data-ss data-state="a" role="img" aria-label="Illustration of the Windows SmartScreen dialog: Windows protected your PC. After More info, it shows the app name Keystore Studio_1.0.0_x64-setup.exe, publisher Unknown publisher, and a Run anyway button.">
+                <div class="ss-titlebar" aria-hidden="true"><span></span><span class="ss-x">✕</span></div>
+                <div class="ss-content" aria-hidden="true">
+                  <p class="ss-h">Windows protected your PC</p>
+                  <p class="ss-p">Microsoft Defender SmartScreen prevented an unrecognized app from starting. Running this app might put your PC at risk.</p>
+                  <p class="ss-more"><span class="ss-link" data-ss-more>More info</span></p>
+                  <div class="ss-details">
+                    <p><span>App:</span> Keystore Studio_1.0.0_x64-setup.exe</p>
+                    <p><span>Publisher:</span> Unknown publisher</p>
+                  </div>
+                </div>
+                <div class="ss-buttons" aria-hidden="true">
+                  <span class="ss-btn ss-run" data-ss-run>Run anyway</span>
+                  <span class="ss-btn">Don't run</span>
+                </div>
+                <svg class="ss-cursor" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 3l14 8.2-6.1 1.3 3.6 6.8-2.6 1.4-3.6-6.9L5 18.5z" /></svg>
+                <span class="ss-ripple" aria-hidden="true"></span>
+              </div>
+              <figcaption class="small">An illustration of the dialog. Windows draws the real one.</figcaption>
+            </figure>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============ REQUIREMENTS ============ -->
+      <section class="section" id="requirements" aria-labelledby="req-title">
+        <div class="container">
+          <div class="section-head left reveal">
+            <p class="eyebrow">System requirements</p>
+            <h2 id="req-title" class="display-m">What it runs on.</h2>
+            <p class="lede">
+              The interface needs a Safari 16.4-class web engine (it uses <code>color-mix()</code>,
+              <code>@property</code> and cascade layers). That sets the macOS and WebKitGTK minimums.
+            </p>
+          </div>
+          <div class="table-wrap reveal">
+            <table class="spec-table spec-table-lg">
+              <caption class="visually-hidden">System requirements by operating system</caption>
+              <thead>
+                <tr>
+                  <th scope="col"></th>
+                  <th scope="col">Windows</th>
+                  <th scope="col">macOS</th>
+                  <th scope="col">Linux</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr><th scope="row">Versions</th><td>10 and 11</td><td>11 Big Sur or later</td><td>Ubuntu 22.04+, Debian 12+, Fedora 38+ or similar</td></tr>
+                <tr><th scope="row">Architecture</th><td>x64 (ARM64 from source)</td><td>Apple silicon, Intel, universal</td><td>x86_64 (ARM64 from source)</td></tr>
+                <tr><th scope="row">Web engine</th><td>WebView2, installed by setup if missing</td><td>WKWebView with Safari 16.4 or later</td><td>WebKitGTK 4.1, version 2.40 or later</td></tr>
+                <tr><th scope="row">Installer</th><td>NSIS setup .exe (published); .msi from source</td><td>.dmg, from source</td><td>.deb, .rpm, .AppImage, from source</td></tr>
+                <tr><th scope="row">Built-in terminal</th><td><code>cmd.exe</code></td><td><code>/bin/sh</code></td><td><code>/bin/sh</code></td></tr>
+                <tr><th scope="row">Window</th><td colspan="3">At least 1024 × 680; opens at 1320 × 860</td></tr>
+                <tr><th scope="row">Java, OpenSSL</th><td colspan="3">Not needed. The Rust engine does all the cryptography. <code>keytool</code>, <code>openssl</code> and friends are optional, for the built-in terminal and suggested commands.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============ DATA ============ -->
+      <section class="section section-tint" id="data" aria-labelledby="data-title">
+        <div class="container">
+          <div class="section-head reveal">
+            <p class="eyebrow">Your data</p>
+            <h2 id="data-title" class="display-m">What gets installed.<br />Where your data lives.</h2>
+            <p class="lede">Keystore contents and passwords stay in memory. They reach disk only in the keystore files you save.</p>
+          </div>
+
+          <div class="data-grid">
+            <article class="data-card reveal">
+              <span class="os-badge os-badge-quiet"><svg aria-hidden="true"><use href="#g-box" /></svg></span>
+              <h3 class="title">Installed</h3>
+              <ul class="ticks">
+                <li>The Keystore Studio app, with its Rust engine built in.</li>
+                <li>On Windows, Microsoft WebView2, only if your PC doesn't have it. Setup downloads it from Microsoft.</li>
+                <li>Nothing else: no services, no background updaters, no accounts.</li>
+              </ul>
+            </article>
+
+            <article class="data-card data-card-wide reveal" style="--i: 1">
+              <span class="os-badge os-badge-quiet"><svg aria-hidden="true"><use href="#g-folder" /></svg></span>
+              <h3 class="title">App data folder</h3>
+              <p class="small">Session state: open keystore paths, workspaces, labels, recent files and settings, plus the vault if you set one up. No key material is stored there.</p>
+              <ul class="path-list">
+                <li><span class="path-os"><svg aria-hidden="true"><use href="#g-windows" /></svg>Windows</span><code>%APPDATA%\keystore-studio</code></li>
+                <li><span class="path-os"><svg aria-hidden="true"><use href="#g-macos" /></svg>macOS</span><code>~/Library/Application Support/keystore-studio</code></li>
+                <li><span class="path-os"><svg aria-hidden="true"><use href="#g-linux" /></svg>Linux</span><code>~/.local/share/keystore-studio</code></li>
+              </ul>
+              <p class="small">
+                Set <code>KEYSTORE_STUDIO_DATA_DIR</code> to use another folder. A folder left under the app's former
+                name, <code>xkeystore</code>, moves to the new location on first start.
+              </p>
+            </article>
+
+            <article class="data-card reveal" style="--i: 2">
+              <span class="os-badge os-badge-quiet"><svg aria-hidden="true"><use href="#g-trash" /></svg></span>
+              <h3 class="title">Uninstalling</h3>
+              <ul class="ticks">
+                <li><b>Windows:</b> Settings → Apps, find Keystore Studio, choose Uninstall.</li>
+                <li>The data folder is left in place, so a reinstall picks up where you left off. Delete it to remove everything.</li>
+                <li>In the app, Settings → Data → Reset app data clears settings, workspaces, labels, recent files and the Certificates list.</li>
+              </ul>
+            </article>
+          </div>
+          <p class="small more-link reveal">
+            Network requests, the vault's cryptography and hardening are covered in
+            <a class="text-link" href="../privacy/">Privacy <span class="chev">›</span></a>
+          </p>
+        </div>
+      </section>
+
+      <!-- ============ WHAT'S IN 1.0.0 ============ -->
+      <section class="section" id="whats-new" aria-labelledby="new-title">
+        <div class="container">
+          <div class="section-head reveal">
+            <p class="eyebrow">Release notes</p>
+            <h2 id="new-title" class="display-m">What's in 1.0.0.</h2>
+            <p class="lede">The first release. Everything below ships in the installer and in a source build.</p>
+          </div>
+          <ol class="release-list">
+            <li class="release-item reveal">
+              <span class="release-k">Keystores</span>
+              <p>Open, create, edit and save <b>PKCS#12, JKS, JCEKS, BKS, UBER and BCFKS</b>, side by side. Convert between all six, change passwords with Save as, undo and redo, cut, copy and paste between keystores.</p>
+            </li>
+            <li class="release-item reveal" style="--i: 1">
+              <span class="release-k">Certificates</span>
+              <p>PEM, DER, chains and PKCS#7 bundles on their own page. Inspect, export in any format, add to a keystore or a workspace.</p>
+            </li>
+            <li class="release-item reveal" style="--i: 2">
+              <span class="release-k">Convert</span>
+              <p>Every format conversion in one place, each showing the equivalent <code>openssl</code>, <code>keytool</code> or <code>ssh-keygen</code> command.</p>
+            </li>
+            <li class="release-item reveal" style="--i: 3">
+              <span class="release-k">CA &amp; Signing</span>
+              <p>Sign CSRs, issue CRLs, CMS/PKCS#7 and JWT sign and verify, JAR signing that <code>jarsigner</code> accepts, RFC 3161 timestamps, DH parameters.</p>
+            </li>
+            <li class="release-item reveal" style="--i: 4">
+              <span class="release-k">Examine</span>
+              <p>Live TLS inspection with a trust and hostname verdict against your OS trust store, a connection test, decode anything you paste, compare two certificates.</p>
+            </li>
+            <li class="release-item reveal" style="--i: 5">
+              <span class="release-k">Security audit</span>
+              <p>A health score with findings for expired, expiring and weak entries, one-click key rotation and renewal, CSV report.</p>
+            </li>
+            <li class="release-item reveal" style="--i: 6">
+              <span class="release-k">Vault</span>
+              <p>Remember keystore passwords under one master key (Argon2id → AES-256-GCM). Auto-locks after inactivity; your last session reopens when you unlock it.</p>
+            </li>
+            <li class="release-item reveal" style="--i: 7">
+              <span class="release-k">Productivity</span>
+              <p>Command palette (<span class="nowrap"><kbd>Ctrl</kbd> <kbd>K</kbd></span>), built-in terminal (<span class="nowrap"><kbd>Ctrl</kbd> <kbd>`</kbd></span>), drag and drop, session restore, light, dark and system themes.</p>
+            </li>
+          </ol>
+          <div class="known-limits reveal">
+            <h3 class="title">Known limitations</h3>
+            <p class="small">
+              PKCS#11 hardware tokens and PuTTY <code>.ppk</code> keys aren't supported. Some Bouncy Castle edge cases are
+              refused. Post-quantum, DSA, Ed448 and RSA-PSS keys load and save losslessly but can't sign. The timestamp
+              authority's own chain isn't validated in the app.
+              <a class="text-link" href="https://github.com/framedparadox/keystore-studio#limitations" rel="noopener">Details <span class="chev">›</span></a>
+            </p>
+          </div>
+          <p class="small more-link reveal">
+            Every change in this release, and the road to it:
+            <a class="text-link" href="../changelog/#v1.0.0">Read the full changelog <span class="chev">›</span></a>
+          </p>
+        </div>
+      </section>
+
+      <!-- ============ CLOSING ============ -->
+      <section class="section closing" aria-labelledby="closing-title">
+        <div class="container closing-inner reveal">
+          <img class="app-icon closing-icon" src="../assets/img/icon.png" alt="" width="88" height="88" />
+          <h2 id="closing-title" class="display-m">Your keystores, local.</h2>
+          <p class="lede">No accounts. No telemetry. Open source under MIT.</p>
+          <div class="closing-actions">
+            <a class="btn" href="../#features">Explore features</a>
+            <a class="btn btn-secondary" href="../privacy/">Read the privacy notes</a>
+            <a class="btn btn-secondary" href="https://github.com/framedparadox/keystore-studio" rel="noopener">View on GitHub</a>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <!-- ============ FOOTER (shared) ============ -->
+    <footer class="footer" role="contentinfo">
+      <div class="container">
+        <div class="footer-grid">
+          <div class="footer-brand">
+            <a class="brand" href="../">
+              <img class="brand-mark app-icon" src="../assets/img/icon-180.png" alt="" width="26" height="26" />
+              <span>Keystore Studio</span>
+            </a>
+            <p>A native workbench for Java keystores, PKCS#12 files and X.509 certificates. Built with Rust and Tauri.</p>
+          </div>
+          <div>
+            <h4>Product</h4>
+            <ul>
+              <li><a href="../#features">Features</a></li>
+              <li><a href="../#formats">Formats</a></li>
+              <li><a href="../#specs">Tech specs</a></li>
+              <li><a href="../#faq">FAQ</a></li>
+              <li><a href="../changelog/">Changelog</a></li>
+            </ul>
+          </div>
+          <div>
+            <h4>Get it</h4>
+            <ul>
+              <li><a href="./">Downloads</a></li>
+              <li><a href="./#windows">Windows</a></li>
+              <li><a href="./#macos">macOS</a></li>
+              <li><a href="./#linux">Linux</a></li>
+              <li><a href="./#source">Build from source</a></li>
+            </ul>
+          </div>
+          <div>
+            <h4>Trust</h4>
+            <ul>
+              <li><a href="../privacy/">Privacy</a></li>
+              <li><a href="../#privacy">Network activity</a></li>
+              <li><a href="./#verify">Verify a download</a></li>
+            </ul>
+          </div>
+          <div>
+            <h4>Open source</h4>
+            <ul>
+              <li><a href="https://github.com/framedparadox/keystore-studio" rel="noopener">GitHub</a></li>
+              <li><a href="https://github.com/framedparadox/keystore-studio/issues" rel="noopener">Report an issue</a></li>
+              <li><a href="../feedback/">Send feedback</a></li>
+              <li><a href="../apps/">More apps</a></li>
+              <li><a href="https://github.com/framedparadox/keystore-studio/blob/main/LICENSE" rel="noopener">MIT License</a></li>
+            </ul>
+          </div>
+        </div>
+        <div class="footer-bottom">
+          <span>© <span data-year>2026</span> Keystore Studio contributors. Released under the MIT License.</span>
+          <span>Java is a trademark of Oracle. OpenSSL is a trademark of the OpenSSL Software Foundation. Keystore Studio is not affiliated with either.</span>
+        </div>
+      </div>
+    </footer>
+
+    <script src="../assets/js/site.js" defer></script>
+    <script src="../assets/js/iso.js" defer></script>
+    <script src="../assets/js/pages.js" defer></script>
+  </body>
+</html>

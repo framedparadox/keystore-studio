@@ -1,0 +1,18 @@
+# Files in website/ that are not published by `wrangler deploy`.
+wrangler.jsonc
+.assetsignore
+README.md
+.DS_Store
+
+# Installers: too big for Workers assets (25 MiB per file). CI uploads them to R2 instead,
+# served at https://downloads.keystore-studio.app/v<version>/<file name>.
+downloads/*.exe
+downloads/*.msi
+downloads/*.dmg
+downloads/*.AppImage
+downloads/*.deb
+downloads/*.rpm
+
+# Dev pages: scene test bench and the social-card source.
+iso-lab.html
+og.html
