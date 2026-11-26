@@ -1,0 +1,38 @@
+# Publishes website/ to the Cloudflare Worker "keystore-studio" (https://keystore-studio.app).
+# Static assets only; installers are excluded by website/.assetsignore and published by
+# website-installers.yml instead.
+#
+# Repository secrets: CLOUDFLARE_API_TOKEN (Workers Scripts: Edit; Workers Routes / custom
+# domains on the keystore-studio.app zone) and CLOUDFLARE_ACCOUNT_ID.
+name: website
+
+on:
+  push:
+    branches: [website]
+    paths:
+      - "website/**"
+      - "!website/downloads/*.exe"
+      - "!website/downloads/*.msi"
+      - "!website/downloads/*.dmg"
+      - ".github/workflows/website.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: website
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      # No LFS: the installers are not deployed with the site, so their pointer files suffice.
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Deploy
+        working-directory: website
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: npx --yes wrangler@4 deploy

@@ -70,8 +70,7 @@ the expensive work, not stalling.
 
 One crash so far, on the first run of `keys`: a 31-byte input aborted the process with "attempt to
 add with overflow" inside `yasna`, reachable from `pbe::decrypt_pkcs8`. Fixed by
-`util::check_der_lengths`; the input is now a named case in `tests/robustness.rs`. See
-[IMPROVEMENT.md](../../IMPROVEMENT.md) for the full account.
+`util::check_der_lengths`; the input is now a named case in `tests/robustness.rs`.
 
 ## Why this links the engine without Tauri
 

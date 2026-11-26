@@ -3,10 +3,10 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-    <title>Download Keystore Studio 1.0.0 — Windows installer, macOS and Linux from source</title>
+    <title>Get Keystore Studio 1.0.0 — build from source on Windows, macOS and Linux</title>
     <meta
       name="description"
-      content="Download Keystore Studio 1.0.0 for Windows 10 and 11 (x64), or build it from source on macOS and Linux. SHA-256 checksum, SmartScreen walkthrough, system requirements and where your data lives."
+      content="Build Keystore Studio 1.0.0 from source on Windows, macOS or Linux. Prerequisites, build commands, system requirements and where your data lives."
     />
     <meta name="theme-color" content="#fbfbfd" />
     <meta name="color-scheme" content="light dark" />
@@ -17,18 +17,18 @@
     <meta property="og:url" content="https://keystore-studio.app/downloads/" />
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="Keystore Studio" />
-    <meta property="og:title" content="Download Keystore Studio 1.0.0" />
+    <meta property="og:title" content="Get Keystore Studio 1.0.0" />
     <meta
       property="og:description"
-      content="Windows 10 and 11 (x64) installer, plus build-from-source instructions for macOS and Linux. Free and open source, MIT licensed."
+      content="Build-from-source instructions for Windows, macOS and Linux. Free and open source, MIT licensed."
     />
     <meta property="og:image" content="https://keystore-studio.app/assets/img/og.png" />
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="630" />
     <meta property="og:image:alt" content="Keystore Studio app icon with the words: Keystore Studio. Java keystores and certificates, in one native app." />
     <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:title" content="Download Keystore Studio 1.0.0" />
-    <meta name="twitter:description" content="Windows installer, plus build-from-source instructions for macOS and Linux. MIT licensed." />
+    <meta name="twitter:title" content="Get Keystore Studio 1.0.0" />
+    <meta name="twitter:description" content="Build-from-source instructions for Windows, macOS and Linux. MIT licensed." />
     <meta name="twitter:image" content="https://keystore-studio.app/assets/img/og.png" />
     <script src="../assets/js/theme-init.js"></script>
     <link rel="stylesheet" href="../assets/css/base.css" />
@@ -91,15 +91,15 @@
         <div class="container dl-hero-grid">
           <div class="dl-hero-copy">
             <p class="eyebrow reveal">Downloads</p>
-            <h1 id="dl-title" class="display-l reveal" style="--i: 1">Download Keystore&nbsp;Studio.</h1>
+            <h1 id="dl-title" class="display-l reveal" style="--i: 1">Get Keystore&nbsp;Studio.</h1>
             <p class="lede reveal" style="--i: 2">
-              Version 1.0.0 for <strong>Windows</strong> is ready to install. On <strong>macOS</strong> and
-              <strong>Linux</strong>, build it from source with a handful of commands.
+              Installers aren't published yet. Build version 1.0.0 from source on <strong>Windows</strong>,
+              <strong>macOS</strong> or <strong>Linux</strong> with a handful of commands.
             </p>
             <div class="dl-hero-cta reveal" style="--i: 3">
-              <a class="btn btn-lg os-cta os-cta-windows" href="https://downloads.keystore-studio.app/v1.0.0/Keystore%20Studio_1.0.0_x64-setup.exe" data-download="windows-x64">
-                <svg aria-hidden="true"><use href="#g-download" /></svg>
-                Download for Windows
+              <a class="btn btn-lg os-cta os-cta-windows" href="#get">
+                <svg aria-hidden="true"><use href="#g-source" /></svg>
+                Build for Windows
               </a>
               <a class="btn btn-lg os-cta os-cta-macos" href="#get">
                 <svg aria-hidden="true"><use href="#g-source" /></svg>
@@ -109,17 +109,15 @@
                 <svg aria-hidden="true"><use href="#g-source" /></svg>
                 Build for Linux
               </a>
-              <a class="btn btn-lg btn-secondary" href="#verify">Verify a download</a>
             </div>
             <dl class="dl-meta reveal" style="--i: 4">
               <div><dt>Version</dt><dd>1.0.0</dd></div>
               <div><dt>Licence</dt><dd><a href="https://github.com/framedparadox/keystore-studio/blob/main/LICENSE" rel="noopener">MIT</a></dd></div>
               <div><dt>Price</dt><dd>Free, open source</dd></div>
-              <div><dt>Windows setup</dt><dd><span data-release="size">287.9 MB</span></dd></div>
             </dl>
           </div>
           <div class="dl-hero-scene reveal-scale" style="--i: 2">
-            <div class="iso-scene" data-scene="platforms" data-label="Windows available now; macOS and Linux build from source"></div>
+            <div class="iso-scene" data-scene="platforms" data-label="Windows, macOS and Linux: build from source"></div>
           </div>
         </div>
       </section>
@@ -132,7 +130,6 @@
             <li><a href="#get">Get it</a></li>
             <li><a href="#platforms">Platforms</a></li>
             <li><a href="#source">Build from source</a></li>
-            <li><a href="#verify">Verify</a></li>
             <li><a href="#requirements">Requirements</a></li>
             <li><a href="#data">Your data</a></li>
             <li><a href="#whats-new">What's in 1.0.0</a></li>
@@ -145,7 +142,7 @@
         <div class="container">
           <div class="section-head reveal">
             <h2 id="get-title" class="display-m">Pick your platform.</h2>
-            <p class="lede" data-os-note>Windows installs in one step. macOS and Linux build from source.</p>
+            <p class="lede" data-os-note>Every platform builds from the same source.</p>
           </div>
 
           <div class="os-pick" data-pick="windows">
@@ -166,48 +163,52 @@
             <div class="os-panel" data-for="windows">
               <article class="pick-card pick-primary reveal" aria-labelledby="pick-win-title">
                 <div class="pick-head">
-                  <span class="pick-tag"><span class="dot"></span>Recommended</span>
+                  <span class="pick-tag"><span class="dot warn"></span>Build from source</span>
                   <span class="os-badge"><svg aria-hidden="true"><use href="#g-windows" /></svg></span>
                   <h3 id="pick-win-title" class="display-s">Keystore Studio for Windows</h3>
-                  <p class="pick-sub">Windows 10 and 11 · 64-bit (x64) · NSIS setup</p>
+                  <p class="pick-sub">Windows 10 and 11 · 64-bit (x64) · NSIS setup or .msi</p>
                 </div>
-
-                <div class="pick-download">
-                  <a class="btn btn-lg dl-button" href="https://downloads.keystore-studio.app/v1.0.0/Keystore%20Studio_1.0.0_x64-setup.exe" data-download="windows-x64">
-                    <svg aria-hidden="true"><use href="#g-download" /></svg>
-                    Download for Windows
-                  </a>
-                  <div class="pick-file">
-                    <span class="mono" data-release="file">Keystore Studio_1.0.0_x64-setup.exe</span>
-                    <span><span data-release="size">287.9 MB</span> · SHA-256 <span class="mono" data-release="sha256-short" title="0e5715def11e0b6fceefe942080ea18e367698a2cb0d9c0117d8c7f92e730e1f">0e5715de…2e730e1f</span></span>
-                  </div>
-                </div>
-
-                <div class="callout callout-warn">
-                  <svg aria-hidden="true"><use href="#g-shield" /></svg>
-                  <p>
-                    <strong>This installer is not code-signed yet.</strong> Windows SmartScreen will say
-                    “Windows protected your PC”. Choose <b>More info</b>, then <b>Run anyway</b>.
-                    <a class="text-link" href="#verify">Check the SHA-256 first <span class="chev">›</span></a>
-                  </p>
-                </div>
-
+                <p class="pick-note">An installer isn't published yet. You can build one on your Windows machine.</p>
                 <ol class="steps">
-                  <li><span class="step-n">1</span><div><b>Download</b> the setup file above.</div></li>
-                  <li><span class="step-n">2</span><div><b>Verify</b> its SHA-256 matches the one on this page. <a class="text-link" href="#verify">How</a></div></li>
-                  <li><span class="step-n">3</span><div><b>Run the setup.</b> At the SmartScreen prompt, choose More info, then Run anyway. Setup installs Microsoft WebView2 if it is missing.</div></li>
-                  <li><span class="step-n">4</span><div><b>Open Keystore Studio</b> from the Start menu.</div></li>
+                  <li>
+                    <span class="step-n">1</span>
+                    <div><b>Install Visual Studio Build Tools</b> with the Desktop development with C++ workload (<a class="text-link" href="#source">details</a>).</div>
+                  </li>
+                  <li>
+                    <span class="step-n">2</span>
+                    <div><b>Install Node 22, pnpm 9 and Rust</b> (stable, via <a class="text-link" href="https://rustup.rs" rel="noopener">rustup</a>).</div>
+                  </li>
+                  <li>
+                    <span class="step-n">3</span>
+                    <div>
+                      <b>Clone and build the setup .exe.</b>
+                      <div class="term term-inline">
+                        <pre id="win-step-3" data-shell="ps"><span class="p">git clone https://github.com/framedparadox/keystore-studio.git</span>
+<span class="p">cd keystore-studio</span>
+<span class="p">pnpm install --frozen-lockfile</span>
+<span class="p">pnpm tauri build --bundles nsis</span></pre>
+                        <button class="copy-btn" type="button" data-copy-target="#win-step-3" aria-label="Copy commands"><svg aria-hidden="true"><use href="#g-copy" /></svg><span data-copy-label>Copy</span></button>
+                      </div>
+                    </div>
+                  </li>
+                  <li>
+                    <span class="step-n">4</span>
+                    <div>
+                      <b>Run the setup</b> from <code>src-tauri\target\release\bundle\nsis\</code>. It installs
+                      Microsoft WebView2 if it is missing.
+                    </div>
+                  </li>
                 </ol>
               </article>
 
               <aside class="pick-card pick-alt reveal" style="--i: 1" aria-labelledby="pick-win-alt">
-                <span class="pick-tag pick-tag-quiet">Alternative</span>
+                <span class="pick-tag pick-tag-quiet">Also available</span>
                 <span class="os-badge os-badge-quiet"><svg aria-hidden="true"><use href="#g-source" /></svg></span>
-                <h3 id="pick-win-alt" class="title">Build it yourself</h3>
-                <p>Prefer an <b>.msi</b> for Intune or Group Policy, or an ARM64 build? Build the installer on your own Windows machine.</p>
-                <a class="text-link" href="#source">Build from source <span class="chev">›</span></a>
+                <h3 id="pick-win-alt" class="title">MSI or ARM64</h3>
+                <p>Prefer an <b>.msi</b> for Intune or Group Policy, or need an ARM64 build?</p>
+                <a class="text-link" href="#source">All build options <span class="chev">›</span></a>
                 <hr />
-                <p class="small">On a Mac or a Linux PC? Installers aren't published yet, but both build from the same source.</p>
+                <p class="small">On a Mac or a Linux PC? Both build from the same source.</p>
                 <div class="pick-alt-links">
                   <button type="button" class="chip-link" data-pick-btn="macos"><svg aria-hidden="true"><use href="#g-macos" /></svg>macOS</button>
                   <button type="button" class="chip-link" data-pick-btn="linux"><svg aria-hidden="true"><use href="#g-linux" /></svg>Linux</button>
@@ -241,7 +242,7 @@
                   </li>
                   <li>
                     <span class="step-n">2</span>
-                    <div><b>Install Node 22, pnpm 10 and Rust</b> (stable, via <a class="text-link" href="https://rustup.rs" rel="noopener">rustup</a>).</div>
+                    <div><b>Install Node 22, pnpm 9 and Rust</b> (stable, via <a class="text-link" href="https://rustup.rs" rel="noopener">rustup</a>).</div>
                   </li>
                   <li>
                     <span class="step-n">3</span>
@@ -273,14 +274,9 @@
 
               <aside class="pick-card pick-alt reveal" style="--i: 1" aria-labelledby="pick-mac-alt">
                 <span class="pick-tag pick-tag-quiet">Also available</span>
-                <span class="os-badge os-badge-quiet"><svg aria-hidden="true"><use href="#g-windows" /></svg></span>
-                <h3 id="pick-mac-alt" class="title">The Windows installer is ready</h3>
-                <p>Using a Windows 10 or 11 PC as well? Version 1.0.0 installs there in one step.</p>
-                <a class="btn btn-secondary" href="https://downloads.keystore-studio.app/v1.0.0/Keystore%20Studio_1.0.0_x64-setup.exe" data-download="windows-x64">
-                  <svg aria-hidden="true"><use href="#g-download" /></svg><span>Windows x64 · <span data-release="size">287.9 MB</span></span>
-                </a>
-                <hr />
-                <p class="small">Want a universal build for Apple silicon and Intel in one .dmg?</p>
+                <span class="os-badge os-badge-quiet"><svg aria-hidden="true"><use href="#g-source" /></svg></span>
+                <h3 id="pick-mac-alt" class="title">Universal build</h3>
+                <p>One .dmg for Apple silicon and Intel.</p>
                 <a class="text-link" href="#source">Universal build <span class="chev">›</span></a>
               </aside>
             </div>
@@ -315,7 +311,7 @@
                   </li>
                   <li>
                     <span class="step-n">2</span>
-                    <div><b>Install Node 22, pnpm 10 and Rust</b> (stable, via <a class="text-link" href="https://rustup.rs" rel="noopener">rustup</a>).</div>
+                    <div><b>Install Node 22, pnpm 9 and Rust</b> (stable, via <a class="text-link" href="https://rustup.rs" rel="noopener">rustup</a>).</div>
                   </li>
                   <li>
                     <span class="step-n">3</span>
@@ -343,14 +339,9 @@
 
               <aside class="pick-card pick-alt reveal" style="--i: 1" aria-labelledby="pick-linux-alt">
                 <span class="pick-tag pick-tag-quiet">Also available</span>
-                <span class="os-badge os-badge-quiet"><svg aria-hidden="true"><use href="#g-windows" /></svg></span>
-                <h3 id="pick-linux-alt" class="title">The Windows installer is ready</h3>
-                <p>Using a Windows 10 or 11 PC as well? Version 1.0.0 installs there in one step.</p>
-                <a class="btn btn-secondary" href="https://downloads.keystore-studio.app/v1.0.0/Keystore%20Studio_1.0.0_x64-setup.exe" data-download="windows-x64">
-                  <svg aria-hidden="true"><use href="#g-download" /></svg><span>Windows x64 · <span data-release="size">287.9 MB</span></span>
-                </a>
-                <hr />
-                <p class="small">On ARM64? Build on an ARM64 machine; the commands are the same.</p>
+                <span class="os-badge os-badge-quiet"><svg aria-hidden="true"><use href="#g-source" /></svg></span>
+                <h3 id="pick-linux-alt" class="title">ARM64 and other formats</h3>
+                <p>On ARM64, build on an ARM64 machine; the commands are the same.</p>
                 <a class="text-link" href="#source">All build options <span class="chev">›</span></a>
               </aside>
             </div>
@@ -364,26 +355,26 @@
           <div class="section-head reveal">
             <p class="eyebrow">Platforms</p>
             <h2 id="platforms-title" class="display-m">One app. Three platforms.</h2>
-            <p class="lede">The same Rust engine and the same interface on every system. Only the installer differs.</p>
+            <p class="lede">The same Rust engine and the same interface on every system. Only the package format differs.</p>
           </div>
           <div class="platform-grid">
             <article class="platform-card reveal" id="windows">
               <div class="platform-top">
                 <span class="os-badge"><svg aria-hidden="true"><use href="#g-windows" /></svg></span>
-                <span class="status status-ok"><span class="dot"></span>Available</span>
+                <span class="status status-warn"><span class="dot warn"></span>Build from source</span>
               </div>
               <h3 class="display-s">Windows</h3>
               <dl class="kv">
                 <div><dt>Versions</dt><dd>Windows 10 and 11</dd></div>
-                <div><dt>Architecture</dt><dd>x64</dd></div>
-                <div><dt>Package</dt><dd>NSIS setup (.exe)</dd></div>
-                <div><dt>Size</dt><dd data-release="size">287.9 MB</dd></div>
+                <div><dt>Architecture</dt><dd>x64; ARM64 from source</dd></div>
+                <div><dt>Packages</dt><dd>NSIS setup (.exe), .msi</dd></div>
                 <div><dt>Webview</dt><dd>WebView2, installed by setup if missing</dd></div>
-                <div><dt>Signed</dt><dd><span class="status status-warn"><span class="dot warn"></span>Not yet</span></dd></div>
+                <div><dt>Build tools</dt><dd>Visual Studio Build Tools (C++)</dd></div>
+                <div><dt>Signed</dt><dd>Not published yet</dd></div>
               </dl>
-              <a class="btn dl-button-sm" href="https://downloads.keystore-studio.app/v1.0.0/Keystore%20Studio_1.0.0_x64-setup.exe" data-download="windows-x64">
-                <svg aria-hidden="true"><use href="#g-download" /></svg>Download
-              </a>
+              <button type="button" class="btn btn-secondary dl-button-sm" data-pick-btn="windows" data-pick-scroll>
+                <svg aria-hidden="true"><use href="#g-source" /></svg>Build steps
+              </button>
             </article>
 
             <article class="platform-card reveal" style="--i: 1" id="macos">
@@ -441,7 +432,7 @@
 
           <ul class="prereq-grid">
             <li class="prereq reveal"><span class="prereq-k">Node</span><span class="prereq-v">22</span><span class="small">JavaScript runtime for the UI build</span></li>
-            <li class="prereq reveal" style="--i: 1"><span class="prereq-k">pnpm</span><span class="prereq-v">10</span><span class="small">Package manager</span></li>
+            <li class="prereq reveal" style="--i: 1"><span class="prereq-k">pnpm</span><span class="prereq-v">9</span><span class="small">Package manager</span></li>
             <li class="prereq reveal" style="--i: 2"><span class="prereq-k">Rust</span><span class="prereq-v">stable</span><span class="small">Edition 2024, via <a class="text-link" href="https://rustup.rs" rel="noopener">rustup</a></span></li>
             <li class="prereq reveal" style="--i: 3"><span class="prereq-k">Tauri</span><span class="prereq-v">v2</span><span class="small"><a class="text-link" href="https://v2.tauri.app/start/prerequisites/" rel="noopener">System dependencies <span class="chev">›</span></a></span></li>
           </ul>
@@ -573,119 +564,6 @@
               </div>
             </div>
           </div>
-          <p class="small more-link reveal">
-            Signing, notarization, CI builds and troubleshooting are in
-            <a class="text-link" href="https://github.com/framedparadox/keystore-studio/blob/main/docs/INSTALLERS.md" rel="noopener">docs/INSTALLERS.md <span class="chev">›</span></a>
-          </p>
-        </div>
-      </section>
-
-      <!-- ============ VERIFY ============ -->
-      <section class="section section-tint" id="verify" aria-labelledby="verify-title">
-        <div class="container">
-          <div class="section-head reveal">
-            <p class="eyebrow">Verify</p>
-            <h2 id="verify-title" class="display-m">Check it before you run it.</h2>
-            <p class="lede">
-              The Windows installer isn't code-signed yet, so its checksum is how you know the file is the one we
-              published. It takes one command.
-            </p>
-          </div>
-
-          <div class="hash-card reveal-scale">
-            <div class="hash-label">
-              <span class="hash-algo">SHA-256</span>
-              <span class="mono small" data-release="file">Keystore Studio_1.0.0_x64-setup.exe</span>
-            </div>
-            <p class="hash-value mono" aria-label="SHA-256 checksum" data-release="sha256-grouped">
-              <span>0e5715de</span><span>f11e0b6f</span><span>ceefe942</span><span>080ea18e</span><span>367698a2</span><span>cb0d9c01</span><span>17d8c7f9</span><span>2e730e1f</span>
-            </p>
-            <div class="hash-actions">
-              <button class="btn btn-sm copy-btn-lg" type="button" data-copy="0e5715def11e0b6fceefe942080ea18e367698a2cb0d9c0117d8c7f92e730e1f" data-release-copy="sha256">
-                <svg aria-hidden="true"><use href="#g-copy" /></svg><span data-copy-label>Copy SHA-256</span>
-              </button>
-              <span class="small"><span data-release="bytes">301,845,656</span> bytes</span>
-            </div>
-            <form class="hash-check" data-hash-check autocomplete="off">
-              <label for="hash-input">Paste the output of the command to compare</label>
-              <div class="hash-check-row">
-                <input id="hash-input" type="text" spellcheck="false" placeholder="e.g. 0E5715DEF11E0B6F…" />
-                <output for="hash-input" class="hash-result" aria-live="polite"></output>
-              </div>
-            </form>
-          </div>
-
-          <div class="verify-grid">
-            <div class="verify-col reveal">
-              <h3 class="title"><svg aria-hidden="true"><use href="#g-windows" /></svg>Windows PowerShell</h3>
-              <p class="small">Run it in the folder you downloaded to. PowerShell prints the hash in capitals; case doesn't matter.</p>
-              <div class="term term-inline">
-                <pre id="v-win" data-shell="ps"><span class="p">Get-FileHash ".\Keystore Studio_1.0.0_x64-setup.exe" -Algorithm SHA256</span></pre>
-                <button class="copy-btn" type="button" data-copy-target="#v-win" aria-label="Copy command"><svg aria-hidden="true"><use href="#g-copy" /></svg><span data-copy-label>Copy</span></button>
-              </div>
-              <p class="small">Or let PowerShell compare it for you. It prints <code>True</code> when they match.</p>
-              <div class="term term-inline">
-                <pre id="v-win-eq" data-shell="ps"><span class="p">(Get-FileHash ".\Keystore Studio_1.0.0_x64-setup.exe" -Algorithm SHA256).Hash -eq "0e5715def11e0b6fceefe942080ea18e367698a2cb0d9c0117d8c7f92e730e1f"</span></pre>
-                <button class="copy-btn" type="button" data-copy-target="#v-win-eq" aria-label="Copy command"><svg aria-hidden="true"><use href="#g-copy" /></svg><span data-copy-label>Copy</span></button>
-              </div>
-            </div>
-            <div class="verify-col reveal" style="--i: 1">
-              <h3 class="title"><svg aria-hidden="true"><use href="#g-macos" /></svg>macOS</h3>
-              <p class="small">Checking a copy on a Mac before moving it to a PC.</p>
-              <div class="term term-inline">
-                <pre id="v-mac"><span class="p">shasum -a 256 "Keystore Studio_1.0.0_x64-setup.exe"</span></pre>
-                <button class="copy-btn" type="button" data-copy-target="#v-mac" aria-label="Copy command"><svg aria-hidden="true"><use href="#g-copy" /></svg><span data-copy-label>Copy</span></button>
-              </div>
-            </div>
-            <div class="verify-col reveal" style="--i: 2">
-              <h3 class="title"><svg aria-hidden="true"><use href="#g-linux" /></svg>Linux</h3>
-              <p class="small">The same check with coreutils.</p>
-              <div class="term term-inline">
-                <pre id="v-linux"><span class="p">sha256sum "Keystore Studio_1.0.0_x64-setup.exe"</span></pre>
-                <button class="copy-btn" type="button" data-copy-target="#v-linux" aria-label="Copy command"><svg aria-hidden="true"><use href="#g-copy" /></svg><span data-copy-label>Copy</span></button>
-              </div>
-            </div>
-          </div>
-
-          <!-- SmartScreen walkthrough -->
-          <div class="smartscreen" id="smartscreen">
-            <div class="smartscreen-copy reveal">
-              <p class="eyebrow">Windows SmartScreen</p>
-              <h3 class="display-s">“Windows protected your PC.”</h3>
-              <p>
-                SmartScreen shows this for any installer that isn't signed with a code-signing certificate yet.
-                Signing is on the way. Until then, once the checksum matches:
-              </p>
-              <ol class="steps steps-tight" data-ss-steps>
-                <li data-ss-step="1"><span class="step-n">1</span><div><b>Open the setup file.</b> SmartScreen stops it and offers only “Don't run”.</div></li>
-                <li data-ss-step="2"><span class="step-n">2</span><div><b>Click More info.</b> Check the app name reads <code>Keystore Studio_1.0.0_x64-setup.exe</code>. The publisher shows as “Unknown publisher” because the file is unsigned.</div></li>
-                <li data-ss-step="3"><span class="step-n">3</span><div><b>Click Run anyway.</b> Setup starts, and installs WebView2 if your PC doesn't have it.</div></li>
-              </ol>
-              <button type="button" class="text-link replay" data-ss-replay>Replay <span class="chev">↻</span></button>
-            </div>
-
-            <figure class="ss-figure reveal-scale" style="--i: 1">
-              <div class="ss-mock" data-ss data-state="a" role="img" aria-label="Illustration of the Windows SmartScreen dialog: Windows protected your PC. After More info, it shows the app name Keystore Studio_1.0.0_x64-setup.exe, publisher Unknown publisher, and a Run anyway button.">
-                <div class="ss-titlebar" aria-hidden="true"><span></span><span class="ss-x">✕</span></div>
-                <div class="ss-content" aria-hidden="true">
-                  <p class="ss-h">Windows protected your PC</p>
-                  <p class="ss-p">Microsoft Defender SmartScreen prevented an unrecognized app from starting. Running this app might put your PC at risk.</p>
-                  <p class="ss-more"><span class="ss-link" data-ss-more>More info</span></p>
-                  <div class="ss-details">
-                    <p><span>App:</span> Keystore Studio_1.0.0_x64-setup.exe</p>
-                    <p><span>Publisher:</span> Unknown publisher</p>
-                  </div>
-                </div>
-                <div class="ss-buttons" aria-hidden="true">
-                  <span class="ss-btn ss-run" data-ss-run>Run anyway</span>
-                  <span class="ss-btn">Don't run</span>
-                </div>
-                <svg class="ss-cursor" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 3l14 8.2-6.1 1.3 3.6 6.8-2.6 1.4-3.6-6.9L5 18.5z" /></svg>
-                <span class="ss-ripple" aria-hidden="true"></span>
-              </div>
-              <figcaption class="small">An illustration of the dialog. Windows draws the real one.</figcaption>
-            </figure>
-          </div>
         </div>
       </section>
 
@@ -715,7 +593,7 @@
                 <tr><th scope="row">Versions</th><td>10 and 11</td><td>11 Big Sur or later</td><td>Ubuntu 22.04+, Debian 12+, Fedora 38+ or similar</td></tr>
                 <tr><th scope="row">Architecture</th><td>x64 (ARM64 from source)</td><td>Apple silicon, Intel, universal</td><td>x86_64 (ARM64 from source)</td></tr>
                 <tr><th scope="row">Web engine</th><td>WebView2, installed by setup if missing</td><td>WKWebView with Safari 16.4 or later</td><td>WebKitGTK 4.1, version 2.40 or later</td></tr>
-                <tr><th scope="row">Installer</th><td>NSIS setup .exe (published); .msi from source</td><td>.dmg, from source</td><td>.deb, .rpm, .AppImage, from source</td></tr>
+                <tr><th scope="row">Installer</th><td>NSIS setup .exe or .msi, from source</td><td>.dmg, from source</td><td>.deb, .rpm, .AppImage, from source</td></tr>
                 <tr><th scope="row">Built-in terminal</th><td><code>cmd.exe</code></td><td><code>/bin/sh</code></td><td><code>/bin/sh</code></td></tr>
                 <tr><th scope="row">Window</th><td colspan="3">At least 1024 × 680; opens at 1320 × 860</td></tr>
                 <tr><th scope="row">Java, OpenSSL</th><td colspan="3">Not needed. The Rust engine does all the cryptography. <code>keytool</code>, <code>openssl</code> and friends are optional, for the built-in terminal and suggested commands.</td></tr>
@@ -783,7 +661,7 @@
           <div class="section-head reveal">
             <p class="eyebrow">Release notes</p>
             <h2 id="new-title" class="display-m">What's in 1.0.0.</h2>
-            <p class="lede">The first release. Everything below ships in the installer and in a source build.</p>
+            <p class="lede">The first release. Everything below is in a source build.</p>
           </div>
           <ol class="release-list">
             <li class="release-item reveal">
@@ -886,7 +764,6 @@
             <ul>
               <li><a href="../privacy/">Privacy</a></li>
               <li><a href="../#privacy">Network activity</a></li>
-              <li><a href="./#verify">Verify a download</a></li>
             </ul>
           </div>
           <div>

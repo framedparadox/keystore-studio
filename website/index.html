@@ -153,16 +153,16 @@
               Open, convert, sign, audit and inspect, with every operation running locally in a Rust engine.
             </p>
             <div class="hero-ctas reveal" style="--i: 3">
-              <a class="btn btn-lg" href="downloads/">
+              <a class="btn btn-lg" href="downloads/#source">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#i-download" /></svg>
-                Download for Windows
+                Build from source
               </a>
               <a class="btn btn-lg btn-secondary" href="#features">Take the tour</a>
             </div>
             <ul class="hero-meta reveal" style="--i: 4" aria-label="At a glance">
               <li><span class="dot" aria-hidden="true"></span>Free, MIT licensed</li>
               <li>Windows 10 and 11 x64</li>
-              <li><a class="text-link" href="downloads/#source">macOS and Linux from source</a></li>
+              <li><a class="text-link" href="downloads/#source">Windows, macOS and Linux</a></li>
             </ul>
           </div>
           <div class="hero-scene-wrap reveal-scale" style="--i: 2">
@@ -842,10 +842,10 @@
               <h3 class="title">Windows</h3>
               <p class="platform-ver">10 and 11, x64</p>
               <dl>
-                <div><dt>Installer</dt><dd>Setup .exe</dd></div>
+                <div><dt>Installer</dt><dd>Setup .exe, .msi</dd></div>
                 <div><dt>Webview</dt><dd>WebView2, installed by the setup if missing</dd></div>
               </dl>
-              <span class="platform-status is-ready"><span class="dot" aria-hidden="true"></span>Download available</span>
+              <span class="platform-status"><span class="dot warn" aria-hidden="true"></span>Build from source for now</span>
             </article>
             <article class="platform reveal" style="--i: 1">
               <h3 class="title">macOS</h3>
@@ -882,7 +882,7 @@
             <div class="spec reveal"><dt>Terminal shell</dt><dd><code>cmd.exe</code> on Windows, <code>/bin/sh</code> elsewhere</dd></div>
             <div class="spec reveal"><dt>Data folder</dt><dd class="spec-paths"><span><b>Windows</b> <code>%APPDATA%\keystore-studio</code></span><span><b>macOS</b> <code>~/Library/<wbr />Application Support/<wbr />keystore-studio</code></span><span><b>Linux</b> <code>~/.local/share/<wbr />keystore-studio</code></span><span>Override with <code>KEYSTORE_STUDIO_DATA_DIR</code></span></dd></div>
             <div class="spec reveal"><dt>Hardening</dt><dd>Strict CSP, fuzzed parsers, <code>cargo deny</code> and clippy in CI</dd></div>
-            <div class="spec reveal"><dt>Build from source</dt><dd>Node 22, pnpm 10, stable Rust and the Tauri system dependencies</dd></div>
+            <div class="spec reveal"><dt>Build from source</dt><dd>Node 22, pnpm 9, stable Rust and the Tauri system dependencies</dd></div>
           </dl>
         </div>
       </section>
@@ -901,12 +901,8 @@
               <div class="qa-body"><p>Yes. It is open source under the MIT licence, for personal and commercial use. There are no accounts, no paid tier and nothing to sign up for.</p></div>
             </details>
             <details class="qa reveal">
-              <summary><span>Windows warns that the installer is from an unknown publisher. Is that expected?</span><svg class="qa-chev" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg></summary>
-              <div class="qa-body"><p>Yes. The 1.0.0 installer is not code-signed yet, so Microsoft Defender SmartScreen may show "Windows protected your PC". Choose <strong>More info</strong>, then <strong>Run anyway</strong>. If you would rather not, <a class="text-link" href="downloads/#verify">verify the download</a> first or <a class="text-link" href="downloads/#source">build it from source</a>.</p></div>
-            </details>
-            <details class="qa reveal">
-              <summary><span>When are macOS and Linux installers coming?</span><svg class="qa-chev" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg></summary>
-              <div class="qa-body"><p>CI already builds them on every platform, but only the Windows installer is published so far. Until then, build your own: clone the repository, run <code>pnpm install</code> and <code>pnpm tauri build</code>. You need Node 22, pnpm 10, stable Rust and the Tauri system dependencies for your OS.</p></div>
+              <summary><span>When are installers coming?</span><svg class="qa-chev" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg></summary>
+              <div class="qa-body"><p>CI already builds them on every platform, but none are published yet. Until then, build your own: clone the repository, run <code>pnpm install</code> and <code>pnpm tauri build</code>. You need Node 22, pnpm 9, stable Rust and the Tauri system dependencies for your OS.</p></div>
             </details>
             <details class="qa reveal">
               <summary><span>Do I need Java, keytool or OpenSSL installed?</span><svg class="qa-chev" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg></summary>
@@ -956,9 +952,9 @@
           <h2 class="display-xl reveal" id="cta-title" style="--i: 1">Built in the open.<br /><span class="gradient-ink">Free for everyone.</span></h2>
           <p class="lede reveal" style="--i: 2">Keystore Studio is MIT licensed. Read the code, file an issue, or build it yourself.</p>
           <div class="cta-actions reveal" style="--i: 3">
-            <a class="btn btn-lg" href="downloads/">
+            <a class="btn btn-lg" href="downloads/#source">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#i-download" /></svg>
-              Download for Windows
+              Build from source
             </a>
             <a class="btn btn-lg btn-secondary" href="https://github.com/framedparadox/keystore-studio" rel="noopener">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#i-github" /></svg>
@@ -966,7 +962,7 @@
             </a>
           </div>
           <p class="cta-meta small reveal" style="--i: 4">
-            Version 1.0.0 · Windows 10 and 11 x64 · <a class="text-link" href="downloads/#source">macOS and Linux: build from source <span class="chev">›</span></a>
+            Version 1.0.0 · <a class="text-link" href="downloads/#source">Windows, macOS and Linux: build from source <span class="chev">›</span></a>
           </p>
         </div>
       </section>
@@ -1008,7 +1004,6 @@
             <ul>
               <li><a href="privacy/">Privacy</a></li>
               <li><a href="#privacy">Network activity</a></li>
-              <li><a href="downloads/#verify">Verify a download</a></li>
             </ul>
           </div>
           <div>

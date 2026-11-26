@@ -1,0 +1,57 @@
+# Uploads the installers in website/downloads/ to the R2 bucket behind
+# https://downloads.keystore-studio.app, at v<version>/<file name>, e.g.
+#   website/downloads/Keystore Studio_1.0.0_x64-setup.exe
+#   -> https://downloads.keystore-studio.app/v1.0.0/Keystore%20Studio_1.0.0_x64-setup.exe
+# The version is read from the file name. After a new installer lands, update RELEASE in
+# website/assets/js/pages.js and the fallback links in website/downloads/index.html.
+#
+# One-time setup: enable R2, create the bucket "keystore-studio-downloads", connect the custom
+# domain downloads.keystore-studio.app to it, and give CLOUDFLARE_API_TOKEN "R2: Edit".
+name: website-installers
+
+on:
+  push:
+    branches: [website]
+    paths:
+      - "website/downloads/*.exe"
+      - "website/downloads/*.msi"
+      - "website/downloads/*.dmg"
+      - "website/downloads/*.AppImage"
+      - "website/downloads/*.deb"
+      - "website/downloads/*.rpm"
+  workflow_dispatch:
+
+jobs:
+  upload:
+    runs-on: ubuntu-latest
+    env:
+      BUCKET: keystore-studio-downloads
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Upload to R2
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          for path in website/downloads/*.{exe,msi,dmg,AppImage,deb,rpm}; do
+            name="$(basename "$path")"
+            # An LFS pointer is ~130 bytes; refuse to publish one in place of the binary.
+            if [ "$(stat -c %s "$path")" -lt 1048576 ]; then
+              echo "::error::$name is smaller than 1 MiB; is Git LFS content missing?"; exit 1
+            fi
+            version="$(sed -nE 's/.*_([0-9]+\.[0-9]+\.[0-9]+)_.*/\1/p' <<<"$name")"
+            [ -n "$version" ] || { echo "::error::no version in '$name'"; exit 1; }
+            echo "$name -> v$version  sha256 $(sha256sum "$path" | cut -d' ' -f1)"
+            npx --yes wrangler@4 r2 object put "$BUCKET/v$version/$name" --remote \
+              --file "$path" \
+              --content-type application/octet-stream \
+              --content-disposition "attachment; filename=\"$name\"" \
+              --cache-control "public, max-age=31536000, immutable"
+          done
