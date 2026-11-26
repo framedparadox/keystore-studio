@@ -1333,11 +1333,11 @@
   }
 
   /* =====================================================================
-     7. PLATFORMS — three pedestals: Windows (available), macOS and Linux (source).
+     7. PLATFORMS — three pedestals: Windows, macOS and Linux (all from source for now).
      ===================================================================== */
   function platforms(root) {
     const PL = [
-      { id: "windows", name: "Windows", sub: "x64 · installer", ready: true },
+      { id: "windows", name: "Windows", sub: "x64 · arm64", ready: false },
       { id: "macos", name: "macOS", sub: "Apple silicon · Intel", ready: false },
       { id: "linux", name: "Linux", sub: "x64 · arm64", ready: false },
     ];
@@ -1346,7 +1346,7 @@
       H: 460,
       ox: 390,
       oy: 300,
-      label: "Platforms: Windows installer available now; macOS and Linux build from source",
+      label: "Platforms: Windows, macOS and Linux build from source",
     });
     const world = group(S.cam, "iso-plats");
     const D = 176;

@@ -3,50 +3,8 @@
 (() => {
   "use strict";
 
-  /* =====================================================================
-     RELEASE — the one place to change when a new installer ships.
-     Installers are served from Cloudflare R2 at downloads.keystore-studio.app, not from the site:
-     Workers static assets cap files at 25 MiB. .github/workflows/website.yml uploads every
-     installer in website/downloads/ to R2 under v<version>/, with the same file name.
-     A relative `url` is resolved against the site root, which is handy for local previews.
-     The HTML carries the same values as a no-JavaScript fallback (see website/README.md).
-     ===================================================================== */
-  const RELEASE = {
-    version: "1.0.0",
-    file: "Keystore Studio_1.0.0_x64-setup.exe",
-    url: "https://downloads.keystore-studio.app/v1.0.0/Keystore%20Studio_1.0.0_x64-setup.exe",
-    bytes: 301845656,
-    sha256: "0e5715def11e0b6fceefe942080ea18e367698a2cb0d9c0117d8c7f92e730e1f",
-  };
-
   const root = document.documentElement;
   const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
-  const script = document.currentScript;
-  const siteRoot = script ? new URL("../../", script.src) : new URL("./", location.href);
-
-  /* ---------- Release values ---------- */
-  const sizeMB = `${(RELEASE.bytes / 1048576).toFixed(1)} MB`;
-  const downloadHref = new URL(RELEASE.url, siteRoot).href;
-  document.querySelectorAll("[data-download]").forEach((a) => {
-    a.href = downloadHref;
-  });
-  const fill = (key, value) => document.querySelectorAll(`[data-release="${key}"]`).forEach((el) => (el.textContent = value));
-  fill("size", sizeMB);
-  fill("file", RELEASE.file);
-  fill("bytes", RELEASE.bytes.toLocaleString("en-US"));
-  fill("version", RELEASE.version);
-  fill("sha256-short", `${RELEASE.sha256.slice(0, 8)}…${RELEASE.sha256.slice(-8)}`);
-  document.querySelectorAll('[data-release="sha256-short"]').forEach((el) => (el.title = RELEASE.sha256));
-  document.querySelectorAll('[data-release="sha256-grouped"]').forEach((el) => {
-    el.replaceChildren(
-      ...RELEASE.sha256.match(/.{8}/g).map((g) => {
-        const s = document.createElement("span");
-        s.textContent = g;
-        return s;
-      })
-    );
-  });
-  document.querySelectorAll('[data-release-copy="sha256"]').forEach((b) => (b.dataset.copy = RELEASE.sha256));
 
   /* ---------- Platform picker (downloads) ---------- */
   const pick = document.querySelector(".os-pick");
@@ -75,8 +33,7 @@
     setPick(detected || "windows", { animate: false });
     const note = document.querySelector("[data-os-note]");
     if (note) {
-      if (detected === "windows") note.textContent = "We've picked Windows for you. The installer is ready.";
-      else if (detected) note.textContent = `We've picked ${OS_NAMES[detected]} for you. There's no installer yet, so here's how to build one.`;
+      if (detected) note.textContent = `We've picked ${OS_NAMES[detected]} for you. There's no installer yet, so here's how to build one.`;
       else if (handheld) note.textContent = "Keystore Studio is a desktop app. Open this page on your computer to install it.";
     }
     document.addEventListener("click", (e) => {
@@ -134,103 +91,6 @@
     const first = want && tabs.find((t) => t.id.endsWith(`-${want}`));
     if (first) activateTab(first);
   });
-
-  /* ---------- Paste-to-compare checksum ---------- */
-  document.querySelectorAll("[data-hash-check]").forEach((form) => {
-    form.addEventListener("submit", (e) => e.preventDefault());
-    const input = form.querySelector("input");
-    const out = form.querySelector("output");
-    const check = () => {
-      const raw = input.value.trim();
-      const found = raw.match(/[0-9a-f]{64}/i);
-      if (!raw) {
-        delete form.dataset.result;
-        out.textContent = "";
-        return;
-      }
-      if (!found) {
-        form.dataset.result = "partial";
-        out.textContent = "Looking for a 64-character SHA-256…";
-        return;
-      }
-      const ok = found[0].toLowerCase() === RELEASE.sha256;
-      form.dataset.result = ok ? "match" : "mismatch";
-      out.innerHTML = ok
-        ? '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>Matches. This is the published file.'
-        : '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>Doesn’t match. Don’t run this file; download it again.';
-    };
-    input.addEventListener("input", check);
-  });
-
-  /* ---------- SmartScreen walkthrough ---------- */
-  const mock = document.querySelector("[data-ss]");
-  if (mock) {
-    const steps = [...document.querySelectorAll("[data-ss-step]")];
-    const more = mock.querySelector("[data-ss-more]");
-    const run = mock.querySelector("[data-ss-run]");
-    let timers = [];
-    const later = (ms, fn) => timers.push(window.setTimeout(fn, ms));
-    const clear = () => {
-      timers.forEach(window.clearTimeout);
-      timers = [];
-    };
-    const mark = (n) => steps.forEach((li) => li.classList.toggle("is-active", Number(li.dataset.ssStep) === n));
-    const pointAt = (el) => {
-      const m = mock.getBoundingClientRect();
-      const r = el.getBoundingClientRect();
-      mock.style.setProperty("--cx", `${r.left - m.left + Math.min(r.width * 0.5, 40)}px`);
-      mock.style.setProperty("--cy", `${r.top - m.top + r.height * 0.55}px`);
-    };
-    const click = () => {
-      mock.classList.remove("is-clicking");
-      void mock.offsetWidth;
-      mock.classList.add("is-clicking");
-    };
-    const play = () => {
-      clear();
-      mock.dataset.state = "a";
-      mark(1);
-      if (reduceMotion.matches) {
-        // No pointer movement: step through the states with pauses instead.
-        later(1600, () => ((mock.dataset.state = "b"), mark(2)));
-        later(3600, () => ((mock.dataset.state = "c"), mark(3)));
-        return;
-      }
-      mock.classList.remove("has-cursor");
-      const m = mock.getBoundingClientRect();
-      mock.style.setProperty("--cx", `${m.width * 0.82}px`);
-      mock.style.setProperty("--cy", `${m.height * 1.05}px`);
-      later(500, () => mock.classList.add("has-cursor"));
-      later(900, () => pointAt(more));
-      later(2000, () => {
-        click();
-        mock.dataset.state = "b";
-        mark(2);
-      });
-      later(3300, () => pointAt(run));
-      later(4400, () => {
-        click();
-        mock.dataset.state = "c";
-        mark(3);
-      });
-      later(6200, () => mock.classList.remove("has-cursor"));
-    };
-    if ("IntersectionObserver" in window) {
-      const io = new IntersectionObserver(
-        (entries) => {
-          if (entries.some((en) => en.isIntersecting)) {
-            io.disconnect();
-            later(400, play);
-          }
-        },
-        { threshold: 0.6 }
-      );
-      io.observe(mock);
-    } else {
-      mock.dataset.state = "b";
-    }
-    document.querySelector("[data-ss-replay]")?.addEventListener("click", play);
-  }
 
   /* ---------- Privacy: table-of-contents scroll-spy and reading progress ---------- */
   const toc = document.querySelector(".toc");
