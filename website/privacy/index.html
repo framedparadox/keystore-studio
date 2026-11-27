@@ -245,8 +245,8 @@
             </div>
             <p>
               Servers, timestamp authorities and CAs you contact handle those requests under their own privacy policies.
-              On Windows, if WebView2 is missing, the installer downloads it from Microsoft during setup; the app
-              itself never does.
+              On Windows, if WebView2 is missing, setup installs it: the published setup includes a copy, and a
+              setup you build yourself downloads it from Microsoft. The app itself never does.
             </p>
           </section>
 
@@ -306,9 +306,11 @@
               Every file it loads comes from the same place as the page.
             </p>
             <p>
-              If you pick a light or dark theme with the toggle in the header, your browser's local storage remembers
-              that one choice under the key <code>ks-theme</code>. It never leaves your browser, and choosing the
-              automatic theme removes it.
+              The site asks before it remembers anything. If you accept and then pick a light or dark theme with the
+              toggle in the header, your browser's local storage keeps that choice under the key
+              <code>ks-theme</code>; choosing the automatic theme removes it. If you decline, the theme isn't saved.
+              Your answer itself is kept under <code>ks-consent</code>, so the question isn't repeated. Neither leaves
+              your browser, and clearing this site's data removes both.
             </p>
             <p>
               The server that hosts the site may keep standard access logs, as web servers do. Links to GitHub,

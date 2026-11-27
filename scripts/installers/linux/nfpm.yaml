@@ -1,0 +1,26 @@
+# Arch Linux package, made from the files of the .deb (see container-build.sh).
+name: keystore-studio
+arch: ${NFPM_ARCH}
+platform: linux
+version: ${VERSION}
+release: "1"
+maintainer: Ajay Kontham
+vendor: Ajay Kontham
+description: Keystore and X.509 certificate workbench
+license: MIT
+depends:
+  - cairo
+  - gdk-pixbuf2
+  - glib2
+  - gtk3
+  - hicolor-icon-theme
+  - libsoup3
+  - webkit2gtk-4.1
+archlinux:
+  packager: Ajay Kontham
+contents:
+  - src: /tmp/debroot/usr/
+    dst: /usr/
+    type: tree
+  - src: ./LICENSE
+    dst: /usr/share/licenses/keystore-studio/LICENSE

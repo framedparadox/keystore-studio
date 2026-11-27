@@ -1,0 +1,45 @@
+# Snap made from the files of the .deb (see ../build-snap.sh). Not published to the Snap Store.
+name: keystore-studio
+base: core24
+version: "VERSION"
+summary: Keystore and X.509 certificate workbench
+description: |
+  Create, open, edit and convert PKCS#12, JKS, JCEKS and Bouncy Castle keystores; issue
+  certificates, sign CSRs, CRLs, JARs, CMS payloads and JWTs; inspect live TLS servers and
+  certificate files.
+license: MIT
+grade: stable
+confinement: strict
+
+# No cross-building: built for amd64 on arm64, snapcraft packs ARM libraries beside the x86_64 app.
+platforms:
+  arm64:
+  amd64:
+
+apps:
+  keystore-studio:
+    command: usr/bin/keystore-studio
+    desktop: usr/share/applications/keystore-studio.desktop
+    extensions: [gnome]
+    plugs:
+      - home
+      - network
+      - removable-media
+
+# WebKitGTK looks for its helper processes at a fixed path.
+layout:
+  /usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/webkit2gtk-4.1:
+    bind: $SNAP/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/webkit2gtk-4.1
+
+parts:
+  app:
+    plugin: dump
+    source: app.deb
+    source-type: deb
+    stage-packages:
+      - libwebkit2gtk-4.1-0
+    override-build: |
+      craftctl default
+      cd "$CRAFT_PART_INSTALL/usr/share/applications"
+      mv "Keystore Studio.desktop" keystore-studio.desktop
+      sed -i 's|^Icon=.*|Icon=${SNAP}/usr/share/icons/hicolor/128x128/apps/keystore-studio.png|' keystore-studio.desktop

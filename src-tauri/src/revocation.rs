@@ -171,7 +171,14 @@ mod tests {
         }
         let serial = random_serial();
         let leaf = build_certificate(
-            CertTemplate { serial: serial.clone(), subject_der: encode_dn(&parse_dn("CN=leaf.test").unwrap()), not_before: now - 60, not_after: now + 86_400, spki_der: leaf_key.public_key_der().unwrap(), extensions },
+            CertTemplate {
+                serial: serial.clone(),
+                subject_der: encode_dn(&parse_dn("CN=leaf.test").unwrap()),
+                not_before: now - 60,
+                not_after: now + 86_400,
+                spki_der: leaf_key.public_key_der().unwrap(),
+                extensions,
+            },
             &Signer { key: &ca_key, cert_der: Some(&ca), sig_alg: ca_key.default_sig_alg(None).unwrap() },
         )
         .unwrap();
