@@ -746,8 +746,11 @@ alone, which is how the fuzz targets and the UI bridge link it.
 ### Release builds
 
 Pushing a `v*` tag, or running [`release-download.yml`](.github/workflows/release-download.yml) by
-hand, builds unsigned installers and attaches them to the GitHub release: a Windows NSIS `.exe`, a
-macOS `.dmg`, and Linux `.AppImage`, `.deb` and `.rpm` packages.
+hand, builds installers and attaches them to the GitHub release: a Windows NSIS `.exe` and x64
+`.msix`, a macOS `.dmg`, and Linux `.AppImage`, `.deb` and `.rpm` packages. The NSIS, macOS and Linux
+installers remain unsigned. The MSIX is unsigned unless the repository secrets
+`MSIX_CERTIFICATE_BASE64` (base64-encoded PFX) and `MSIX_CERTIFICATE_PASSWORD` are configured; the
+signing certificate must be trusted by target machines.
 
 The version lives in [`package.json`](package.json),
 [`src-tauri/tauri.conf.json`](src-tauri/tauri.conf.json) (the one installers use) and

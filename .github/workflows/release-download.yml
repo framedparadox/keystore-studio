@@ -33,10 +33,83 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - name: Build Windows installer
         run: pnpm tauri build --ci --bundles nsis --no-sign
+      - name: Package MSIX
+        shell: pwsh
+        env:
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+          MSIX_CERTIFICATE_BASE64: ${{ secrets.MSIX_CERTIFICATE_BASE64 }}
+          MSIX_CERTIFICATE_PASSWORD: ${{ secrets.MSIX_CERTIFICATE_PASSWORD }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          if ($env:RELEASE_TAG -notmatch '^v?(\d+)\.(\d+)\.(\d+)(?:[-+].*)?$') {
+            throw "Release tag '$env:RELEASE_TAG' must contain a semantic version such as v1.2.3."
+          }
+          $msixVersion = "$($Matches[1]).$($Matches[2]).$($Matches[3]).0"
+
+          $packageRoot = Join-Path $env:RUNNER_TEMP 'keystore-studio-msix'
+          $assetsPath = Join-Path $packageRoot 'Assets'
+          New-Item -ItemType Directory -Path $assetsPath -Force | Out-Null
+          Copy-Item 'src-tauri/target/release/keystore-studio.exe' $packageRoot
+          Get-ChildItem 'src-tauri/target/release' -Filter '*.dll' -File |
+            Copy-Item -Destination $packageRoot
+          Copy-Item 'src-tauri/icons/128x128@2x.png' (Join-Path $assetsPath 'StoreLogo.png')
+          Copy-Item 'src-tauri/icons/128x128@2x.png' (Join-Path $assetsPath 'Square150x150Logo.png')
+          Copy-Item 'src-tauri/icons/128x128.png' (Join-Path $assetsPath 'Square44x44Logo.png')
+
+          $publisher = 'CN=Keystore Studio'
+          $certificatePath = Join-Path $env:RUNNER_TEMP 'msix-signing.pfx'
+          $hasCertificate = -not [string]::IsNullOrWhiteSpace($env:MSIX_CERTIFICATE_BASE64)
+          if ($hasCertificate) {
+            [IO.File]::WriteAllBytes($certificatePath, [Convert]::FromBase64String($env:MSIX_CERTIFICATE_BASE64))
+            $certificate = [Security.Cryptography.X509Certificates.X509Certificate2]::new(
+              $certificatePath,
+              $env:MSIX_CERTIFICATE_PASSWORD
+            )
+            $publisher = $certificate.Subject
+          } elseif (-not [string]::IsNullOrWhiteSpace($env:MSIX_CERTIFICATE_PASSWORD)) {
+            throw 'MSIX_CERTIFICATE_PASSWORD is set but MSIX_CERTIFICATE_BASE64 is missing.'
+          }
+
+          $manifest = Get-Content 'src-tauri/msix/AppxManifest.xml' -Raw
+          $manifest = $manifest.Replace('__VERSION__', $msixVersion)
+          $manifest = $manifest.Replace('__PUBLISHER__', [Security.SecurityElement]::Escape($publisher))
+          [IO.File]::WriteAllText(
+            (Join-Path $packageRoot 'AppxManifest.xml'),
+            $manifest,
+            [Text.UTF8Encoding]::new($false)
+          )
+
+          $makeAppx = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin\*\x64\makeappx.exe" |
+            Sort-Object FullName -Descending |
+            Select-Object -First 1
+          if (-not $makeAppx) {
+            throw 'MakeAppx.exe was not found in the installed Windows SDK.'
+          }
+
+          $outputPath = 'src-tauri/target/release/bundle/msix/KeystoreStudio_{0}_x64.msix' -f $msixVersion
+          New-Item -ItemType Directory -Path (Split-Path $outputPath) -Force | Out-Null
+          & $makeAppx.FullName pack /d $packageRoot /p $outputPath
+          if ($LASTEXITCODE -ne 0) {
+            throw "MakeAppx failed with exit code $LASTEXITCODE."
+          }
+
+          if ($hasCertificate) {
+            $signTool = Join-Path $makeAppx.Directory.FullName 'signtool.exe'
+            if (-not (Test-Path $signTool)) {
+              throw "SignTool.exe was not found at '$signTool'."
+            }
+            & $signTool sign /fd SHA256 /f $certificatePath /p $env:MSIX_CERTIFICATE_PASSWORD /tr http://timestamp.digicert.com /td SHA256 $outputPath
+            if ($LASTEXITCODE -ne 0) {
+              throw "SignTool failed with exit code $LASTEXITCODE."
+            }
+          }
       - uses: actions/upload-artifact@v4
         with:
           name: keystore-studio-windows
-          path: src-tauri/target/release/bundle/nsis/*
+          path: |
+            src-tauri/target/release/bundle/nsis/*
+            src-tauri/target/release/bundle/msix/*
           if-no-files-found: error
 
   build-macos:
@@ -116,6 +189,7 @@ jobs:
           generate_release_notes: true
           files: |
             release-assets/**/*.exe
+            release-assets/**/*.msix
             release-assets/**/*.dmg
             release-assets/**/*.AppImage
             release-assets/**/*.deb

@@ -513,8 +513,11 @@ fn from_model(entries: &[KeystoreEntry], password: &str) -> Res<Vec<RawEntry>> {
                 (chain, payload)
             }
             "SecretKey" => {
-                let payload =
-                    if e.locked { still_sealed()? } else { sealed(KeyBlob { key_type: KEY_SECRET, format: "RAW".into(), algorithm: e.algorithm.clone(), encoded: std::mem::take(&mut *entry::secret_bytes(e)?) })? };
+                let payload = if e.locked {
+                    still_sealed()?
+                } else {
+                    sealed(KeyBlob { key_type: KEY_SECRET, format: "RAW".into(), algorithm: e.algorithm.clone(), encoded: std::mem::take(&mut *entry::secret_bytes(e)?) })?
+                };
                 (Vec::new(), payload)
             }
             other => return Err(format!("unsupported: entry type '{other}'")),

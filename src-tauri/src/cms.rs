@@ -447,10 +447,7 @@ pub fn verify_with_trust(cms_der: &[u8], detached_content: Option<&[u8]>, extra_
                 info.error = Some(format!("signer certificate '{}' is not valid until {}", cert_info.subject, cert_info.valid_from));
             } else if info.signature_valid && now > cert_info.not_after {
                 let covered_by_ts = info.timestamp.as_ref().is_some_and(|ts| {
-                    ts.valid
-                        && crate::util::parse_naive_datetime(ts.time.trim_end_matches(" UTC"))
-                            .map(|dt| dt.ts())
-                            .is_some_and(|t| t >= cert_info.not_before && t <= cert_info.not_after)
+                    ts.valid && crate::util::parse_naive_datetime(ts.time.trim_end_matches(" UTC")).map(|dt| dt.ts()).is_some_and(|t| t >= cert_info.not_before && t <= cert_info.not_after)
                 });
                 if !covered_by_ts {
                     info.signature_valid = false;
