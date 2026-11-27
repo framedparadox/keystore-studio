@@ -1333,12 +1333,12 @@
   }
 
   /* =====================================================================
-     7. PLATFORMS — three pedestals: Windows, macOS and Linux (all from source for now).
+     7. PLATFORMS — three pedestals: Windows, macOS and Linux (Linux from source for now).
      ===================================================================== */
   function platforms(root) {
     const PL = [
-      { id: "windows", name: "Windows", sub: "x64 · arm64", ready: false },
-      { id: "macos", name: "macOS", sub: "Apple silicon · Intel", ready: false },
+      { id: "windows", name: "Windows", sub: "x64", ready: true, ext: ".exe", arch: "x64" },
+      { id: "macos", name: "macOS", sub: "Apple silicon", ready: true, ext: ".dmg", arch: "arm64" },
       { id: "linux", name: "Linux", sub: "x64 · arm64", ready: false },
     ];
     const S = base(root, {
@@ -1346,7 +1346,7 @@
       H: 460,
       ox: 390,
       oy: 300,
-      label: "Platforms: Windows, macOS and Linux build from source",
+      label: "Platforms: Windows and macOS available, Linux builds from source",
     });
     const world = group(S.cam, "iso-plats");
     const D = 176;
@@ -1379,10 +1379,10 @@
       });
       if (p.ready) {
         faceText(box.f.top, "1.0.0", "iso-tl iso-inst-tl", -90);
-        faceText(box.f.front, ".exe", "iso-inst-f");
-        faceText(box.f.right, "x64", "iso-inst-f");
-        faceText(box.f.back, ".exe", "iso-inst-f");
-        faceText(box.f.left, "x64", "iso-inst-f");
+        faceText(box.f.front, p.ext, "iso-inst-f");
+        faceText(box.f.right, p.arch, "iso-inst-f");
+        faceText(box.f.back, p.ext, "iso-inst-f");
+        faceText(box.f.left, p.arch, "iso-inst-f");
       }
       const lab = card(
         S,

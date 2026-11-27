@@ -153,16 +153,16 @@
               Open, convert, sign, audit and inspect, with every operation running locally in a Rust engine.
             </p>
             <div class="hero-ctas reveal" style="--i: 3">
-              <a class="btn btn-lg" href="downloads/#source">
+              <a class="btn btn-lg" href="downloads/">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#i-download" /></svg>
-                Build from source
+                Download
               </a>
               <a class="btn btn-lg btn-secondary" href="#features">Take the tour</a>
             </div>
             <ul class="hero-meta reveal" style="--i: 4" aria-label="At a glance">
               <li><span class="dot" aria-hidden="true"></span>Free, MIT licensed</li>
               <li>Windows 10 and 11 x64</li>
-              <li><a class="text-link" href="downloads/#source">Windows, macOS and Linux</a></li>
+              <li><a class="text-link" href="downloads/">Windows, macOS and Linux</a></li>
             </ul>
           </div>
           <div class="hero-scene-wrap reveal-scale" style="--i: 2">
@@ -842,19 +842,19 @@
               <h3 class="title">Windows</h3>
               <p class="platform-ver">10 and 11, x64</p>
               <dl>
-                <div><dt>Installer</dt><dd>Setup .exe, .msi</dd></div>
-                <div><dt>Webview</dt><dd>WebView2, installed by the setup if missing</dd></div>
+                <div><dt>Installer</dt><dd>Setup .exe; .msi from source</dd></div>
+                <div><dt>Webview</dt><dd>WebView2, included in setup</dd></div>
               </dl>
-              <span class="platform-status"><span class="dot warn" aria-hidden="true"></span>Build from source for now</span>
+              <span class="platform-status"><span class="dot" aria-hidden="true"></span><a class="text-link" href="https://github.com/framedparadox/keystore-studio/releases/download/v1.0.0/Keystore.Studio_1.0.0_x64-setup.exe">Download 1.0.0</a></span>
             </article>
             <article class="platform reveal" style="--i: 1">
               <h3 class="title">macOS</h3>
               <p class="platform-ver">11 Big Sur or later, with Safari 16.4 or later</p>
               <dl>
-                <div><dt>Installer</dt><dd>.dmg</dd></div>
+                <div><dt>Installer</dt><dd>.dmg (Apple silicon)</dd></div>
                 <div><dt>Webview</dt><dd>WKWebView (system)</dd></div>
               </dl>
-              <span class="platform-status"><span class="dot warn" aria-hidden="true"></span>Build from source for now</span>
+              <span class="platform-status"><span class="dot" aria-hidden="true"></span><a class="text-link" href="https://github.com/framedparadox/keystore-studio/releases/download/v1.0.0/Keystore.Studio_1.0.0_aarch64.dmg">Download 1.0.0</a></span>
             </article>
             <article class="platform reveal" style="--i: 2">
               <h3 class="title">Linux</h3>
@@ -901,8 +901,8 @@
               <div class="qa-body"><p>Yes. It is open source under the MIT licence, for personal and commercial use. There are no accounts, no paid tier and nothing to sign up for.</p></div>
             </details>
             <details class="qa reveal">
-              <summary><span>When are installers coming?</span><svg class="qa-chev" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg></summary>
-              <div class="qa-body"><p>CI already builds them on every platform, but none are published yet. Until then, build your own: clone the repository, run <code>pnpm install</code> and <code>pnpm tauri build</code>. You need Node 22, pnpm 9, stable Rust and the Tauri system dependencies for your OS.</p></div>
+              <summary><span>Where are the installers?</span><svg class="qa-chev" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg></summary>
+              <div class="qa-body"><p>Windows (x64) and Apple silicon Mac installers are on the <a class="text-link" href="downloads/">downloads page</a>. For Linux and Intel Macs, clone the repository, run <code>pnpm install</code> and <code>pnpm tauri build</code>. You need Node 22, pnpm 9, stable Rust and the Tauri system dependencies for your OS.</p></div>
             </details>
             <details class="qa reveal">
               <summary><span>Do I need Java, keytool or OpenSSL installed?</span><svg class="qa-chev" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg></summary>
@@ -950,11 +950,11 @@
         <div class="container cta-inner">
           <img class="app-icon cta-icon reveal-scale" src="assets/img/icon.png" alt="" width="112" height="112" loading="lazy" decoding="async" />
           <h2 class="display-xl reveal" id="cta-title" style="--i: 1">Built in the open.<br /><span class="gradient-ink">Free for everyone.</span></h2>
-          <p class="lede reveal" style="--i: 2">Keystore Studio is MIT licensed. Read the code, file an issue, or build it yourself.</p>
+          <p class="lede reveal" style="--i: 2">Keystore Studio is MIT licensed. Read the code, file an issue, or download it.</p>
           <div class="cta-actions reveal" style="--i: 3">
-            <a class="btn btn-lg" href="downloads/#source">
+            <a class="btn btn-lg" href="downloads/">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#i-download" /></svg>
-              Build from source
+              Download
             </a>
             <a class="btn btn-lg btn-secondary" href="https://github.com/framedparadox/keystore-studio" rel="noopener">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#i-github" /></svg>
@@ -962,7 +962,7 @@
             </a>
           </div>
           <p class="cta-meta small reveal" style="--i: 4">
-            Version 1.0.0 · <a class="text-link" href="downloads/#source">Windows, macOS and Linux: build from source <span class="chev">›</span></a>
+            Version 1.0.0 · <a class="text-link" href="downloads/">Windows, macOS and Linux <span class="chev">›</span></a>
           </p>
         </div>
       </section>

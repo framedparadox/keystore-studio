@@ -33,7 +33,7 @@
     setPick(detected || "windows", { animate: false });
     const note = document.querySelector("[data-os-note]");
     if (note) {
-      if (detected) note.textContent = `We've picked ${OS_NAMES[detected]} for you. There's no installer yet, so here's how to build one.`;
+      if (detected) note.textContent = `We've picked ${OS_NAMES[detected]} for you.${detected === "linux" ? " There's no package yet, so here's how to build one." : ""}`;
       else if (handheld) note.textContent = "Keystore Studio is a desktop app. Open this page on your computer to install it.";
     }
     document.addEventListener("click", (e) => {

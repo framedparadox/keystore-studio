@@ -21,9 +21,9 @@
     <link rel="related" type="text/html" href="https://github.com/framedparadox/keystore-studio/releases/tag/v1.0.0" />
     <published>2026-11-25T06:04:53Z</published>
     <updated>2026-11-25T06:04:53Z</updated>
-    <summary>The first public release, built from source on Windows, macOS and Linux. No accounts, no telemetry, MIT licensed.</summary>
+    <summary>The first public release, for Windows, macOS and Linux. No accounts, no telemetry, MIT licensed.</summary>
     <content type="html"><![CDATA[
-<p>The first public release of Keystore Studio, a native workbench for Java keystores, PKCS#12 files and X.509 certificates. Build from source on Windows, macOS and Linux.</p>
+<p>The first public release of Keystore Studio, a native workbench for Java keystores, PKCS#12 files and X.509 certificates. Download for Windows and Apple silicon Macs, or build from source on Linux.</p>
 <ul>
 <li><b>Keystores.</b> Open, create, edit and save PKCS#12, JKS, JCEKS, BKS, UBER and BCFKS side by side, convert between all six, undo and redo.</li>
 <li><b>Certificates.</b> PEM, DER, chains and PKCS#7 bundles on their own page; inspect, export, add to a keystore or workspace.</li>

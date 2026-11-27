@@ -1,7 +1,8 @@
 # Keystore Studio website
 
 A static site: plain HTML, CSS and JavaScript. No build step, no frameworks, no CDNs, no web fonts,
-no cookies and no analytics. Every file the pages load is in this folder.
+no tracking cookies and no analytics. Every file the pages load is in this folder.
+The consent banner (`assets/js/site.js`) gates the one stored preference, the theme.
 
 ## Preview locally
 
@@ -19,7 +20,7 @@ Open it through a server rather than as `file://` so the relative links, `site.w
 | Path | What it is |
 | --- | --- |
 | `index.html` | Landing page. Its `<head>` holds the Open Graph/Twitter tags and the JSON-LD `SoftwareApplication` block. |
-| `downloads/index.html` | Downloads: OS-aware build card, platform cards (`#windows`, `#macos`, `#linux`), build from source (`#source`), requirements, data folders, release notes. No installer is offered yet. |
+| `downloads/index.html` | Downloads: OS-aware build card, platform cards (`#windows`, `#macos`, `#linux`), build from source (`#source`), requirements, data folders, release notes. Windows and macOS installers link to GitHub Releases. |
 | `downloads/Keystore Studio_1.0.0_x64-setup.exe` | The Windows installer, tracked with Git LFS. Published to R2, not with the site (see Hosting). |
 | `privacy/index.html` | Privacy page (app and website). |
 | `changelog/index.html` | Changelog: one `<article id="v<version>">` per release (categorised entries, known limitations, pull requests), the "Road to 1.0" timeline from the commit history, and "Coming next". |
@@ -42,9 +43,10 @@ Open it through a server rather than as `file://` so the relative links, `site.w
 
 ## Publishing an installer
 
-The site currently offers no installer; every platform is "build from source". Installers are meant
-to be published to Cloudflare R2 and served from
-`https://downloads.keystore-studio.app/v<version>/<file name>`, with the site only linking to them.
+The download buttons link to the GitHub release assets
+(`https://github.com/framedparadox/keystore-studio/releases/download/v<version>/<file name>`):
+Windows x64 and Apple silicon macOS. Linux is "build from source". The R2 route below
+(`downloads.keystore-studio.app`) is set up but the pages don't link to it.
 
 1. Build it with `pnpm tauri build --bundles nsis`. Do not publish a Microsoft Store (`-Store`)
    build: it embeds the WebView2 offline installer and is about 290 MB instead of a few MB.

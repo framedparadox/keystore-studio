@@ -665,6 +665,43 @@ kbd {
   }
 }
 
+/* ---------- Cookie consent ---------- */
+.consent {
+  position: fixed;
+  left: var(--gutter);
+  bottom: calc(var(--gutter) + env(safe-area-inset-bottom, 0px));
+  z-index: 150;
+  width: min(360px, calc(100% - var(--gutter) * 2));
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--line-strong);
+  background: var(--glass-strong);
+  box-shadow: var(--shadow-lg);
+  -webkit-backdrop-filter: saturate(180%) blur(20px);
+  backdrop-filter: saturate(180%) blur(20px);
+  animation: consent-in var(--dur-3) var(--ease-out) both;
+}
+.consent p {
+  margin: 0;
+  font-size: 14px;
+  color: var(--ink-2);
+}
+.consent-actions {
+  display: flex;
+  gap: 8px;
+}
+.consent-actions .btn {
+  flex: 1;
+}
+@keyframes consent-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+}
+
 /* ---------- Footer ---------- */
 .footer {
   padding: 72px 0 40px;

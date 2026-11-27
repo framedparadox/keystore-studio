@@ -6,6 +6,7 @@
 
   const root = document.documentElement;
   const KEY = "ks-theme";
+  const CONSENT_KEY = "ks-consent";
   const media = window.matchMedia("(prefers-color-scheme: dark)");
   const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
 
@@ -16,6 +17,22 @@
       return v === "light" || v === "dark" ? v : "system";
     } catch {
       return "system";
+    }
+  };
+  const readConsent = () => {
+    try {
+      return localStorage.getItem(CONSENT_KEY);
+    } catch {
+      return null;
+    }
+  };
+  // The theme choice is stored only once the visitor has accepted; "system" is the default, so it stores nothing.
+  const savePref = (pref) => {
+    try {
+      if (pref === "system" || readConsent() !== "accepted") localStorage.removeItem(KEY);
+      else localStorage.setItem(KEY, pref);
+    } catch {
+      /* storage unavailable: theme still applies for this page view */
     }
   };
   const resolved = (pref) => (pref === "system" ? (media.matches ? "dark" : "light") : pref);
@@ -45,16 +62,37 @@
     if (!btn) return;
     // Cycle from the applied preference, so the toggle still works when storage is blocked.
     const next = { system: "light", light: "dark", dark: "system" }[root.dataset.themePref || readPref()];
-    try {
-      if (next === "system") localStorage.removeItem(KEY);
-      else localStorage.setItem(KEY, next);
-    } catch {
-      /* storage unavailable: theme still applies for this page view */
-    }
+    savePref(next);
     root.classList.add("theme-switching");
     applyTheme(next);
     window.setTimeout(() => root.classList.remove("theme-switching"), 400);
   });
+
+  /* ---------- Cookie consent: shown until the visitor accepts or declines ---------- */
+  if (!["accepted", "declined"].includes(readConsent())) {
+    const privacy = new URL("../../privacy/#website", document.currentScript.src).href;
+    const box = document.createElement("section");
+    box.className = "consent";
+    box.setAttribute("aria-label", "Cookie consent");
+    box.innerHTML = `
+      <p>No tracking cookies. May we remember your theme in this browser? <a class="text-link" href="${privacy}">Privacy</a></p>
+      <div class="consent-actions">
+        <button class="btn btn-sm" type="button" data-consent="accepted">Accept</button>
+        <button class="btn btn-sm btn-secondary" type="button" data-consent="declined">Decline</button>
+      </div>`;
+    box.addEventListener("click", (e) => {
+      const choice = e.target.closest("[data-consent]")?.dataset.consent;
+      if (!choice) return;
+      try {
+        localStorage.setItem(CONSENT_KEY, choice);
+      } catch {
+        /* storage unavailable: the banner returns on the next page */
+      }
+      savePref(root.dataset.themePref);
+      box.remove();
+    });
+    document.body.append(box);
+  }
 
   /* ---------- Nav: scrolled state + mobile menu ---------- */
   const nav = document.querySelector(".nav");
