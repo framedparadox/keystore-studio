@@ -238,7 +238,14 @@ fn handle(cmd: &str, args: &serde_json::Value) -> Result<serde_json::Value, Stri
             to_json(keystore_studio_lib::ocsp::check(&url, &subject, &issuer)?.info())
         }
         // State the UI reads on its pages; the bridge keeps none, so these answer "empty".
-        "tool_status" => to_json(keystore_studio_lib::tools::status()),
+        "tool_status" => to_json(keystore_studio_lib::tools::status(&opt_arg(args, "overrides")?.unwrap_or_default())),
+        "check_revocation" => {
+            let subject = keystore_studio_lib::x509::certificates_from_bytes(s("subjectPem").as_bytes())?.into_iter().next().ok_or("no subject certificate")?;
+            let issuer = keystore_studio_lib::x509::certificates_from_bytes(s("issuerPem").as_bytes())?.into_iter().next().ok_or("no issuer certificate")?;
+            let methods: Vec<String> = opt_arg(args, "methods")?.unwrap_or_else(|| vec!["ocsp".into(), "crl".into()]);
+            let methods: Vec<&str> = methods.iter().map(String::as_str).collect();
+            to_json(keystore_studio_lib::revocation::check_each(&subject, &issuer, &methods, &keystore_studio_lib::revocation::network())?)
+        }
         "ledger_search" => Ok(serde_json::json!([])),
         "ca_next_crl_number" => Ok(serde_json::json!(1)),
         other => Err(format!("ui_bridge does not implement '{other}'")),

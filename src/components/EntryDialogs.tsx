@@ -2,13 +2,13 @@ import React, { useLayoutEffect, useMemo, useState } from "react";
 import clsx from "clsx";
 import { Download, Eye, FileSignature, FolderOpen, Layers, Plus, Reply, Save, Tag, Trash2, Edit3, X, AlertTriangle, Unlock } from "lucide-react";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
-import type { KeystoreEntry, OpenKeystore } from "../types/crypto";
+import type { CertificateInfo, KeystoreEntry, OpenKeystore } from "../types/crypto";
 import { api, errorMessage } from "../lib/api";
 import { FILTERS, pickFile, pickSavePath, safeFileStem } from "../lib/files";
-import { EXPORT_TARGETS, aliasTaken, canonicalAlias, cnOf, ENTRY_TYPE_LABEL, splitList } from "../lib/keystore";
+import { EXPORT_TARGETS, type ExportTarget, aliasTaken, canonicalAlias, cnOf, ENTRY_TYPE_LABEL, splitList } from "../lib/keystore";
 import { findingsFor } from "../lib/metrics";
 import { useStore, uid } from "../state/store";
-import { Alert, Badge, Button, CodeBlock, Modal, PasswordInput, Segmented, Select, Spinner, TextArea, TextInput, useConfirm, useToast } from "./ui";
+import { Alert, Badge, Button, Checkbox, CodeBlock, Modal, OptionList, PasswordInput, Segmented, Select, Spinner, TextArea, TextInput, useConfirm, useToast } from "./ui";
 import { CertificateDetails, ChainView, ExtensionsList } from "./CertificateView";
 import { HealthBadge } from "./entry";
 
@@ -63,21 +63,44 @@ const SavedNote: React.FC<{ title: string; path: string }> = ({ title, path }) =
 
 // ----------------------------------------------------------------------------------- export
 
-export const ExportDialog: React.FC<{ entry: KeystoreEntry | null; keystoreId?: string; onClose: () => void }> = ({ entry: given, keystoreId, onClose }) => {
+const EXPORT_TAB_LABEL: Record<ExportTarget["group"], string> = {
+  Certificate: "Certificate",
+  "Public key": "Public key",
+  "Private key": "Private key",
+  Keystore: "PKCS#12",
+  "Secret key": "Secret key",
+};
+
+/**
+ * Export one entry. Formats are grouped by what they hold (tabs), then by family (headings), and
+ * the file name is chosen here before the save dialog. `chain` adds issuers found elsewhere (the
+ * Certificates page passes the rest of a bundle) to formats that carry a chain.
+ */
+export const ExportDialog: React.FC<{ entry: KeystoreEntry | null; keystoreId?: string; chain?: CertificateInfo[]; onClose: () => void }> = ({ entry: given, keystoreId, chain: extraChain, onClose }) => {
   const toast = useToast();
   const saved = useSavedToast();
   const { keystores, isKeyLocked, ensureKeyAccess } = useStore();
   // The entry as it is now: an unlock replaces it, and a copy taken before would still be locked.
   const entry = (given && keystoreId ? keystores.find((k) => k.id === keystoreId)?.entries.find((e) => e.id === given.id) : undefined) ?? given;
   const targets = useMemo(() => (entry ? EXPORT_TARGETS.filter((t) => t.appliesTo.includes(entry.entry_type)) : []), [entry?.id, entry?.entry_type]); // eslint-disable-line react-hooks/exhaustive-deps
+  const groups = [...new Set(targets.map((x) => x.group))];
+  const [group, setGroup] = useState<ExportTarget["group"]>("Certificate");
   const [target, setTarget] = useState("");
+  const [fileName, setFileName] = useState("");
+  const [includeChain, setIncludeChain] = useState(true);
   const [pw, setPw] = useState("");
   const [pw2, setPw2] = useState("");
   const [busy, setBusy] = useState(false);
   const [preview, setPreview] = useState<string | null>(null);
   const [written, setWritten] = useState<{ path: string; summary: string } | null>(null);
+  const stem = entry ? safeFileStem(entry.alias) : "export";
   useLayoutEffect(() => {
-    setTarget(targets[0]?.id ?? "");
+    // PEM by default; an entry with no certificate starts on its own first format.
+    const first = targets[0];
+    setGroup(first?.group ?? "Certificate");
+    setTarget(first?.id ?? "");
+    setFileName(first ? `${stem}.${first.ext}` : "");
+    setIncludeChain(true);
     setPw("");
     setPw2("");
     setPreview(null);
@@ -85,18 +108,42 @@ export const ExportDialog: React.FC<{ entry: KeystoreEntry | null; keystoreId?: 
   }, [entry?.id]); // eslint-disable-line react-hooks/exhaustive-deps
   if (!entry) return null;
   const t = targets.find((x) => x.id === target);
+  // Issuers beyond the certificate itself: the entry's own chain, else what the caller found.
+  const issuers = entry.certificate_chain.length > 1 ? entry.certificate_chain.slice(1) : (extraChain ?? []);
   const needsKey = t?.group === "Private key" || t?.group === "Secret key" || (t?.id === "pkcs12" && entry.entry_type !== "TrustedCertificate");
   // The session lock counts, not only the engine's: a key pair that opened locked must be unlocked
   // with its password before its private key leaves the app, whichever way this dialog was reached.
   const keyLocked = isKeyLocked(entry);
   const blocked = needsKey && (keyLocked || (entry.entry_type === "KeyPair" ? !entry.private_key_pem : !entry.secret_key_hex));
+  const choose = (id: string) => {
+    const next = targets.find((x) => x.id === id);
+    if (!next) return;
+    // Swap the extension, keeping a name the user typed.
+    setFileName((name) => {
+      const prev = t?.ext;
+      const base = prev && name.endsWith(`.${prev}`) ? name.slice(0, -prev.length - 1) : name.replace(/\.[^.]*$/, "") || stem;
+      return `${base || stem}.${next.ext}`;
+    });
+    setTarget(id);
+    setWritten(null);
+    setPreview(null);
+  };
+  const chooseGroup = (g: ExportTarget["group"]) => {
+    setGroup(g);
+    const first = targets.find((x) => x.group === g);
+    if (first && t?.group !== g) choose(first.id);
+  };
   const run = async () => {
     if (!t) return;
     try {
-      const path = await pickSavePath(`Export ${entry.alias}`, `${safeFileStem(entry.alias)}.${t.ext}`);
+      const name = fileName.trim() || `${stem}.${t.ext}`;
+      const path = await pickSavePath(`Export ${entry.alias}`, name);
       if (!path) return;
       setBusy(true);
-      const res = await api.exportEntry(entry, t.id, path, t.needsPassword || (t.optionalPassword && pw) ? pw : null);
+      const leaf = entry.certificate_chain[0];
+      const withChain = t.includesChain && includeChain && leaf ? [leaf, ...issuers] : leaf ? [leaf] : [];
+      const subject = t.group === "Certificate" ? { ...entry, certificate_chain: withChain } : entry;
+      const res = await api.exportEntry(subject, t.id, path, t.needsPassword || (t.optionalPassword && pw) ? pw : null);
       setPreview(res.text ?? null);
       setWritten({ path: res.path, summary: `${res.format} · ${res.byte_length.toLocaleString()} bytes` });
       saved(`Exported ${entry.alias} as ${res.format} (${res.byte_length.toLocaleString()} bytes).`, res.path);
@@ -106,50 +153,77 @@ export const ExportDialog: React.FC<{ entry: KeystoreEntry | null; keystoreId?: 
       setBusy(false);
     }
   };
-  const groups = [...new Set(targets.map((x) => x.group))];
+  const inGroup = targets.filter((x) => x.group === group);
+  const subgroups = [...new Set(inGroup.map((x) => x.subgroup))];
   return (
     <Modal
       open
       busy={busy}
       onClose={onClose}
       icon={Download}
+      size="lg"
+      fixedHeight
       title={`Export ${entry.alias}`}
       description={ENTRY_TYPE_LABEL[entry.entry_type]}
       testId="export-dialog"
       footer={
         <>
+          {/* The name stays in view whichever format is picked; the folder is chosen on Export. */}
+          <label className="mr-auto flex items-center gap-2 min-w-0 flex-1 max-w-[22rem]">
+            <span className="text-[12px] font-medium text-faint shrink-0">File name</span>
+            <input
+              value={fileName}
+              onChange={(e) => setFileName(e.target.value)}
+              spellCheck={false}
+              title="You choose the folder next"
+              className="field !h-9 font-mono !text-[12px] min-w-0 flex-1"
+              data-testid="export-filename"
+            />
+          </label>
           <Button onClick={onClose} disabled={busy}>
             Close
           </Button>
-          <Button variant="primary" onClick={run} disabled={busy || !t || blocked || (t.needsPassword && (!pw || pw !== pw2)) || (t.optionalPassword && pw !== pw2)} data-testid="export-run">
+          <Button variant="primary" onClick={run} disabled={busy || !t || blocked || !fileName.trim() || (t.needsPassword && (!pw || pw !== pw2)) || (t.optionalPassword && pw !== pw2)} data-testid="export-run">
             {busy && <Spinner />} Export…
           </Button>
         </>
       }
     >
       <div className="space-y-4">
-        <Select
-          label="Format"
-          value={target}
-          onChange={(e) => {
-            setTarget(e.target.value);
-            setWritten(null);
-            setPreview(null);
-          }}
-          data-testid="export-format"
-        >
-          {groups.map((g) => (
-            <optgroup key={g} label={g}>
-              {targets
-                .filter((x) => x.group === g)
-                .map((x) => (
-                  <option key={x.id} value={x.id}>
-                    {x.label}
-                  </option>
-                ))}
-            </optgroup>
+        {groups.length > 1 && (
+          <Segmented<ExportTarget["group"]>
+            label="What to export"
+            value={group}
+            onChange={chooseGroup}
+            options={groups.map((g) => ({ value: g, label: <span data-testid={`export-tab-${g}`}>{EXPORT_TAB_LABEL[g]}</span> }))}
+          />
+        )}
+        <div className="space-y-3" data-testid="export-format">
+          {subgroups.map((sg) => (
+            <section key={sg} aria-label={sg} className="space-y-1.5">
+              {subgroups.length > 1 && <h4 className="text-[11.5px] font-semibold uppercase tracking-[0.04em] text-faint">{sg}</h4>}
+              <OptionList
+                label={sg}
+                value={target}
+                onChange={choose}
+                columns={2}
+                options={inGroup
+                  .filter((x) => x.subgroup === sg)
+                  .map((x) => ({ value: x.id, label: x.label, hint: x.hint, meta: `.${x.ext}`, testId: `export-format-${x.id}` }))}
+              />
+            </section>
           ))}
-        </Select>
+        </div>
+        {t?.includesChain && (
+          <Checkbox
+            checked={includeChain && issuers.length > 0}
+            onChange={setIncludeChain}
+            disabled={issuers.length === 0}
+            label={issuers.length ? `Include the issuer chain (${issuers.length} more certificate${issuers.length === 1 ? "" : "s"})` : "Include the issuer chain"}
+            hint={issuers.length ? issuers.map((c) => cnOf(c.subject)).join(" → ") : "No issuer of this certificate is open, so only the certificate is written."}
+            testId="export-include-chain"
+          />
+        )}
         {(t?.needsPassword || t?.optionalPassword) && (
           <div className="grid grid-cols-2 gap-3">
             <PasswordInput label={t.id === "pkcs12" ? "PKCS#12 password" : t.optionalPassword ? "Passphrase (optional)" : "Encryption password"} value={pw} onChange={setPw} data-testid="export-password" />

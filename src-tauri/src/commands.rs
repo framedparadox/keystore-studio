@@ -658,6 +658,20 @@ async fn read_crl(data: DataSource) -> Res<CrlInfo> {
     .await
 }
 
+/// Live revocation check for one certificate by each method it names: every OCSP responder and
+/// every CRL distribution point, each reported on its own. `methods` defaults to both.
+#[tauri::command]
+async fn check_revocation(subject_pem: String, issuer_pem: String, methods: Option<Vec<String>>) -> Res<Vec<revocation::MethodResult>> {
+    blocking(move || {
+        let subject = x509::certificates_from_bytes(subject_pem.as_bytes())?.into_iter().next().ok_or("no subject certificate")?;
+        let issuer = x509::certificates_from_bytes(issuer_pem.as_bytes())?.into_iter().next().ok_or("no issuer certificate")?;
+        let methods = methods.unwrap_or_else(|| vec!["ocsp".into(), "crl".into()]);
+        let methods: Vec<&str> = methods.iter().map(String::as_str).collect();
+        revocation::check_each(&subject, &issuer, &methods, &revocation::network())
+    })
+    .await
+}
+
 /// Live revocation check for one certificate against an OCSP responder (RFC 6960).
 ///
 /// `subject_pem` and `issuer_pem` are each a single PEM certificate. `url` defaults to the first
@@ -859,8 +873,9 @@ fn set_document_edited(window: tauri::WebviewWindow, edited: bool) -> Res<()> {
 // ------------------------------------------------------------------------------------------------
 
 #[tauri::command]
-async fn tool_status() -> Vec<tools::ToolStatus> {
-    tauri::async_runtime::spawn_blocking(tools::status).await.unwrap_or_default()
+async fn tool_status(overrides: Option<std::collections::HashMap<String, String>>) -> Vec<tools::ToolStatus> {
+    let overrides = overrides.unwrap_or_default();
+    tauri::async_runtime::spawn_blocking(move || tools::status(&overrides)).await.unwrap_or_default()
 }
 
 /// Localhost JavaScript bridge used by `e2e/eval-drive.mjs`.
@@ -1057,6 +1072,7 @@ pub fn run() {
             validate_chain,
             system_trust_anchors,
             check_ocsp,
+            check_revocation,
             cms_sign,
             cms_verify,
             jwt_sign,

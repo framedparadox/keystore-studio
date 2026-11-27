@@ -522,6 +522,14 @@ export interface TerminalOutput {
 }
 
 /** An external CLI tool Keystore Studio's workflows refer to (java, keytool, openssl), and whether it's on PATH. */
+/** One OCSP responder's or CRL's answer about one certificate. */
+export interface RevocationMethodResult {
+  method: "ocsp" | "crl";
+  url: string;
+  status: "good" | "revoked" | "unknown";
+  detail?: string | null;
+}
+
 export interface ToolStatus {
   id: string;
   name: string;
@@ -531,8 +539,17 @@ export interface ToolStatus {
   /** What in Keystore Studio refers to the tool. */
   used_by: string[];
   available: boolean;
+  /** The version number alone, parsed from the tool's output; null when it could not be read. */
   version: string | null;
+  /** Who built it (OpenJDK, Temurin, LibreSSL …), when the output says so. */
+  vendor?: string | null;
+  /** The tool's first version line, unparsed. */
+  version_line?: string | null;
   path: string | null;
+  /** How it was found: on PATH, in a well-known install folder, or at the location the user chose. */
+  source?: "path" | "detected" | "custom" | null;
+  /** The location the user chose, echoed back even when nothing was found there. */
+  custom_location?: string | null;
 }
 
 /** Input from a file path, pasted text or base64 bytes. */

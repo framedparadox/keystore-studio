@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from "react";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import { ClipboardPaste, Copy, Download, Eye, FileBadge, FolderArchive, FolderOpen, Layers, Lock, MoreHorizontal, Search, Shapes, ShieldCheck, X } from "lucide-react";
+import { certificateTree, issuerChain, type CertificateTreeRow } from "../lib/certificates";
 import type { OpenCertificate } from "../types/crypto";
 import { errorMessage } from "../lib/api";
 import { FILTERS, pickFiles } from "../lib/files";
@@ -10,7 +11,7 @@ import { useStore } from "../state/store";
 import { Button, Card, Column, DataTable, EmptyState, IconButton, IconHeader, Menu, MenuItem, Page, PageHeader, SearchInput, Segmented, StatStrip, useConfirm, useToast } from "../components/ui";
 import { AlgorithmCell, EntryIcon, EntryNameCell, ExpiryCell, HealthIcon, LockIcon, NAME_COLUMN_CLASS } from "../components/entry";
 import { AssignWorkspaceDialog, ExportDialog } from "../components/EntryDialogs";
-import { CertificateInspector, PasteCertificatesDialog, useAddCertificateToKeystore } from "../components/CertificateDialogs";
+import { CertificateInspector, PasteCertificatesDialog, useAddCertificateToKeystore, useCertificatePool, VerifyCertificateDialog } from "../components/CertificateDialogs";
 
 type Kind = "all" | "ca" | "leaf";
 const HEALTH_RANK = { "at-risk": 0, attention: 1, healthy: 2 } as const;
@@ -31,6 +32,21 @@ const copyText = async (text: string) => {
     return ok;
   }
 };
+
+/**
+ * The tree connector in front of a certificate whose issuer is in the same file: an elbow from the
+ * row above, and a line on down when a sibling follows.
+ */
+const TreeIndent: React.FC<{ depth: number; lastChild: boolean; children: React.ReactNode }> = ({ depth, lastChild, children }) =>
+  depth === 0 ? (
+    <>{children}</>
+  ) : (
+    <div className="relative flex items-center min-w-0 -my-2 py-2 h-[56px]" style={{ paddingLeft: depth * 22 }} data-tree-depth={depth}>
+      <span aria-hidden className="absolute top-0 h-1/2 w-2.5 border-l border-b border-line-strong rounded-bl-[4px]" style={{ left: depth * 22 - 14 }} />
+      {!lastChild && <span aria-hidden className="absolute top-1/2 bottom-0 border-l border-line-strong" style={{ left: depth * 22 - 14 }} />}
+      <div className="min-w-0 flex-1">{children}</div>
+    </div>
+  );
 
 /** What a certificate is, as one glyph: a shield for a root or intermediate CA, a badged document for an end entity. */
 const KindIcon: React.FC<{ c: OpenCertificate }> = ({ c }) => {
@@ -56,8 +72,13 @@ export const CertificatesView: React.FC = () => {
   const [inspectId, setInspectId] = useState<string | null>(null);
   const [exportId, setExportId] = useState<string | null>(null);
   const [workspacesId, setWorkspacesId] = useState<string | null>(null);
+  const [verifyId, setVerifyId] = useState<string | null>(null);
+  const pool = useCertificatePool();
   const byId = (id: string | null) => (id ? certificates.find((c) => c.id === id) ?? null : null);
   const inspecting = byId(inspectId);
+  const exporting = byId(exportId);
+  const exportLeaf = exporting?.entry.certificate_chain[0];
+  const exportChain = useMemo(() => (exportLeaf ? issuerChain(exportLeaf, pool) : []), [exportLeaf, pool]);
 
   const entries = useMemo(() => certificates.map((c) => c.entry), [certificates]);
   const sum = summarize(entries);
@@ -70,6 +91,8 @@ export const CertificatesView: React.FC = () => {
     if (kind === "leaf" && isCa) return false;
     return !q || entryMatches(c.entry, q) || c.source.toLowerCase().includes(q) || c.entry.certificate_chain[0]?.sans.some((s) => s.toLowerCase().includes(q));
   });
+  // One tree per file: root, then what it issued. Groups keep the page's order.
+  const tree = certificateTree(visible);
   const workspacesOf = (c: OpenCertificate) => workspaces.filter((w) => w.entryIds.includes(c.id));
   const inWorkspaces = certificates.filter((c) => workspaces.some((w) => w.entryIds.includes(c.id))).length;
 
@@ -102,7 +125,8 @@ export const CertificatesView: React.FC = () => {
     const leaf = c.entry.certificate_chain[0];
     return [
       { label: "Inspect", icon: Eye, onSelect: () => setInspectId(c.id) },
-      { label: "Export…", hint: "PEM, DER, PKCS#7, public key or JWK", icon: Download, onSelect: () => setExportId(c.id), testId: "cert-menu-export" },
+      { label: "Verify…", hint: "Chain, trust and revocation", icon: ShieldCheck, onSelect: () => setVerifyId(c.id), testId: "cert-menu-verify" },
+      { label: "Export…", hint: "PEM, X.509, PKCS#7, SPC, PkiPath, public key", icon: Download, onSelect: () => setExportId(c.id), testId: "cert-menu-export" },
       {
         label: "Copy PEM",
         icon: Copy,
@@ -121,36 +145,43 @@ export const CertificatesView: React.FC = () => {
   // Type and lock are glyphs alone, named in the tooltip and to screen readers. A certificate has no
   // private key, so its lock is always a dash; the column lines the page up with the keystore table.
   // As the table narrows the columns give way in the same order as there; status and actions stay.
-  const columns: Column<OpenCertificate>[] = [
+  const columns: Column<CertificateTreeRow>[] = [
     {
       id: "kind",
       header: <IconHeader icon={Shapes} label="Type" />,
       width: "64px",
       align: "center",
       hideBelow: "md",
-      sortValue: (c) => `${c.entry.certificate_chain[0]?.is_ca ? 0 : 1}${c.entry.alias.toLowerCase()}`,
-      cell: (c) => <KindIcon c={c} />,
+      sortValue: ({ cert: c }) => `${c.entry.certificate_chain[0]?.is_ca ? 0 : 1}${c.entry.alias.toLowerCase()}`,
+      cell: ({ cert: c }) => <KindIcon c={c} />,
     },
     { id: "lock", header: <IconHeader icon={Lock} label="Lock status" />, width: "64px", align: "center", hideBelow: "md", cell: () => <LockIcon state="no-key" /> },
     {
       id: "name",
       header: "Certificate",
       className: NAME_COLUMN_CLASS,
-      sortValue: (c) => c.entry.alias.toLowerCase(),
-      cell: (c) => {
+      sortValue: ({ cert: c }) => c.entry.alias.toLowerCase(),
+      cell: ({ cert: c, depth, lastChild, groupSize }) => {
         const leaf = c.entry.certificate_chain[0];
-        return <EntryNameCell entry={c.entry} icon="narrow" tile={<KindIcon c={c} />} meta={leaf?.self_signed ? "Self-signed" : `Issued by ${cnOf(c.entry.issuer)}`} />;
+        const issued = leaf?.self_signed ? "Self-signed" : `Issued by ${cnOf(c.entry.issuer)}`;
+        // The top of a bundle says where the rest came from.
+        const meta = depth === 0 && groupSize > 1 ? `${issued} · ${groupSize} certificates in ${c.source}` : issued;
+        return (
+          <TreeIndent depth={depth} lastChild={lastChild}>
+            <EntryNameCell entry={c.entry} icon="narrow" tile={<KindIcon c={c} />} meta={meta} />
+          </TreeIndent>
+        );
       },
     },
-    { id: "alg", header: "Algorithm", hideBelow: "lg", sortValue: (c) => c.entry.algorithm, cell: (c) => <AlgorithmCell entry={c.entry} /> },
-    { id: "expiry", header: "Expires", width: "160px", hideBelow: "sm", sortValue: (c) => daysUntilExpiry(c.entry), cell: (c) => <ExpiryCell entry={c.entry} /> },
-    { id: "status", header: "Status", width: "88px", align: "center", sortValue: (c) => HEALTH_RANK[entryHealth(c.entry)], cell: (c) => <HealthIcon entry={c.entry} /> },
+    { id: "alg", header: "Algorithm", hideBelow: "lg", sortValue: ({ cert: c }) => c.entry.algorithm, cell: ({ cert: c }) => <AlgorithmCell entry={c.entry} /> },
+    { id: "expiry", header: "Expires", width: "160px", hideBelow: "sm", sortValue: ({ cert: c }) => daysUntilExpiry(c.entry), cell: ({ cert: c }) => <ExpiryCell entry={c.entry} /> },
+    { id: "status", header: "Status", width: "88px", align: "center", sortValue: ({ cert: c }) => HEALTH_RANK[entryHealth(c.entry)], cell: ({ cert: c }) => <HealthIcon entry={c.entry} /> },
     {
       id: "actions",
       header: <span className="sr-only">Actions</span>,
       align: "right",
       width: "112px",
-      cell: (c) => (
+      cell: ({ cert: c }) => (
         <div className="inline-flex items-center gap-0.5" onClick={(e) => e.stopPropagation()}>
           <IconButton icon={Eye} label={`Inspect ${c.entry.alias}`} onClick={() => setInspectId(c.id)} data-testid={`cert-inspect-${c.entry.alias}`} />
           <IconButton icon={Layers} label={`Workspaces for ${c.entry.alias}`} onClick={() => setWorkspacesId(c.id)} data-testid={`cert-workspaces-${c.entry.alias}`} />
@@ -211,13 +242,14 @@ export const CertificatesView: React.FC = () => {
               <div className="flex-1" />
               <SearchInput value={search} onChange={setSearch} placeholder="Search certificates…" label="Search by name, subject, issuer, SAN, serial, fingerprint or file" className="w-full sm:w-64" />
             </div>
-            <DataTable<OpenCertificate>
+            <DataTable<CertificateTreeRow>
               label="Certificates"
               columns={columns}
-              rows={visible}
-              rowKey={(c) => c.id}
+              rows={tree}
+              rowKey={(r) => r.cert.id}
+              groupKey={(r) => r.group}
               selectedKey={inspectId ?? certificateFocus}
-              onRowClick={(c) => setInspectId(c.id)}
+              onRowClick={(r) => setInspectId(r.cert.id)}
               empty={
                 <EmptyState
                   icon={Search}
@@ -267,7 +299,8 @@ export const CertificatesView: React.FC = () => {
           onRemove={() => void remove(inspecting)}
         />
       )}
-      <ExportDialog entry={byId(exportId)?.entry ?? null} onClose={() => setExportId(null)} />
+      <ExportDialog entry={exporting?.entry ?? null} chain={exportChain} onClose={() => setExportId(null)} />
+      <VerifyCertificateDialog certificate={byId(verifyId)} onClose={() => setVerifyId(null)} />
       <AssignWorkspaceDialog entry={byId(workspacesId)?.entry ?? null} onClose={() => setWorkspacesId(null)} />
       <PasteCertificatesDialog open={pasteOpen} onClose={() => setPasteOpen(false)} />
     </Page>

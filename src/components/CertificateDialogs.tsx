@@ -1,14 +1,14 @@
-import React, { useLayoutEffect, useState } from "react";
+import React, { useLayoutEffect, useMemo, useState } from "react";
 import clsx from "clsx";
-import { AlertTriangle, ChevronDown, ClipboardPaste, Download, FileBadge, FolderArchive, Layers, X } from "lucide-react";
+import { AlertTriangle, ChevronDown, ClipboardPaste, Download, FileBadge, FolderArchive, Layers, ShieldCheck, X } from "lucide-react";
 import type { CertificateInfo, OpenCertificate } from "../types/crypto";
 import { api, errorMessage } from "../lib/api";
-import { aliasForCertificate, certificateName } from "../lib/certificates";
+import { aliasForCertificate, certificateName, issuerChain } from "../lib/certificates";
 import { cnOf } from "../lib/keystore";
 import { findingsFor } from "../lib/metrics";
 import { useStore } from "../state/store";
 import { Alert, Button, CodeBlock, Menu, Modal, PathText, Segmented, TextArea, useToast } from "./ui";
-import { CertificateDetails, ExtensionsList } from "./CertificateView";
+import { CertificateDetails, ChainTree, ExtensionsList, VerifyCertificate } from "./CertificateView";
 import { HealthBadge } from "./entry";
 
 /*
@@ -76,9 +76,38 @@ export const AddToKeystoreMenu: React.FC<{ cert: CertificateInfo; size?: "sm" | 
   );
 };
 
-type InspectTab = "overview" | "extensions" | "public" | "pem";
+/** Every certificate that is open (on the Certificates page or in a keystore), for finding issuers. */
+export function useCertificatePool(): CertificateInfo[] {
+  const { certificates, keystores } = useStore();
+  return useMemo(
+    () => [...certificates.flatMap((c) => c.entry.certificate_chain.slice(0, 1)), ...keystores.flatMap((k) => k.entries.flatMap((e) => e.certificate_chain))],
+    [certificates, keystores]
+  );
+}
+
+/** The issuers of a certificate among everything open, nearest first. */
+export function useIssuers(cert: CertificateInfo | undefined): CertificateInfo[] {
+  const pool = useCertificatePool();
+  return useMemo(() => (cert ? issuerChain(cert, pool) : []), [cert, pool]);
+}
+
+/** Verify a certificate in a dialog of its own, from a row's menu. */
+export const VerifyCertificateDialog: React.FC<{ certificate: OpenCertificate | null; onClose: () => void }> = ({ certificate, onClose }) => {
+  const leaf = certificate?.entry.certificate_chain[0];
+  const issuers = useIssuers(leaf);
+  if (!certificate || !leaf) return null;
+  return (
+    <Modal open onClose={onClose} size="xl" fixedHeight icon={ShieldCheck} title={`Verify ${certificate.entry.alias}`} description="Its chain, path validation and revocation status." testId="verify-dialog" footer={<Button onClick={onClose}>Close</Button>}>
+      <VerifyCertificate key={certificate.id} cert={leaf} issuers={issuers} />
+    </Modal>
+  );
+};
+
+type InspectTab = "overview" | "chain" | "extensions" | "verify" | "public" | "pem";
 
 /** Details of one certificate on the Certificates page. */
+export type { InspectTab };
+
 export const CertificateInspector: React.FC<{
   certificate: OpenCertificate;
   onClose: () => void;
@@ -86,18 +115,23 @@ export const CertificateInspector: React.FC<{
   onWorkspaces: () => void;
   /** Omitted where the certificate cannot be removed (e.g. opened from a workspace). */
   onRemove?: () => void;
-}> = ({ certificate, onClose, onExport, onWorkspaces, onRemove }) => {
+  /** The tab to open on; Overview when omitted. */
+  initialTab?: InspectTab;
+}> = ({ certificate, onClose, onExport, onWorkspaces, onRemove, initialTab }) => {
   const { certificates, keystores } = useStore();
-  const [tab, setTab] = useState<InspectTab>("overview");
-  useLayoutEffect(() => setTab("overview"), [certificate.id]);
+  const [tab, setTab] = useState<InspectTab>(initialTab ?? "overview");
+  useLayoutEffect(() => setTab(initialTab ?? "overview"), [certificate.id, initialTab]);
   const { entry } = certificate;
   const leaf = entry.certificate_chain[0];
+  const issuers = useIssuers(leaf);
   // "Trust anchor not open" looks for the issuer among everything that is open.
   const siblings = [...certificates.map((c) => c.entry), ...keystores.flatMap((k) => k.entries)];
   const findings = findingsFor(entry, { siblings });
-  const tabs: { value: InspectTab; label: string }[] = [
+  const tabs: { value: InspectTab; label: React.ReactNode }[] = [
     { value: "overview", label: "Overview" },
+    { value: "chain", label: `Chain (${issuers.length + 1})` },
     { value: "extensions", label: `Extensions (${leaf?.extensions.length ?? 0})` },
+    { value: "verify", label: <span data-testid="cert-inspector-verify-tab">Verify</span> },
     ...(entry.public_key_pem ? [{ value: "public" as const, label: "Public key" }] : []),
     { value: "pem", label: "PEM" },
   ];
@@ -106,6 +140,7 @@ export const CertificateInspector: React.FC<{
       open
       onClose={onClose}
       size="xl"
+      fixedHeight
       testId="certificate-inspector"
       title={
         <span className="flex items-center gap-2 min-w-0">
@@ -124,6 +159,11 @@ export const CertificateInspector: React.FC<{
             Workspaces
           </Button>
           {leaf && <AddToKeystoreMenu cert={leaf} />}
+          {tab !== "verify" && (
+            <Button icon={ShieldCheck} onClick={() => setTab("verify")} data-testid="cert-inspector-verify">
+              Verify
+            </Button>
+          )}
           <Button variant="primary" icon={Download} onClick={onExport} data-testid="cert-inspector-export">
             Export…
           </Button>
@@ -153,7 +193,16 @@ export const CertificateInspector: React.FC<{
             {leaf && <CertificateDetails cert={leaf} />}
           </div>
         )}
+        {tab === "chain" && leaf && (
+          <div className="space-y-3">
+            <div className="rounded-card border border-line px-4 py-3">
+              <ChainTree chain={[leaf, ...issuers]} complete={(issuers[issuers.length - 1] ?? leaf).self_signed} />
+            </div>
+            <p className="text-[12px] text-faint">Issuers are found among every certificate that is open, on this page and in keystores, by name and key identifier.</p>
+          </div>
+        )}
         {tab === "extensions" && leaf && <ExtensionsList cert={leaf} />}
+        {tab === "verify" && leaf && <VerifyCertificate key={certificate.id} cert={leaf} issuers={issuers} />}
         {tab === "public" && entry.public_key_pem && <CodeBlock label="SubjectPublicKeyInfo (PEM)" value={entry.public_key_pem} />}
         {tab === "pem" && leaf && <CodeBlock label="Certificate (PEM)" value={leaf.pem} />}
       </div>

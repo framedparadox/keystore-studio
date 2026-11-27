@@ -4,7 +4,9 @@
 //! self-contained Rust.
 
 use serde::Serialize;
+use std::collections::HashMap;
 use std::io::Read;
+use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
@@ -23,10 +25,20 @@ pub struct ToolStatus {
     /// What in Keystore Studio refers to the tool.
     pub used_by: &'static [&'static str],
     pub available: bool,
-    /// First line of the tool's own version output, when it could be run.
+    /// The version number alone (`21.0.2`, `3.0.13`, `9.6p1`), parsed from the tool's own output.
+    /// None when the output could not be read or did not hold a version.
     pub version: Option<String>,
-    /// Where it was found on PATH.
+    /// Who built it (`OpenJDK`, `Temurin`, `LibreSSL` …), when the version output says so.
+    pub vendor: Option<String>,
+    /// The first line of the tool's version output, unparsed, for the details panel.
+    pub version_line: Option<String>,
+    /// Where it was found.
     pub path: Option<String>,
+    /// How it was found: `path` (on PATH), `detected` (a well-known install location that is not
+    /// on PATH), or `custom` (the location the user chose). None when it was not found.
+    pub source: Option<&'static str>,
+    /// The location the user chose for this tool, echoed back; set even when nothing was found there.
+    pub custom_location: Option<String>,
 }
 
 /// How a tool is found.
@@ -112,8 +124,17 @@ const TOOLS: &[ToolSpec] = &[
 
 /// The Bouncy Castle provider jar: `BCPROV_JAR`, then the places package managers and Maven put
 /// it. Returns the path and the version in its file name (`bcprov-jdk18on-1.80.jar` → `1.80`).
-fn find_bcprov() -> Option<(String, Option<String>)> {
+fn find_bcprov(custom: Option<&Path>) -> Option<(String, Option<String>)> {
     let mut candidates: Vec<std::path::PathBuf> = Vec::new();
+    if let Some(custom) = custom {
+        // The user's choice only: a jar, or a folder holding one.
+        if custom.is_file() {
+            candidates.push(custom.to_path_buf());
+        } else if let Ok(read) = std::fs::read_dir(custom) {
+            candidates.extend(read.flatten().map(|e| e.path()));
+        }
+        return pick_bcprov(candidates);
+    }
     if let Some(p) = std::env::var_os("BCPROV_JAR") {
         candidates.push(p.into());
     }
@@ -130,6 +151,10 @@ fn find_bcprov() -> Option<(String, Option<String>)> {
             }
         }
     }
+    pick_bcprov(candidates)
+}
+
+fn pick_bcprov(candidates: Vec<std::path::PathBuf>) -> Option<(String, Option<String>)> {
     let mut jars: Vec<std::path::PathBuf> = candidates
         .into_iter()
         .filter(|p| p.is_file())
@@ -230,6 +255,11 @@ fn wait_with_timeout(child: &mut Child) -> bool {
 /// Runs `binary version_args` with a short timeout and returns the first non-empty line of
 /// whichever stream the tool wrote its version to (java and openssl both vary by version).
 fn probe_version(exe_path: &str, args: &[&str], path_env: &str) -> Option<String> {
+    probe_lines(exe_path, args, path_env)?.into_iter().next()
+}
+
+/// Runs the tool like [`probe_version`] and returns every non-empty line of its version output.
+fn probe_lines(exe_path: &str, args: &[&str], path_env: &str) -> Option<Vec<String>> {
     #[allow(unused_mut)]
     let mut cmd = Command::new(exe_path);
     cmd.args(args).env("PATH", path_env).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
@@ -247,30 +277,197 @@ fn probe_version(exe_path: &str, args: &[&str], path_env: &str) -> Option<String
     let stdout = stdout_rx.recv_timeout(Duration::from_secs(1)).unwrap_or_default();
     let stderr = stderr_rx.recv_timeout(Duration::from_secs(1)).unwrap_or_default();
     let text = if !stdout.is_empty() { stdout } else { stderr };
-    String::from_utf8_lossy(&text).lines().map(str::trim).find(|l| !l.is_empty()).map(str::to_string)
+    let lines: Vec<String> = String::from_utf8_lossy(&text).lines()
+        .map(str::trim)
+        // A JVM prints `Picked up JAVA_TOOL_OPTIONS: …` (or _JAVA_OPTIONS) before its version.
+        .filter(|l| !l.is_empty() && !l.starts_with("Picked up "))
+        .map(str::to_string)
+        .collect();
+    (!lines.is_empty()).then_some(lines)
 }
 
-pub fn status() -> Vec<ToolStatus> {
+/// Folders a tool is often installed in without being on PATH: a JDK under JAVA_HOME or the
+/// platform's JVM folder, OpenSSL and OpenSSH from Git for Windows, PuTTY's own folder, Homebrew's
+/// keg-only openssl. Searched after PATH, so PATH wins when both have it.
+fn well_known_dirs(tool_group: &str) -> Vec<PathBuf> {
+    let mut found: Vec<PathBuf> = Vec::new();
+    let children_bin = |root: &Path, suffix: &[&str]| -> Vec<PathBuf> {
+        let mut out: Vec<PathBuf> = std::fs::read_dir(root)
+            .into_iter()
+            .flatten()
+            .flatten()
+            .map(|e| suffix.iter().fold(e.path(), |p, s| p.join(s)))
+            .filter(|p| p.is_dir())
+            .collect();
+        // Newest version (by name) first.
+        out.sort();
+        out.reverse();
+        out
+    };
+    if tool_group == "java" {
+        if let Some(home) = std::env::var_os("JAVA_HOME") {
+            found.push(PathBuf::from(home).join("bin"));
+        }
+        #[cfg(target_os = "macos")]
+        {
+            found.extend(children_bin(Path::new("/Library/Java/JavaVirtualMachines"), &["Contents", "Home", "bin"]));
+            found.push("/opt/homebrew/opt/openjdk/bin".into());
+            found.push("/usr/local/opt/openjdk/bin".into());
+        }
+        #[cfg(all(unix, not(target_os = "macos")))]
+        {
+            found.extend(children_bin(Path::new("/usr/lib/jvm"), &["bin"]));
+            found.extend(children_bin(Path::new("/opt/java"), &["bin"]));
+        }
+        #[cfg(windows)]
+        for root in [r"C:\Program Files\Java", r"C:\Program Files\Eclipse Adoptium", r"C:\Program Files\Microsoft", r"C:\Program Files\Zulu", r"C:\Program Files\Amazon Corretto"] {
+            found.extend(children_bin(Path::new(root), &["bin"]));
+        }
+        if let Some(home) = dirs::home_dir() {
+            found.extend(children_bin(&home.join(".sdkman/candidates/java"), &["bin"]));
+            #[cfg(target_os = "macos")]
+            found.extend(children_bin(&home.join("Library/Java/JavaVirtualMachines"), &["Contents", "Home", "bin"]));
+        }
+    }
+    if tool_group == "openssl" {
+        #[cfg(target_os = "macos")]
+        {
+            found.push("/opt/homebrew/opt/openssl/bin".into());
+            found.push("/usr/local/opt/openssl/bin".into());
+        }
+        #[cfg(windows)]
+        for d in [r"C:\Program Files\OpenSSL-Win64\bin", r"C:\Program Files\OpenSSL\bin", r"C:\Program Files\Git\usr\bin", r"C:\Program Files\Git\mingw64\bin"] {
+            found.push(d.into());
+        }
+    }
+    if tool_group == "ssh" {
+        #[cfg(windows)]
+        for d in [r"C:\Windows\System32\OpenSSH", r"C:\Program Files\OpenSSH", r"C:\Program Files\PuTTY", r"C:\Program Files (x86)\PuTTY", r"C:\Program Files\Git\usr\bin"] {
+            found.push(d.into());
+        }
+    }
+    found.into_iter().filter(|d| d.is_dir()).collect()
+}
+
+/// Looks for `binary` in a location the user chose: the program itself, a folder holding it, or
+/// a folder whose `bin` holds it (a JDK or OpenSSL install root).
+fn find_in_custom(binary: &str, custom: &Path) -> Option<String> {
+    if custom.is_file() {
+        let stem = custom.file_stem().map(|s| s.to_string_lossy().to_ascii_lowercase());
+        return (stem.as_deref() == Some(binary)).then(|| custom.to_string_lossy().into_owned());
+    }
+    let joined = [custom.to_path_buf(), custom.join("bin")].iter().map(|d| d.to_string_lossy().into_owned()).collect::<Vec<_>>().join(platform_sep());
+    find_on_path(binary, &joined)
+}
+
+/// Splits a tool's first version line into (version, vendor). Returns (None, None) for output that
+/// holds no version number, so the page shows nothing rather than a guess.
+fn parse_version(id: &str, line: &str) -> (Option<String>, Option<String>) {
+    let quoted = || line.split('"').nth(1).map(str::to_string);
+    let first_number = |text: &str| {
+        text.split(|c: char| c.is_whitespace() || c == ',' || c == '_' || c == '"')
+            .find(|w| (w.chars().next().is_some_and(|c| c.is_ascii_digit()) && w.contains('.')) || (w.len() >= 2 && w.chars().all(|c| c.is_ascii_digit())))
+            .map(|w| w.trim_end_matches(['.', ':', ')']).to_string())
+    };
+    let lower = line.to_ascii_lowercase();
+    match id {
+        "java" => {
+            // `openjdk version "21.0.2" 2024-01-16`, `java version "1.8.0_392"`.
+            let vendor = if lower.starts_with("openjdk") { Some("OpenJDK") } else if lower.starts_with("java") { Some("Oracle Java") } else { None };
+            (quoted().filter(|v| v.chars().next().is_some_and(|c| c.is_ascii_digit())), vendor.map(String::from))
+        }
+        "keytool" | "jarsigner" => (line.strip_prefix(id).map(str::trim).and_then(first_number), None),
+        "openssl" => {
+            // `OpenSSL 3.0.13 30 Jan 2024 (Library: …)`, `LibreSSL 3.3.6`.
+            let vendor = line.split_whitespace().next().filter(|w| w.eq_ignore_ascii_case("openssl") || w.eq_ignore_ascii_case("libressl") || w.eq_ignore_ascii_case("boringssl"));
+            (line.split_whitespace().nth(1).filter(|v| v.chars().next().is_some_and(|c| c.is_ascii_digit())).map(String::from), vendor.map(String::from))
+        }
+        "ssh-keygen" => {
+            // `OpenSSH_9.6p1 Ubuntu-3ubuntu13, OpenSSL 3.0.13 30 Jan 2024`, `OpenSSH_for_Windows_9.5p1, LibreSSL 3.8.2`.
+            let word = line.split([' ', ',']).next().unwrap_or("");
+            let version = word.rsplit('_').next().filter(|v| v.chars().next().is_some_and(|c| c.is_ascii_digit())).map(String::from);
+            (version, word.starts_with("OpenSSH").then(|| "OpenSSH".to_string()))
+        }
+        // `puttygen: Release 0.81`, `puttygen: Development snapshot 2024-…`.
+        "puttygen" => (lower.contains("release").then(|| first_number(line)).flatten(), None),
+        _ => (first_number(line), None),
+    }
+}
+
+/// The JVM's vendor from the second line of `java -version` (`OpenJDK Runtime Environment Temurin-21…`).
+fn java_vendor(exe: &str, path_env: &str) -> Option<String> {
+    let lines = probe_lines(exe, &["-version"], path_env)?;
+    let runtime = lines.get(1)?;
+    ["Temurin", "Zulu", "Corretto", "Microsoft", "GraalVM", "Homebrew", "Red_Hat", "SapMachine", "JetBrains", "Liberica"]
+        .iter()
+        .find(|v| runtime.contains(*v))
+        .map(|v| v.replace('_', " "))
+}
+
+/// The user's chosen location for a tool, made absolute and trimmed. Empty means "detect".
+fn custom_for<'a>(overrides: &'a HashMap<String, String>, id: &str) -> Option<&'a str> {
+    overrides.get(id).map(|s| s.trim()).filter(|s| !s.is_empty())
+}
+
+pub fn status(overrides: &HashMap<String, String>) -> Vec<ToolStatus> {
     let path_env = search_path();
     TOOLS
         .iter()
         .map(|spec| {
-            let (found, version) = match &spec.kind {
+            let custom = custom_for(overrides, spec.id);
+            let (found, source, version_line): (Option<String>, Option<&'static str>, Option<String>) = match &spec.kind {
                 Kind::Binary { binaries, version_args, version_from } => {
-                    let found = binaries.iter().find_map(|b| find_on_path(b, &path_env));
-                    let version = match (version_from, found.as_deref()) {
-                        (Some(sibling), Some(_)) => find_on_path(sibling, &path_env).and_then(|exe| probe_version(&exe, version_args, &path_env)),
+                    let (found, source) = match custom {
+                        Some(c) => (binaries.iter().find_map(|b| find_in_custom(b, Path::new(c))), Some("custom")),
+                        None => match binaries.iter().find_map(|b| find_on_path(b, &path_env)) {
+                            Some(p) => (Some(p), Some("path")),
+                            None => {
+                                let known = well_known_dirs(spec.group).iter().map(|d| d.to_string_lossy().into_owned()).collect::<Vec<_>>().join(platform_sep());
+                                (binaries.iter().find_map(|b| find_on_path(b, &known)), Some("detected"))
+                            }
+                        },
+                    };
+                    let version_line = match (version_from, found.as_deref()) {
+                        // The sibling (ssh for ssh-keygen) is looked for next to the tool first.
+                        (Some(sibling), Some(exe)) => {
+                            let dir = Path::new(exe).parent().map(|d| d.to_string_lossy().into_owned()).unwrap_or_default();
+                            find_on_path(sibling, &dir).or_else(|| find_on_path(sibling, &path_env)).and_then(|s| probe_version(&s, version_args, &path_env))
+                        }
                         (None, Some(exe)) => probe_version(exe, version_args, &path_env),
                         _ => None,
                     };
-                    (found, version)
+                    (found, source, version_line)
                 }
-                Kind::BcprovJar => match find_bcprov() {
-                    Some((path, version)) => (Some(path), version),
-                    None => (None, None),
+                Kind::BcprovJar => match find_bcprov(custom.map(Path::new)) {
+                    Some((path, version)) => (Some(path), Some(if custom.is_some() { "custom" } else { "detected" }), version),
+                    None => (None, None, None),
                 },
             };
-            ToolStatus { id: spec.id, name: spec.name, description: spec.description, group: spec.group, used_by: spec.used_by, available: found.is_some(), version, path: found }
+            let (version, mut vendor) = match (&spec.kind, version_line.as_deref()) {
+                (Kind::BcprovJar, Some(v)) => (Some(v.to_string()), Some("Bouncy Castle".to_string())),
+                (_, Some(line)) => parse_version(spec.id, line),
+                _ => (None, None),
+            };
+            if spec.id == "java"
+                && let Some(exe) = found.as_deref()
+                && let Some(v) = java_vendor(exe, &path_env)
+            {
+                vendor = Some(v);
+            }
+            ToolStatus {
+                id: spec.id,
+                name: spec.name,
+                description: spec.description,
+                group: spec.group,
+                used_by: spec.used_by,
+                available: found.is_some(),
+                version,
+                vendor,
+                version_line: if matches!(spec.kind, Kind::BcprovJar) { None } else { version_line },
+                source: found.as_ref().and(source),
+                path: found,
+                custom_location: custom.map(String::from),
+            }
         })
         .collect()
 }
@@ -308,13 +505,46 @@ mod tests {
 
     #[test]
     fn status_always_reports_every_known_tool() {
-        let results = status();
+        let results = status(&HashMap::new());
         assert_eq!(results.len(), TOOLS.len());
         for (spec, result) in TOOLS.iter().zip(results.iter()) {
             assert_eq!(spec.id, result.id);
             assert_eq!(result.available, result.path.is_some());
+            assert_eq!(result.available, result.source.is_some());
             assert!(["java", "openssl", "ssh"].contains(&result.group), "{}", result.id);
             assert!(!result.used_by.is_empty(), "{}", result.id);
         }
+    }
+
+    #[test]
+    fn parses_versions_and_vendors_from_real_output() {
+        assert_eq!(parse_version("java", r#"openjdk version "21.0.2" 2024-01-16"#), (Some("21.0.2".into()), Some("OpenJDK".into())));
+        assert_eq!(parse_version("java", r#"java version "1.8.0_392""#), (Some("1.8.0_392".into()), Some("Oracle Java".into())));
+        assert_eq!(parse_version("keytool", "keytool 21.0.2"), (Some("21.0.2".into()), None));
+        assert_eq!(parse_version("keytool", "Illegal option:  -version"), (None, None));
+        assert_eq!(parse_version("openssl", "OpenSSL 3.0.13 30 Jan 2024 (Library: OpenSSL 3.0.13 30 Jan 2024)"), (Some("3.0.13".into()), Some("OpenSSL".into())));
+        assert_eq!(parse_version("openssl", "LibreSSL 3.3.6"), (Some("3.3.6".into()), Some("LibreSSL".into())));
+        assert_eq!(parse_version("ssh-keygen", "OpenSSH_9.6p1 Ubuntu-3ubuntu13, OpenSSL 3.0.13 30 Jan 2024"), (Some("9.6p1".into()), Some("OpenSSH".into())));
+        assert_eq!(parse_version("ssh-keygen", "OpenSSH_for_Windows_9.5p1, LibreSSL 3.8.2"), (Some("9.5p1".into()), Some("OpenSSH".into())));
+        assert_eq!(parse_version("puttygen", "puttygen: Release 0.81"), (Some("0.81".into()), None));
+        assert_eq!(parse_version("puttygen", "puttygen: Development snapshot"), (None, None));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_custom_location_is_searched_alone() {
+        let dir = std::env::temp_dir().join(format!("ks-tools-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("bin")).unwrap();
+        let mut overrides = HashMap::new();
+        overrides.insert("openssl".to_string(), dir.to_string_lossy().into_owned());
+        let openssl = status(&overrides).into_iter().find(|t| t.id == "openssl").unwrap();
+        // Nothing there: not found, even when openssl is on PATH.
+        assert!(!openssl.available);
+        assert_eq!(openssl.custom_location.as_deref(), Some(dir.to_string_lossy().as_ref()));
+        let sh = find_on_path("sh", &search_path()).unwrap();
+        std::fs::copy(&sh, dir.join("bin/sh")).unwrap();
+        assert!(find_in_custom("sh", &dir).is_some_and(|p| p.ends_with("bin/sh")));
+        assert!(find_in_custom("sh", &dir.join("bin/sh")).is_some());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

@@ -31,6 +31,7 @@ import type {
   SignCsrInput,
   SignedCertificateResult,
   TerminalOutput,
+  RevocationMethodResult,
   ToolStatus,
   ConnectionTest,
   TlsInspectionResult,
@@ -150,6 +151,9 @@ export const api = {
   /** The OS trust store as PEM, for validateChain against the same roots examineTls trusts. */
   systemTrustAnchors: () => call<string>("system_trust_anchors"),
   /** Live revocation check (RFC 6960). `url` defaults to the subject certificate's own OCSP URL when omitted. */
+  /** Every OCSP responder and CRL distribution point the certificate names, each asked on its own. */
+  checkRevocation: (subjectPem: string, issuerPem: string, methods?: ("ocsp" | "crl")[]) =>
+    call<RevocationMethodResult[]>("check_revocation", { subjectPem, issuerPem, methods: methods ?? null }),
   checkOcsp: (subjectPem: string, issuerPem: string, url?: string | null) => call<OcspInfo>("check_ocsp", { subjectPem, issuerPem, url: url ?? null }),
   cmsSign: (content: DataSource, signerEntry: KeystoreEntry, detached: boolean, tsaUrl?: string | null, tsaTrustPem?: string | null) =>
     call<CmsSignResult>("cms_sign", { content, signerEntry, detached, tsaUrl: tsaUrl || null, tsaTrustPem: tsaTrustPem || null }),
@@ -186,7 +190,8 @@ export const api = {
   runTerminalCommand: (command: string, cwd: string | undefined, timeoutSecs: number) =>
     call<TerminalOutput>("run_terminal_command", { command, cwd: cwd ?? null, timeoutSecs }),
 
-  toolStatus: () => call<ToolStatus[]>("tool_status"),
+  /** `overrides` maps a tool id to the file or folder the user chose for it; omitted tools are detected. */
+  toolStatus: (overrides: Record<string, string> = {}) => call<ToolStatus[]>("tool_status", { overrides }),
   /** The native unsaved-changes cue (macOS: the dot in the close button). */
   setDocumentEdited: (edited: boolean) => call<void>("set_document_edited", { edited }),
 };

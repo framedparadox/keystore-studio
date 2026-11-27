@@ -158,8 +158,15 @@ export const cnOf = (dn: string) => /(?:^|,\s*)CN=((?:\\.|[^,])+)/.exec(dn)?.[1]
 export interface ExportTarget {
   id: string;
   label: string;
+  /** One line on what the format is and where it is used. */
+  hint: string;
   ext: string;
+  /** The tab it is listed under in the export dialog. */
   group: "Certificate" | "Public key" | "Private key" | "Keystore" | "Secret key";
+  /** The heading it is listed under inside its tab. */
+  subgroup: string;
+  /** Carries the issuer chain as well as the certificate. */
+  includesChain?: boolean;
   needsPassword?: boolean;
   /** Takes a password to encrypt the file, but can be written without one. */
   optionalPassword?: boolean;
@@ -167,25 +174,30 @@ export interface ExportTarget {
   appliesTo: EntryType[];
 }
 
+const CERTS: EntryType[] = ["KeyPair", "TrustedCertificate"];
+
+/** Every export format, in the order the export dialog lists them. The first one is the default. */
 export const EXPORT_TARGETS: ExportTarget[] = [
-  { id: "cert_pem", label: "Certificate (PEM)", ext: "pem", group: "Certificate", appliesTo: ["KeyPair", "TrustedCertificate"] },
-  { id: "cert_der", label: "Certificate (DER .cer)", ext: "cer", group: "Certificate", appliesTo: ["KeyPair", "TrustedCertificate"] },
-  { id: "chain_pem", label: "Full chain (PEM)", ext: "pem", group: "Certificate", appliesTo: ["KeyPair"] },
-  { id: "pkcs7_pem", label: "PKCS#7 bundle (PEM .p7b)", ext: "p7b", group: "Certificate", appliesTo: ["KeyPair", "TrustedCertificate"] },
-  { id: "pkcs7_der", label: "PKCS#7 bundle (DER .p7b)", ext: "p7b", group: "Certificate", appliesTo: ["KeyPair", "TrustedCertificate"] },
-  { id: "pkipath", label: "PkiPath (.pkipath)", ext: "pkipath", group: "Certificate", appliesTo: ["KeyPair"] },
-  { id: "public_pem", label: "Public key (PEM)", ext: "pub.pem", group: "Public key", appliesTo: ["KeyPair", "TrustedCertificate"] },
-  { id: "public_openssh", label: "OpenSSH public key", ext: "pub", group: "Public key", appliesTo: ["KeyPair", "TrustedCertificate"] },
-  { id: "public_ssh2", label: "SSH2 public key (RFC 4716)", ext: "pub", group: "Public key", appliesTo: ["KeyPair", "TrustedCertificate"] },
-  { id: "public_jwk", label: "JWK (public)", ext: "jwk.json", group: "Public key", appliesTo: ["KeyPair", "TrustedCertificate"] },
-  { id: "private_pkcs8_encrypted", label: "Private key, encrypted PKCS#8 (AES-256)", ext: "key", group: "Private key", needsPassword: true, sensitive: true, appliesTo: ["KeyPair"] },
-  { id: "private_pkcs8_pem", label: "Private key, unencrypted PKCS#8", ext: "key", group: "Private key", sensitive: true, appliesTo: ["KeyPair"] },
-  { id: "private_traditional", label: "Private key, PKCS#1 or SEC1", ext: "key", group: "Private key", sensitive: true, appliesTo: ["KeyPair"] },
-  { id: "private_openssh", label: "Private key, OpenSSH (ssh-keygen format)", ext: "key", group: "Private key", optionalPassword: true, sensitive: true, appliesTo: ["KeyPair"] },
-  { id: "private_jwk", label: "JWK (private)", ext: "jwk.json", group: "Private key", sensitive: true, appliesTo: ["KeyPair"] },
-  { id: "pkcs12", label: "PKCS#12 with key and chain", ext: "p12", group: "Keystore", needsPassword: true, sensitive: true, appliesTo: ["KeyPair", "TrustedCertificate", "SecretKey"] },
-  { id: "secret_hex", label: "Raw key (hex)", ext: "txt", group: "Secret key", sensitive: true, appliesTo: ["SecretKey"] },
-  { id: "secret_jwk", label: "JWK (symmetric)", ext: "jwk.json", group: "Secret key", sensitive: true, appliesTo: ["SecretKey"] },
+  { id: "cert_pem", label: "PEM", hint: "Base-64 text between BEGIN/END CERTIFICATE lines. Read by almost every server and tool.", ext: "pem", group: "Certificate", subgroup: "X.509 certificate", appliesTo: CERTS },
+  { id: "cert_der", label: "DER-encoded X.509", hint: "Binary. Windows, Java and most CAs accept it.", ext: "cer", group: "Certificate", subgroup: "X.509 certificate", appliesTo: CERTS },
+  { id: "cert_b64_cer", label: "Base-64 encoded X.509", hint: "PEM text under a .cer name, as Windows exports it.", ext: "cer", group: "Certificate", subgroup: "X.509 certificate", appliesTo: CERTS },
+  { id: "chain_pem", label: "Full chain (PEM)", hint: "The certificate and its issuers, leaf first, as concatenated PEM.", ext: "pem", group: "Certificate", subgroup: "Chain and bundles", includesChain: true, appliesTo: CERTS },
+  { id: "pkcs7_pem", label: "PKCS#7 (PEM)", hint: "A certificates-only PKCS#7 bundle in Base-64 text.", ext: "p7b", group: "Certificate", subgroup: "Chain and bundles", includesChain: true, appliesTo: CERTS },
+  { id: "pkcs7_der", label: "PKCS#7 (DER)", hint: "A certificates-only PKCS#7 bundle, binary. Windows' .p7b.", ext: "p7b", group: "Certificate", subgroup: "Chain and bundles", includesChain: true, appliesTo: CERTS },
+  { id: "pkcs7_spc", label: "SPC", hint: "Software Publisher Certificate: a DER PKCS#7 bundle for Authenticode code signing.", ext: "spc", group: "Certificate", subgroup: "Chain and bundles", includesChain: true, appliesTo: CERTS },
+  { id: "pkipath", label: "PkiPath", hint: "Java's CertPath encoding (RFC 6066), ordered from the root down.", ext: "pkipath", group: "Certificate", subgroup: "Chain and bundles", includesChain: true, appliesTo: CERTS },
+  { id: "public_pem", label: "PEM (SubjectPublicKeyInfo)", hint: "BEGIN PUBLIC KEY text, as OpenSSL writes it.", ext: "pub.pem", group: "Public key", subgroup: "Standard", appliesTo: CERTS },
+  { id: "public_jwk", label: "JWK", hint: "JSON Web Key, for JOSE and OAuth configuration.", ext: "jwk.json", group: "Public key", subgroup: "Standard", appliesTo: CERTS },
+  { id: "public_openssh", label: "OpenSSH", hint: "One line for authorized_keys.", ext: "pub", group: "Public key", subgroup: "SSH", appliesTo: CERTS },
+  { id: "public_ssh2", label: "SSH2 (RFC 4716)", hint: "The SECSH format some SSH servers and PuTTY read.", ext: "pub", group: "Public key", subgroup: "SSH", appliesTo: CERTS },
+  { id: "private_pkcs8_encrypted", label: "Encrypted PKCS#8", hint: "AES-256, protected by the password below. The safest way to move a key.", ext: "key", group: "Private key", subgroup: "PKCS#8", needsPassword: true, sensitive: true, appliesTo: ["KeyPair"] },
+  { id: "private_pkcs8_pem", label: "Unencrypted PKCS#8", hint: "BEGIN PRIVATE KEY text, readable by anyone who has the file.", ext: "key", group: "Private key", subgroup: "PKCS#8", sensitive: true, appliesTo: ["KeyPair"] },
+  { id: "private_traditional", label: "PKCS#1 or SEC1", hint: "BEGIN RSA / EC PRIVATE KEY, for older tools.", ext: "key", group: "Private key", subgroup: "Traditional", sensitive: true, appliesTo: ["KeyPair"] },
+  { id: "private_openssh", label: "OpenSSH", hint: "The ssh-keygen format, encrypted when you give a passphrase.", ext: "key", group: "Private key", subgroup: "Other", optionalPassword: true, sensitive: true, appliesTo: ["KeyPair"] },
+  { id: "private_jwk", label: "JWK (private)", hint: "JSON Web Key including the private parameters.", ext: "jwk.json", group: "Private key", subgroup: "Other", sensitive: true, appliesTo: ["KeyPair"] },
+  { id: "pkcs12", label: "PKCS#12", hint: "A password-protected .p12 with the key and its chain (or the certificate alone).", ext: "p12", group: "Keystore", subgroup: "Keystore", needsPassword: true, sensitive: true, appliesTo: ["KeyPair", "TrustedCertificate", "SecretKey"] },
+  { id: "secret_hex", label: "Raw key (hex)", hint: "The key bytes as hexadecimal text.", ext: "txt", group: "Secret key", subgroup: "Secret key", sensitive: true, appliesTo: ["SecretKey"] },
+  { id: "secret_jwk", label: "JWK (symmetric)", hint: "JSON Web Key of type oct.", ext: "jwk.json", group: "Secret key", subgroup: "Secret key", sensitive: true, appliesTo: ["SecretKey"] },
 ];
 
 export const KEY_USAGES: { id: string; label: string }[] = [

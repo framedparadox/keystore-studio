@@ -242,8 +242,7 @@ async function run() {
     await clickButton("Close");
     await openRowMenu("api");
     await click(tid("menu-export"));
-    const select = await find(tid("export-format"));
-    for (const o of await select.findElements(By.css("option"))) if ((await o.getAttribute("value")) === "chain_pem") await o.click();
+    await click(tid("export-format-chain_pem"));
     await queueSave(chain);
     await click(tid("export-run"));
     await toast();

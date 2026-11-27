@@ -647,6 +647,11 @@ interface DataTableProps<T> {
   label: string;
   /** Fill the parent's height and scroll the body under a sticky header. */
   fill?: boolean;
+  /**
+   * Rows that belong together (certificates from one file). Sorting moves a group as one and
+   * keeps its own order; groups are tinted alternately, and hovering one row lights its group.
+   */
+  groupKey?: (row: T) => string;
 }
 
 // Container queries (the table's wrapper is an @container). Tailwind needs the literal names.
@@ -671,25 +676,41 @@ export function DataTable<T>({
   footer,
   label,
   fill,
+  groupKey,
 }: DataTableProps<T>) {
   const [sort, setSort] = useState(initialSort ?? null);
+  const [hoverGroup, setHoverGroup] = useState<string | null>(null);
 
   const sorted = useMemo(() => {
     if (!sort) return rows;
     const col = columns.find((c) => c.id === sort.id);
     if (!col?.sortValue) return rows;
     const get = col.sortValue;
-    const out = [...rows].sort((a, b) => {
-      const va = get(a);
-      const vb = get(b);
+    const compare = (va: string | number | null, vb: string | number | null) => {
       if (va === vb) return 0;
       if (va === null) return 1; // nulls last regardless of direction
       if (vb === null) return -1;
       const cmp = typeof va === "number" && typeof vb === "number" ? va - vb : String(va).localeCompare(String(vb));
       return sort.dir === "asc" ? cmp : -cmp;
-    });
-    return out;
-  }, [rows, columns, sort]);
+    };
+    if (!groupKey) return [...rows].sort((a, b) => compare(get(a), get(b)));
+    // A group sorts by its first member in the chosen direction; its rows keep their own order.
+    const groups = new Map<string, T[]>();
+    for (const r of rows) {
+      const k = groupKey(r);
+      const g = groups.get(k);
+      if (g) g.push(r);
+      else groups.set(k, [r]);
+    }
+    const lead = (g: T[]) => g.map(get).sort(compare)[0] ?? null;
+    return [...groups.values()].sort((a, b) => compare(lead(a), lead(b))).flat();
+  }, [rows, columns, sort, groupKey]);
+  // Alternate tint by group, counted in the order shown.
+  const groupIndex = useMemo(() => {
+    const index = new Map<string, number>();
+    if (groupKey) for (const r of sorted) if (!index.has(groupKey(r))) index.set(groupKey(r), index.size);
+    return index;
+  }, [sorted, groupKey]);
 
   const toggleSort = (id: string) =>
     setSort((s) => (s?.id === id ? { id, dir: s.dir === "asc" ? "desc" : "asc" } : { id, dir: "asc" }));
@@ -741,12 +762,20 @@ export function DataTable<T>({
             </tr>
           </thead>
           <tbody>
-            {sorted.map((row) => {
+            {sorted.map((row, rowIndex) => {
               const key = rowKey(row);
               const selected = selectedKey === key;
+              const group = groupKey?.(row);
+              const groupOdd = group !== undefined && (groupIndex.get(group) ?? 0) % 2 === 1;
+              const groupHovered = group !== undefined && hoverGroup === group;
+              // A firmer line closes each group, so a file's rows read as one block.
+              const groupEnds = group !== undefined && rowIndex < sorted.length - 1 && groupKey!(sorted[rowIndex + 1]) !== group;
               return (
                 <tr
                   key={key}
+                  data-group={group !== undefined ? groupIndex.get(group) : undefined}
+                  onMouseEnter={group !== undefined ? () => setHoverGroup(group) : undefined}
+                  onMouseLeave={group !== undefined ? () => setHoverGroup((g) => (g === group ? null : g)) : undefined}
                   onClick={onRowClick ? () => onRowClick(row) : undefined}
                   onKeyDown={
                     onRowClick
@@ -760,7 +789,8 @@ export function DataTable<T>({
                   className={clsx(
                     "group transition-colors",
                     onRowClick && "cursor-pointer",
-                    selected ? "bg-brand-tint" : "hover:bg-surface-2",
+                    selected ? "bg-brand-tint" : group === undefined ? "hover:bg-surface-2" : groupHovered ? "bg-surface-3" : groupOdd ? "bg-surface-2" : undefined,
+                    groupEnds && "[&>td]:border-line-strong",
                     rowClassName?.(row)
                   )}
                 >
@@ -918,7 +948,9 @@ export const Modal: React.FC<{
   /** While true the dialog cannot be dismissed (an operation is running). */
   busy?: boolean;
   testId?: string;
-}> = ({ open, onClose, title, description, icon: Icon, size = "md", footer, children, busy, testId }) => {
+  /** Keep one height whatever the content, so switching tabs inside does not resize the window. */
+  fixedHeight?: boolean;
+}> = ({ open, onClose, title, description, icon: Icon, size = "md", footer, children, busy, testId, fixedHeight }) => {
   const panel = useRef<HTMLDivElement>(null);
   const stackId = useRef(0);
   const titleId = useFieldId();
@@ -989,7 +1021,7 @@ export const Modal: React.FC<{
         aria-describedby={description ? descriptionId : undefined}
         tabIndex={-1}
         data-testid={testId}
-        className={clsx("w-full bg-surface rounded-panel border border-line shadow-pop flex flex-col max-h-[90vh] outline-none", modalSizes[size])}
+        className={clsx("w-full bg-surface rounded-panel border border-line shadow-pop flex flex-col max-h-[90vh] outline-none", fixedHeight && "h-[min(760px,90vh)]", modalSizes[size])}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-start justify-between gap-3 px-6 pt-5 pb-4 border-b border-line">

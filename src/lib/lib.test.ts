@@ -46,6 +46,10 @@ import {
   persistCertificates,
   shortFingerprint,
   toOpenCertificates,
+  certificateTree,
+  extensionItems,
+  isIssuerOf,
+  issuerChain,
 } from "./certificates";
 
 const DAY = 86_400;
@@ -728,5 +732,56 @@ describe("platform", () => {
     expect(shortcutLabel("Ctrl+`", "macos")).toBe("⌃`");
     expect(shortcutLabel("Ctrl K", "macos")).toBe("⌘K");
     expect(shortcutLabel("Ctrl+Shift+Z", "windows")).toBe("Ctrl+Shift+Z");
+  });
+});
+
+describe("certificate trees and chains", () => {
+  const origin = { path: "/certs/bundle.pem", source: "bundle.pem", openedAt: "2026-11-27T00:00:00Z" };
+  /** A trusted-certificate entry `name` issued by `issuer` (itself when omitted), with key ids. */
+  const node = (name: string, issuer = name, fp = name) => {
+    const e = entry(name, { entry_type: "TrustedCertificate", sha256_fingerprint: fp, selfSigned: issuer === name });
+    const c = e.certificate_chain[0];
+    Object.assign(c, { subject: `CN=${name}`, issuer: `CN=${issuer}`, sha256_fingerprint: fp, subject_key_id: `${name}-ski`, authority_key_id: `keyid:${issuer}-ski`, is_ca: name !== "leaf" });
+    return e;
+  };
+  const hex = (s: string) => [...s].map((ch) => ch.charCodeAt(0).toString(16)).join("");
+  // Key ids are compared as hex, so give them hex spellings.
+  const withHexIds = (e: KeystoreEntry) => {
+    const c = e.certificate_chain[0];
+    c.subject_key_id = hex(c.subject_key_id ?? "");
+    c.authority_key_id = `keyid:${hex((c.authority_key_id ?? "").replace("keyid:", ""))}`;
+    return e;
+  };
+
+  it("draws a bundle as root → intermediate → leaf, and a lone certificate flat", () => {
+    // The engine lists a chain leaf first.
+    const bundle = toOpenCertificates([node("leaf", "inter"), node("inter", "root"), node("root")].map(withHexIds), origin);
+    const lone = toOpenCertificates([withHexIds(node("other"))], { ...origin, path: "/certs/other.pem", source: "other.pem" });
+    const rows = certificateTree([...bundle, ...lone]);
+    expect(rows.map((r) => [r.cert.entry.certificate_chain[0].subject, r.depth, r.groupSize])).toEqual([
+      ["CN=root", 0, 3],
+      ["CN=inter", 1, 3],
+      ["CN=leaf", 2, 3],
+      ["CN=other", 0, 1],
+    ]);
+    expect(new Set(rows.slice(0, 3).map((r) => r.group)).size).toBe(1);
+    expect(rows[3].group).not.toBe(rows[0].group);
+  });
+
+  it("finds a certificate's issuers among what is open, and stops at a missing one", () => {
+    const [leaf, inter, root] = [node("leaf", "inter"), node("inter", "root"), node("root")].map((e) => withHexIds(e).certificate_chain[0]);
+    expect(issuerChain(leaf, [root, inter, leaf]).map((c) => c.subject)).toEqual(["CN=inter", "CN=root"]);
+    expect(issuerChain(leaf, [root])).toEqual([]);
+    // Same name, another key: not the issuer.
+    const impostor = { ...inter, sha256_fingerprint: "x", subject_key_id: "ff" };
+    expect(isIssuerOf(impostor, leaf)).toBe(false);
+  });
+
+  it("splits extension values into items without breaking directory names", () => {
+    expect(extensionItems("2.5.29.17", "DNS:a.example, DirName:CN=x, O=y, IP:10.0.0.1")).toEqual(["DNS:a.example", "DirName:CN=x, O=y", "IP:10.0.0.1"]);
+    expect(extensionItems("2.5.29.15", "Digital Signature, Key Encipherment")).toEqual(["Digital Signature", "Key Encipherment"]);
+    expect(extensionItems("2.5.29.19", "CA:TRUE, pathlen:0")).toEqual(["CA", "Path length 0"]);
+    expect(extensionItems("1.3.6.1.5.5.7.1.1", "OCSP - URI:http://o.example, CA Issuers - URI:http://c.example/ca.crt")).toHaveLength(2);
+    expect(extensionItems("1.2.3", "AB:CD")).toEqual(["AB:CD"]);
   });
 });

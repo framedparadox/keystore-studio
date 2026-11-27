@@ -104,6 +104,53 @@ fn status_of(cert: &[u8], issuer: &[u8], fetch: &Fetchers, now: i64) -> Status {
     Status::Unknown(why)
 }
 
+/// One method's answer about one certificate, for the Verify panel.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct MethodResult {
+    /// "ocsp" or "crl".
+    pub method: &'static str,
+    pub url: String,
+    /// "good", "revoked" or "unknown".
+    pub status: &'static str,
+    /// Why the answer is "unknown", or when and why the certificate was revoked.
+    pub detail: Option<String>,
+}
+
+/// Asks every responder and distribution point `cert` names, each on its own, so the caller can
+/// show what each one said. `methods` limits the methods tried ("ocsp", "crl").
+pub fn check_each(cert: &[u8], issuer: &[u8], methods: &[&str], fetch: &Fetchers) -> Res<Vec<MethodResult>> {
+    let info = x509::parse_certificate(cert)?;
+    let mut out = Vec::new();
+    if methods.contains(&"ocsp") {
+        for url in &info.ocsp_urls {
+            let r = match (fetch.ocsp)(url, cert, issuer) {
+                Ok(r) if !r.signature_valid => MethodResult { method: "ocsp", url: url.clone(), status: "unknown", detail: Some(format!("the response is not signed by the issuer ({})", r.signature_warning.unwrap_or_default())) },
+                Ok(r) if r.status == "good" => MethodResult { method: "ocsp", url: url.clone(), status: "good", detail: None },
+                Ok(r) if r.status == "revoked" => {
+                    let when = r.revocation_time.map(|t| format!("on {t}")).unwrap_or_default();
+                    let reason = r.revocation_reason.map(|t| format!(" ({t})")).unwrap_or_default();
+                    MethodResult { method: "ocsp", url: url.clone(), status: "revoked", detail: Some(format!("{when}{reason}").trim().to_string()).filter(|d| !d.is_empty()) }
+                }
+                Ok(_) => MethodResult { method: "ocsp", url: url.clone(), status: "unknown", detail: Some("the responder does not know this certificate".into()) },
+                Err(err) => MethodResult { method: "ocsp", url: url.clone(), status: "unknown", detail: Some(err) },
+            };
+            out.push(r);
+        }
+    }
+    if methods.contains(&"crl") {
+        for url in &info.crl_distribution_points {
+            let r = match (fetch.crl)(url).and_then(|der| crl_status(cert, issuer, &der, now_ts())) {
+                Ok(Status::Good) => MethodResult { method: "crl", url: url.clone(), status: "good", detail: None },
+                Ok(Status::Revoked(d)) => MethodResult { method: "crl", url: url.clone(), status: "revoked", detail: Some(d.trim().trim_end_matches(", according to its CRL").to_string()) },
+                Ok(Status::Unknown(w)) => MethodResult { method: "crl", url: url.clone(), status: "unknown", detail: Some(w.join("; ")) },
+                Err(err) => MethodResult { method: "crl", url: url.clone(), status: "unknown", detail: Some(err) },
+            };
+            out.push(r);
+        }
+    }
+    Ok(out)
+}
+
 /// What a CRL says about `cert`, after checking that `issuer` signed it and that it is current.
 fn crl_status(cert: &[u8], issuer: &[u8], crl_der: &[u8], now: i64) -> Res<Status> {
     // A CRL may also be served as PEM.
@@ -268,6 +315,20 @@ mod tests {
         // Unreachable responder: the CRL decides.
         let problems = check_path(&path, &Fetchers { ocsp: &no_ocsp, crl: &crl_fetch });
         assert!(problems[0].contains("according to its CRL"), "{problems:?}");
+    }
+
+    #[test]
+    fn each_method_reports_on_its_own() {
+        let p = pki(true, true);
+        let revoked_crl = crl(&p, &p.ca_key, &[&p.serial_hex], now_ts() + 86_400);
+        let crl_fetch = |_: &str| Ok(revoked_crl.clone());
+        let both = check_each(&p.leaf, &p.ca, &["ocsp", "crl"], &Fetchers { ocsp: &ocsp_says("good", true), crl: &crl_fetch }).unwrap();
+        assert_eq!(both.iter().map(|r| (r.method, r.status)).collect::<Vec<_>>(), vec![("ocsp", "good"), ("crl", "revoked")]);
+        let only_crl = check_each(&p.leaf, &p.ca, &["crl"], &Fetchers { ocsp: &ocsp_says("good", true), crl: &crl_fetch }).unwrap();
+        assert_eq!(only_crl.len(), 1);
+        assert!(only_crl[0].detail.as_deref().is_some_and(|d| d.starts_with("on ")), "{:?}", only_crl[0].detail);
+        let unreachable = check_each(&p.leaf, &p.ca, &["ocsp"], &Fetchers { ocsp: &no_ocsp, crl: &crl_fetch }).unwrap();
+        assert_eq!(unreachable[0].status, "unknown");
     }
 
     #[test]

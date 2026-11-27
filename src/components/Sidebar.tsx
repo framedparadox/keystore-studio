@@ -17,6 +17,7 @@ import {
   Moon,
   Package,
   PanelLeftClose,
+  PanelLeftOpen,
   Repeat,
   SearchCode,
   ShieldCheck,
@@ -263,35 +264,38 @@ export const Sidebar: React.FC<{ collapsed: boolean; onCollapse: () => void; onE
           </div>
         ))}
       </nav>
-      <div className="shell-accent shrink-0 px-3.5 pb-3">
+      <div className="shell-accent shrink-0 px-3 pb-3">
         <div className="w-1/2 mx-auto border-t border-line" role="separator" />
-        <div className="flex items-center pt-2 justify-between overflow-hidden">
-          {collapsed ? (
-            <IconButton icon={ChevronRight} label="Expand sidebar" onClick={onExpand} className="!w-9 !h-9" data-testid="sidebar-expand" />
-          ) : (
-            <IconButton icon={PanelLeftClose} label="Collapse sidebar" onClick={onCollapse} className="!w-9 !h-9" data-testid="sidebar-collapse" />
-          )}
-          <div inert={collapsed} className={clsx("flex flex-1 items-center justify-evenly transition-opacity duration-150", collapsed && "opacity-0")}>
-            <IconButton
-              icon={theme === "dark" ? Sun : Moon}
-              label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
-              onClick={() => updateSettings({ theme: theme === "dark" ? "light" : "dark" })}
-              className="!w-9 !h-9"
-              data-testid="sidebar-theme"
-            />
-            <IconButton
-              icon={Wrench}
-              label="Tools"
-              onClick={() => {
-                showSettingsSection("tools");
-                setTab("settings");
-              }}
-              className="!w-9 !h-9"
-              data-testid="sidebar-tools"
-            />
-            <IconButton icon={TerminalSquare} label={shortcutLabel("Terminal (Ctrl+`)")} onClick={toggleTerminal} className="!w-9 !h-9" data-testid="sidebar-terminal" />
+        {collapsed ? (
+          // The rail is 64px: the expand control sits alone on its centre line, under the nav icons.
+          <div className="flex items-center justify-center pt-2">
+            <IconButton icon={PanelLeftOpen} label="Expand sidebar" onClick={onExpand} className="!w-9 !h-9 shrink-0" data-testid="sidebar-expand" />
           </div>
-        </div>
+        ) : (
+          <div className="flex items-center pt-2 gap-1">
+            <IconButton icon={PanelLeftClose} label="Collapse sidebar" onClick={onCollapse} className="!w-9 !h-9 shrink-0" data-testid="sidebar-collapse" />
+            <div className="flex flex-1 items-center justify-evenly">
+              <IconButton
+                icon={theme === "dark" ? Sun : Moon}
+                label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+                onClick={() => updateSettings({ theme: theme === "dark" ? "light" : "dark" })}
+                className="!w-9 !h-9"
+                data-testid="sidebar-theme"
+              />
+              <IconButton
+                icon={Wrench}
+                label="Tools"
+                onClick={() => {
+                  showSettingsSection("tools");
+                  setTab("settings");
+                }}
+                className="!w-9 !h-9"
+                data-testid="sidebar-tools"
+              />
+              <IconButton icon={TerminalSquare} label={shortcutLabel("Terminal (Ctrl+`)")} onClick={toggleTerminal} className="!w-9 !h-9" data-testid="sidebar-terminal" />
+            </div>
+          </div>
+        )}
       </div>
     </aside>
   );

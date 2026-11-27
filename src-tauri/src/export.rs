@@ -12,9 +12,11 @@ use std::path::Path;
 pub const TARGETS: &[(&str, &str)] = &[
     ("cert_pem", "pem"),
     ("cert_der", "cer"),
+    ("cert_b64_cer", "cer"),
     ("chain_pem", "pem"),
     ("pkcs7_pem", "p7b"),
     ("pkcs7_der", "p7b"),
+    ("pkcs7_spc", "spc"),
     ("pkipath", "pkipath"),
     ("public_pem", "pem"),
     ("public_openssh", "pub"),
@@ -55,9 +57,13 @@ pub fn render(e: &KeystoreEntry, target: &str, password: Option<&str>) -> Res<(V
     Ok(match target {
         "cert_pem" => (to_pem("CERTIFICATE", &chain()?[0]).into_bytes(), true, "X.509 certificate (PEM)".into()),
         "cert_der" => (chain()?[0].clone(), false, "X.509 certificate (DER)".into()),
+        // Windows' "Base-64 encoded X.509 (.CER)": the PEM text under a .cer name.
+        "cert_b64_cer" => (to_pem("CERTIFICATE", &chain()?[0]).into_bytes(), true, "X.509 certificate (Base-64 .cer)".into()),
         "chain_pem" => (chain()?.iter().map(|c| to_pem("CERTIFICATE", c)).collect::<String>().into_bytes(), true, "Certificate chain (PEM)".into()),
         "pkcs7_pem" => (to_pem("PKCS7", &cms::certs_only(&chain()?)).into_bytes(), true, "PKCS#7 certificate bundle (PEM)".into()),
         "pkcs7_der" => (cms::certs_only(&chain()?), false, "PKCS#7 certificate bundle (DER)".into()),
+        // Authenticode's Software Publisher Certificate: a DER certs-only PKCS#7 under a .spc name.
+        "pkcs7_spc" => (cms::certs_only(&chain()?), false, "Software Publisher Certificate (SPC)".into()),
         "pkipath" => {
             // PkiPath (RFC 6066/Java): SEQUENCE OF Certificate ordered from the trust anchor down.
             let mut certs = chain()?;

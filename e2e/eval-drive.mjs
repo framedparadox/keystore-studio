@@ -373,7 +373,7 @@ async function run() {
     await clickButton("Close");
     await openRowMenu("api");
     await click("menu-export");
-    await selectValue("export-format", "chain_pem");
+    await click("export-format-chain_pem");
     await queue("save", chain);
     await click("export-run");
     await toast();

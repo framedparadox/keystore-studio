@@ -26,6 +26,8 @@ export interface Settings {
   tsaTrustPem: string;
   /** Key pairs open locked; their key password must be entered before they can be used. */
   requireKeyUnlock: boolean;
+  /** Tool id → the file or folder chosen for it on Settings → Tools. Absent tools are detected. */
+  toolLocations: Record<string, string>;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -41,6 +43,7 @@ export const DEFAULT_SETTINGS: Settings = {
   timestampByDefault: false,
   tsaTrustPem: "",
   requireKeyUnlock: true,
+  toolLocations: {},
 };
 
 export interface RecentFile {

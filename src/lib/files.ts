@@ -41,6 +41,15 @@ export async function pickFile(title: string, filters: FileFilter[] = [FILTERS.a
   return typeof result === "string" ? result : null;
 }
 
+/** Asks for a folder. Resolves to null if the user cancels. */
+export async function pickFolder(title: string): Promise<string | null> {
+  requireDesktop();
+  const stub = dialogStub();
+  if (stub) return stub.open.shift() ?? null;
+  const result = await open({ title, multiple: false, directory: true });
+  return typeof result === "string" ? result : null;
+}
+
 export async function pickFiles(title: string, filters: FileFilter[] = [FILTERS.any]): Promise<string[]> {
   requireDesktop();
   const stub = dialogStub();
