@@ -652,6 +652,8 @@ interface DataTableProps<T> {
    * keeps its own order; groups are tinted alternately, and hovering one row lights its group.
    */
   groupKey?: (row: T) => string;
+  /** Alternate row backgrounds. */
+  striped?: boolean;
 }
 
 // Container queries (the table's wrapper is an @container). Tailwind needs the literal names.
@@ -677,6 +679,7 @@ export function DataTable<T>({
   label,
   fill,
   groupKey,
+  striped,
 }: DataTableProps<T>) {
   const [sort, setSort] = useState(initialSort ?? null);
   const [hoverGroup, setHoverGroup] = useState<string | null>(null);
@@ -789,7 +792,7 @@ export function DataTable<T>({
                   className={clsx(
                     "group transition-colors",
                     onRowClick && "cursor-pointer",
-                    selected ? "bg-brand-tint" : group === undefined ? "hover:bg-surface-2" : groupHovered ? "bg-surface-3" : groupOdd ? "bg-surface-2" : undefined,
+                    selected ? "bg-brand-tint" : group === undefined ? (striped ? clsx("hover:bg-surface-3", rowIndex % 2 === 1 && "bg-surface-2") : "hover:bg-surface-2") : groupHovered ? "bg-surface-3" : groupOdd ? "bg-surface-2" : undefined,
                     groupEnds && "[&>td]:border-line-strong",
                     rowClassName?.(row)
                   )}

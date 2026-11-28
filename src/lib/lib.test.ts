@@ -1,5 +1,6 @@
 import { describe, expect, it, beforeEach } from "vitest";
 import { KEYSTORE_FORMATS, type KeystoreEntry, type OpenKeystore } from "../types/crypto";
+import type { CertificateTreeRow } from "./certificates";
 import { daysUntilExpiry, entryHealth, entryMix, expiryStatus, findingsFor, formatDuration, plural, setThresholds, summarize } from "./metrics";
 import {
   aliasTaken,
@@ -753,19 +754,25 @@ describe("certificate trees and chains", () => {
     return e;
   };
 
-  it("draws a bundle as root → intermediate → leaf, and a lone certificate flat", () => {
-    // The engine lists a chain leaf first.
-    const bundle = toOpenCertificates([node("leaf", "inter"), node("inter", "root"), node("root")].map(withHexIds), origin);
+  it("shows a bundle as its leaf, and the tree leaf → intermediate → root when expanded", () => {
+    // The engine lists a chain leaf first; put the root first to show the leaf is found, not assumed.
+    const bundle = toOpenCertificates([node("root"), node("leaf", "inter"), node("inter", "root")].map(withHexIds), origin);
     const lone = toOpenCertificates([withHexIds(node("other"))], { ...origin, path: "/certs/other.pem", source: "other.pem" });
-    const rows = certificateTree([...bundle, ...lone]);
-    expect(rows.map((r) => [r.cert.entry.certificate_chain[0].subject, r.depth, r.groupSize])).toEqual([
-      ["CN=root", 0, 3],
+    const subject = (r: CertificateTreeRow) => r.cert.entry.certificate_chain[0].subject;
+    const collapsed = certificateTree([...bundle, ...lone]);
+    expect(collapsed.map((r) => [subject(r), r.depth, r.expandable, r.expanded])).toEqual([
+      ["CN=leaf", 0, true, false],
+      ["CN=other", 0, false, false],
+    ]);
+    const open = certificateTree([...bundle, ...lone], new Set([collapsed[0].group]));
+    expect(open.map((r) => [subject(r), r.depth, r.groupSize])).toEqual([
+      ["CN=leaf", 0, 3],
       ["CN=inter", 1, 3],
-      ["CN=leaf", 2, 3],
+      ["CN=root", 2, 3],
       ["CN=other", 0, 1],
     ]);
-    expect(new Set(rows.slice(0, 3).map((r) => r.group)).size).toBe(1);
-    expect(rows[3].group).not.toBe(rows[0].group);
+    expect(certificateTree([...bundle, ...lone], true)).toHaveLength(4);
+    expect(open[3].group).not.toBe(open[0].group);
   });
 
   it("finds a certificate's issuers among what is open, and stops at a missing one", () => {

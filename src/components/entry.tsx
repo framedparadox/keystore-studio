@@ -179,6 +179,37 @@ export const ExpiryCell: React.FC<{ entry: KeystoreEntry }> = ({ entry }) => {
   );
 };
 
+/** Expiry date with the validity bar under it. The time left has a column of its own. */
+export const ExpiryDateCell: React.FC<{ entry: KeystoreEntry }> = ({ entry }) => {
+  const days = daysUntilExpiry(entry);
+  if (days === null) {
+    return (
+      <span className="inline-flex items-center gap-1.5 text-faint">
+        <InfinityIcon className="w-3.5 h-3.5" /> No expiry
+      </span>
+    );
+  }
+  const used = lifeUsed(entry);
+  return (
+    <div className="min-w-[96px] max-w-[120px]">
+      <div className="text-ink tabular-nums whitespace-nowrap">{entry.expiry_date}</div>
+      <Meter thin value={used} tone={EXPIRY_TONE[expiryStatus(entry)]} className="mt-1.5" label={`${Math.round(used * 100)}% of validity used`} />
+    </div>
+  );
+};
+
+/** Time until expiry ("2y 6m", "29 d"), or how long ago it expired, coloured by urgency. */
+export const TimeLeftCell: React.FC<{ entry: KeystoreEntry }> = ({ entry }) => {
+  const days = daysUntilExpiry(entry);
+  if (days === null) return <span className="text-faint">—</span>;
+  const status = expiryStatus(entry);
+  return (
+    <span className={clsx("text-[13px] font-medium tabular-nums whitespace-nowrap", status === "ok" ? "text-ink-2" : status === "warning" ? "text-warning" : "text-danger")} data-testid="time-left">
+      {days < 0 ? `Expired ${formatDuration(days)} ago` : formatDuration(days)}
+    </span>
+  );
+};
+
 export const AgeCell: React.FC<{ entry: KeystoreEntry }> = ({ entry }) => (
   <div>
     <div className="text-ink tabular-nums">{formatDuration(keyAgeDays(entry))}</div>

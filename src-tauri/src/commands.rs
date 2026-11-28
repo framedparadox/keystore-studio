@@ -334,8 +334,12 @@ async fn export_entry(entry: KeystoreEntry, target: String, path: String, mut pa
 /// Certificates (PEM, DER, PKCS#7, PkiPath) to another certificate format. Without `path` this is
 /// a preview and nothing is written.
 #[tauri::command]
-async fn convert_certificates(data: DataSource, target: String, order: Option<bool>, path: Option<String>) -> Res<convert::ConvertResult> {
-    blocking(move || convert::deliver(convert::certificates(&data.bytes()?, &target, order.unwrap_or(true))?, path.as_deref())).await
+async fn convert_certificates(data: DataSource, target: String, order: Option<bool>, path: Option<String>, chain_pem: Option<String>) -> Res<convert::ConvertResult> {
+    blocking(move || {
+        let extra = chain_pem.unwrap_or_default();
+        convert::deliver(convert::certificates_with_chain(&data.bytes()?, extra.as_bytes(), &target, order.unwrap_or(true))?, path.as_deref())
+    })
+    .await
 }
 
 #[tauri::command]

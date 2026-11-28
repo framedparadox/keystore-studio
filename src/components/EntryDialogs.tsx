@@ -1,6 +1,6 @@
 import React, { useLayoutEffect, useMemo, useState } from "react";
 import clsx from "clsx";
-import { Download, Eye, FileSignature, FolderOpen, Layers, Plus, Reply, Save, Tag, Trash2, Edit3, X, AlertTriangle, Unlock } from "lucide-react";
+import { Download, Eye, FileSignature, ShieldCheck, FolderOpen, Layers, Plus, Reply, Save, Tag, Trash2, Edit3, X, AlertTriangle, Unlock } from "lucide-react";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import type { CertificateInfo, KeystoreEntry, OpenKeystore } from "../types/crypto";
 import { api, errorMessage } from "../lib/api";
@@ -9,7 +9,8 @@ import { EXPORT_TARGETS, type ExportTarget, aliasTaken, canonicalAlias, cnOf, EN
 import { findingsFor } from "../lib/metrics";
 import { useStore, uid } from "../state/store";
 import { Alert, Badge, Button, Checkbox, CodeBlock, Modal, OptionList, PasswordInput, Segmented, Select, Spinner, TextArea, TextInput, useConfirm, useToast } from "./ui";
-import { CertificateDetails, ChainView, ExtensionsList } from "./CertificateView";
+import { CertificateDetails, ChainTree, ChainView, ExtensionsList, VerifyCertificate } from "./CertificateView";
+import { useIssuers } from "./CertificateDialogs";
 import { HealthBadge } from "./entry";
 
 /** Toast with a "Show in folder" action for a file we just wrote. */
@@ -532,19 +533,34 @@ export const LabelsDialog: React.FC<{ keystore: OpenKeystore; entry: KeystoreEnt
   );
 };
 
-export const AssignWorkspaceDialog: React.FC<{ entry: KeystoreEntry | null; onClose: () => void }> = ({ entry, onClose }) => {
-  const { workspaces, toggleWorkspaceEntry, saveWorkspace } = useStore();
+/**
+ * Workspaces for one entry, or for a whole keystore (`group`: every entry in it). A group counts
+ * as included when all its entries are; choosing it adds the missing ones, or removes them all.
+ */
+export const AssignWorkspaceDialog: React.FC<{ entry?: KeystoreEntry | null; group?: { name: string; ids: string[] } | null; onClose: () => void }> = ({ entry, group, onClose }) => {
+  const { workspaces, setWorkspaceMembers, saveWorkspace } = useStore();
   const [name, setName] = useState("");
-  if (!entry) return null;
+  const target = group ?? (entry ? { name: entry.alias, ids: [entry.id] } : null);
+  if (!target) return null;
+  const many = !!group;
   return (
-    <Modal open onClose={onClose} icon={Layers} title={`Workspaces for ${entry.alias}`} description="Group keystore entries and certificates by project or audit scope." footer={<Button variant="primary" onClick={onClose}>Done</Button>}>
+    <Modal
+      open
+      onClose={onClose}
+      icon={Layers}
+      title={`Workspaces for ${target.name}`}
+      description={many ? `Adds all ${target.ids.length} entries of this keystore. Group keystore entries and certificates by project or audit scope.` : "Group keystore entries and certificates by project or audit scope."}
+      testId="assign-workspace-dialog"
+      footer={<Button variant="primary" onClick={onClose}>Done</Button>}
+    >
       <div className="space-y-2">
         {workspaces.map((ws) => {
-          const on = ws.entryIds.includes(entry.id);
+          const inside = target.ids.filter((id) => ws.entryIds.includes(id)).length;
+          const on = target.ids.length > 0 && inside === target.ids.length;
           return (
             <button
               key={ws.id}
-              onClick={() => toggleWorkspaceEntry(ws.id, entry.id)}
+              onClick={() => setWorkspaceMembers(ws.id, target.ids, !on)}
               aria-pressed={on}
               className={clsx("w-full p-3 rounded-card border flex items-center justify-between cursor-pointer text-left transition", on ? "bg-brand-tint border-brand-soft-hover" : "bg-surface-2 border-line hover:border-line-strong")}
             >
@@ -554,7 +570,7 @@ export const AssignWorkspaceDialog: React.FC<{ entry: KeystoreEntry | null; onCl
                   {ws.environment} · {ws.entryIds.length} entries
                 </span>
               </span>
-              <Badge tone={on ? "success" : "neutral"}>{on ? "Included" : "Add"}</Badge>
+              <Badge tone={on ? "success" : inside ? "warning" : "neutral"}>{on ? "Included" : inside ? `${inside} of ${target.ids.length} · Add rest` : "Add"}</Badge>
             </button>
           );
         })}
@@ -564,12 +580,12 @@ export const AssignWorkspaceDialog: React.FC<{ entry: KeystoreEntry | null; onCl
           onSubmit={(e) => {
             e.preventDefault();
             if (!name.trim()) return;
-            const ws = { id: `ws-${uid()}`, name: name.trim(), description: "", environment: "Production" as const, created_at: new Date().toISOString(), updated_at: new Date().toISOString(), entryIds: [entry.id] };
+            const ws = { id: `ws-${uid()}`, name: name.trim(), description: "", environment: "Production" as const, created_at: new Date().toISOString(), updated_at: new Date().toISOString(), entryIds: [...target.ids] };
             saveWorkspace(ws);
             setName("");
           }}
         >
-          <TextInput placeholder="New workspace name" value={name} onChange={(e) => setName(e.target.value)} />
+          <TextInput placeholder="New workspace name" value={name} onChange={(e) => setName(e.target.value)} data-testid="assign-workspace-name" />
           <Button type="submit" icon={Plus} disabled={!name.trim()}>
             Create & add
           </Button>
@@ -581,7 +597,7 @@ export const AssignWorkspaceDialog: React.FC<{ entry: KeystoreEntry | null; onCl
 
 // -------------------------------------------------------------------------------- inspector
 
-type InspectTab = "overview" | "chain" | "extensions" | "public" | "private";
+type InspectTab = "overview" | "chain" | "extensions" | "verify" | "public" | "private";
 
 export const EntryInspector: React.FC<{
   keystore: OpenKeystore;
@@ -597,14 +613,23 @@ export const EntryInspector: React.FC<{
     setTab("overview");
     setRevealed(false);
   }, [entry?.id]);
+  const leaf = entry?.certificate_chain[0];
+  // The entry's own chain, completed from anything open when it stops short of a root.
+  const found = useIssuers(entry && entry.certificate_chain.length > 0 ? entry.certificate_chain[entry.certificate_chain.length - 1] : undefined);
   if (!entry) return null;
-  const leaf = entry.certificate_chain[0];
+  const issuers = [...entry.certificate_chain.slice(1), ...found];
   const findings = findingsFor(entry, { format: keystore.format, siblings: keystore.entries });
   // Session lock included: key material is shown only once the key password was entered.
   const keyLocked = isKeyLocked(entry);
   const tabs: { value: InspectTab; label: string }[] = [
     { value: "overview", label: "Overview" },
-    ...(entry.chain_length > 0 ? [{ value: "chain" as const, label: `Chain (${entry.chain_length})` }, { value: "extensions" as const, label: `Extensions (${leaf?.extensions.length ?? 0})` }] : []),
+    ...(entry.chain_length > 0
+      ? [
+          { value: "chain" as const, label: `Chain (${issuers.length + 1})` },
+          { value: "extensions" as const, label: `Extensions (${leaf?.extensions.length ?? 0})` },
+          { value: "verify" as const, label: "Verify" },
+        ]
+      : []),
     ...(entry.public_key_pem ? [{ value: "public" as const, label: "Public key" }] : []),
     ...(entry.entry_type !== "TrustedCertificate" ? [{ value: "private" as const, label: entry.entry_type === "SecretKey" ? "Key material" : "Private key" }] : []),
   ];
@@ -621,6 +646,7 @@ export const EntryInspector: React.FC<{
       open
       onClose={onClose}
       size="xl"
+      fixedHeight
       icon={undefined}
       testId="entry-inspector"
       title={
@@ -652,6 +678,11 @@ export const EntryInspector: React.FC<{
                 CA reply
               </Button>
             </>
+          )}
+          {leaf && tab !== "verify" && (
+            <Button icon={ShieldCheck} onClick={() => setTab("verify")} data-testid="entry-inspector-verify">
+              Verify
+            </Button>
           )}
           <Button variant="primary" icon={Download} onClick={() => onAction("export", entry)}>
             Export…
@@ -701,8 +732,17 @@ export const EntryInspector: React.FC<{
             )}
           </div>
         )}
-        {tab === "chain" && <ChainView certs={entry.certificate_chain} />}
+        {tab === "chain" && leaf && (
+          <div className="space-y-3">
+            <div className="rounded-card border border-line px-4 py-3">
+              <ChainTree chain={[leaf, ...issuers]} complete={(issuers[issuers.length - 1] ?? leaf).self_signed} />
+            </div>
+            {found.length > 0 && <p className="text-[12px] text-faint">{found.length} issuer{found.length === 1 ? " was" : "s were"} found among other open certificates; the entry itself holds {entry.chain_length}.</p>}
+            <ChainView certs={entry.certificate_chain} defaultOpen={-1} />
+          </div>
+        )}
         {tab === "extensions" && leaf && <ExtensionsList cert={leaf} />}
+        {tab === "verify" && leaf && <VerifyCertificate key={entry.id} cert={leaf} issuers={issuers} />}
         {tab === "public" && entry.public_key_pem && <CodeBlock label="SubjectPublicKeyInfo (PEM)" value={entry.public_key_pem} />}
         {tab === "private" &&
           (keyLocked ? (

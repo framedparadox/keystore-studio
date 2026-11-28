@@ -122,7 +122,20 @@ fn pkipath_der(leaf_first: &[Vec<u8>]) -> Vec<u8> {
 
 /// Re-encodes the certificates in `data`. `order` sorts a bundle leaf → root first.
 pub fn certificates(data: &[u8], target: &str, order: bool) -> Res<Output> {
+    certificates_with_chain(data, &[], target, order)
+}
+
+/// Like [`certificates`], with issuer certificates (roots, intermediates) added to the input's
+/// own. A certificate given twice is written once.
+pub fn certificates_with_chain(data: &[u8], extra: &[u8], target: &str, order: bool) -> Res<Output> {
     let mut certs = read_certificates(data)?;
+    if !extra.iter().all(u8::is_ascii_whitespace) {
+        for c in read_certificates(extra).map_err(|err| format!("the added chain certificates: {err}"))? {
+            if !certs.contains(&c) {
+                certs.push(c);
+            }
+        }
+    }
     if order {
         certs = x509::order_bundle(&certs);
     }
@@ -589,6 +602,21 @@ mod tests {
 
     fn chain_pem(e: &KeystoreEntry) -> String {
         e.certificate_chain.iter().map(|c| c.pem.clone()).collect()
+    }
+
+    #[test]
+    fn a_leaf_gets_its_chain_added_once_and_in_order() {
+        let (ca, leaf) = ca_and_leaf();
+        let leaf_only = &leaf.certificate_chain[0].pem;
+        let root = &ca.certificate_chain[0].pem;
+        // The root given before the leaf, and twice: written once, leaf first.
+        let out = certificates_with_chain(leaf_only.as_bytes(), format!("{root}{root}").as_bytes(), "pem", true).unwrap();
+        let back = read_certificates(&out.bytes).unwrap();
+        assert_eq!(back.len(), 2);
+        assert_eq!(x509::cn_of(&x509::parse_certificate(&back[0]).unwrap().subject), x509::cn_of(&leaf.subject));
+        // Nothing added is the same as `certificates`.
+        assert_eq!(certificates_with_chain(leaf_only.as_bytes(), b"  ", "pem", true).unwrap().count, 1);
+        assert!(certificates_with_chain(leaf_only.as_bytes(), b"not a cert", "pem", true).unwrap_err().contains("added chain"));
     }
 
     #[test]

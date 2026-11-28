@@ -125,8 +125,9 @@ export const api = {
 
   // Conversions. Without `path` a conversion is a preview: nothing is written and only
   // non-sensitive text comes back.
-  convertCertificates: (data: DataSource, target: string, order: boolean, path?: string | null) =>
-    call<ConvertResult>("convert_certificates", { data, target, order, path: path ?? null }),
+  /** `chainPem` adds issuer certificates (roots, intermediates) to the input's own. */
+  convertCertificates: (data: DataSource, target: string, order: boolean, path?: string | null, chainPem?: string) =>
+    call<ConvertResult>("convert_certificates", { data, target, order, path: path ?? null, chainPem: chainPem ?? null }),
   convertPrivateKey: (data: DataSource, password: string | null, target: string, outPassword: string | null, path?: string | null, comment?: string) =>
     call<ConvertResult>("convert_private_key", { data, password, target, outPassword, comment: comment ?? null, path: path ?? null }),
   /** Every certificate in `data` as a trusted certificate entry of a new keystore in `format`. */

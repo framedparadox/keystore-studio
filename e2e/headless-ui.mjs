@@ -140,6 +140,10 @@ const shot = async (name) => {
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(path.join(dir, `${name}.png`), await driver.takeScreenshot(), "base64");
 };
+/** Opens a certificate's inspector by clicking its row (the list has no Inspect button). */
+const openCertRow = (name) =>
+  driver.executeScript(`const row = [...document.querySelectorAll('[data-testid="certificates-page"] tbody tr')].find((tr) => tr.querySelector('[data-testid="entry-alias"]')?.textContent.trim() === arguments[0]);
+     if (!row) throw new Error("no row for " + arguments[0]); row.click();`, name);
 const waitText = (text, timeout = 15000) =>
   driver.wait(async () => (await driver.findElement(By.tagName("body")).getText()).includes(text), timeout, `never saw "${text}"`);
 
@@ -1102,7 +1106,7 @@ async function run() {
   });
 
   await step("certificates: the inspector shows details, the source file and no false 'anchor not open'", async () => {
-    await click(`cert-inspect-${LEAF_CN}`);
+    await openCertRow(LEAF_CN);
     const dlg = await driver.wait(until.elementLocated(byTest("certificate-inspector")), 10000);
     const text = await dlg.getText();
     for (const want of [LEAF_CN, "leaf.pem", "SHA-256", `DNS:${LEAF_CN}`]) if (!text.includes(want)) throw new Error(`inspector lacks "${want}":\n${text}`);
@@ -1125,7 +1129,7 @@ async function run() {
       if (r.overflow > 0 || r.right > r.edge) throw new Error(`the table scrolls sideways by ${r.overflow}px; the row menu ends at ${r.right}, the table at ${r.edge}`);
       // About 720px: room for the type, lock and status icons.
       const names = await driver.executeScript(`return [...document.querySelectorAll('[data-testid="certificates-page"] thead th')].filter((th) => getComputedStyle(th).display !== "none").map((th) => th.textContent.trim())`);
-      for (const want of ["Type", "Lock status", "Expires", "Status"]) if (!names.includes(want)) throw new Error(`the ${want} column is hidden at the smallest window: ${names.join(", ")}`);
+      for (const want of ["Type", "Status", "Expires"]) if (!names.includes(want)) throw new Error(`the ${want} column is hidden at the smallest window: ${names.join(", ")}`);
     } finally {
       await restoreWindow();
     }
@@ -1229,7 +1233,7 @@ async function run() {
     await gone("cert-paste-dialog");
     await driver.wait(async () => (await countOf("pasted.e2e.test")) === 1, 10000, "not listed");
     // The list has no Source column; the inspector names where a certificate came from.
-    await click("cert-inspect-pasted.e2e.test");
+    await openCertRow("pasted.e2e.test");
     const insp = await driver.wait(until.elementLocated(byTest("certificate-inspector")), 10000);
     if (!(await insp.getText()).includes("Pasted")) throw new Error("the source of a pasted certificate is not shown");
     await keys(ESC);
@@ -1291,7 +1295,7 @@ async function run() {
     if (!heads) throw new Error("no table");
     const names = heads.map((h) => h.name);
     if (JSON.stringify(names) !== JSON.stringify(want)) throw new Error(`columns: ${JSON.stringify(names)}, want ${JSON.stringify(want)}`);
-    for (const h of heads.filter((h) => h.name === "Type" || h.name === "Lock status"))
+    for (const h of heads.filter((h) => h.name === "Type" || h.name === "Lock status" || (h.name === "Status" && scope.includes("certificates"))))
       if (h.text || !h.icon) throw new Error(`the ${h.name} header should be an icon alone, it shows "${h.text}"`);
   };
   const expectIconOnly = (cells, col, what) => {
@@ -1308,7 +1312,7 @@ async function run() {
     await openKeystore(COLS);
     await driver.wait(until.elementLocated(byTest("row-unlock-cols-key")), 10000);
     const ks = '[data-testid="keystore-detail"]';
-    await expectHeaders(ks, ["", "Type", "Lock status", "Alias", "Algorithm", "Expires", "Status", "Actions"]);
+    await expectHeaders(ks, ["", "Type", "Lock status", "Alias", "Algorithm", "Expires", "Time left", "Status", "Actions"]);
     const key = await cellsOf(ks, "cols-key");
     const anchor = await cellsOf(ks, "cols-anchor");
     for (const col of ["Type", "Lock status", "Status"]) {
@@ -1371,16 +1375,17 @@ async function run() {
     await click("nav-certificates");
     const page = '[data-testid="certificates-page"]';
     await driver.wait(async () => (await countOf(LEAF_CN)) === 1 && (await countOf(ROOT_CN)) === 1, 10000, "the e2e certificates are not listed");
-    await expectHeaders(page, ["Type", "Lock status", "Certificate", "Algorithm", "Expires", "Status", "Actions"]);
+    // Status sits where the lock was, as an icon; a certificate has no key, so no lock shows at all.
+    await expectHeaders(page, ["Type", "Status", "Certificate", "Algorithm", "Expires", "Time left", "Actions"]);
     const leaf = await cellsOf(page, LEAF_CN);
     const root = await cellsOf(page, ROOT_CN);
-    for (const col of ["Type", "Lock status", "Status"]) {
+    for (const col of ["Type", "Status"]) {
       expectIconOnly(leaf, col, "the leaf");
       expectIconOnly(root, col, "the root");
     }
     if (root.Type.kind !== "ca" || leaf.Type.kind !== "end-entity") throw new Error(`kind icons: root ${root.Type.kind}, leaf ${leaf.Type.kind}`);
     if (!root.Type.tip.startsWith("CA certificate")) throw new Error(`root type tooltip: ${root.Type.tip}`);
-    if (leaf["Lock status"].lock !== "no-key" || root["Lock status"].lock !== "no-key") throw new Error("a certificate shows a key lock");
+    if (await exists('[data-testid="certificates-page"] tbody [data-lock]')) throw new Error("a certificate without a key shows a lock");
     // The leaf is valid for 30 days: inside the critical window.
     if (leaf.Status.health !== "critical" || leaf.Status.tip !== "Expires soon") throw new Error(`leaf status: ${JSON.stringify(leaf.Status)}`);
     if (root.Status.health !== "healthy") throw new Error(`root status: ${JSON.stringify(root.Status)}`);
@@ -1583,7 +1588,7 @@ async function run() {
     };
     // A leaf issued by a CA: two different CNs.
     await click("nav-certificates");
-    await click(`cert-inspect-${LEAF_CN}`);
+    await openCertRow(LEAF_CN);
     await expect("certificate-inspector", LEAF_CN, ROOT_CN);
     await shotSizes("33-certificate-cn-rows");
     await keys(ESC);

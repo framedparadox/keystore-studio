@@ -1,16 +1,19 @@
 import React, { useEffect, useMemo, useState } from "react";
 import clsx from "clsx";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
-import { ArrowRight, CheckCircle2, ChevronLeft, FileOutput, FolderOpen, Lock, Repeat, Sparkles, Unlock } from "lucide-react";
-import type { ConvertResult, DataSource, DetectionResult, KeystoreEntry, KeystoreFile, KeystoreFormat, OpenKeystore, PemBundleOptions, Pkcs12Profile } from "../types/crypto";
+import { ArrowRight, CheckCircle2, ChevronLeft, ClipboardPaste, FileOutput, FolderOpen, Link2, Lock, Repeat, Sparkles, Unlock, X } from "lucide-react";
+import type { CertificateInfo, ConvertResult, DataSource, DetectionResult, KeystoreEntry, KeystoreFile, KeystoreFormat, OpenKeystore, PemBundleOptions, Pkcs12Profile } from "../types/crypto";
 import { Pkcs12ProfileSelect } from "../components/KeystoreDialogs";
 import { KEYSTORE_FORMATS } from "../types/crypto";
 import { api, errorMessage } from "../lib/api";
-import { FILTERS, baseName, pickFile, pickSavePath, type FileFilter } from "../lib/files";
+import { FILTERS, baseName, pickFile, pickFiles, pickSavePath, type FileFilter } from "../lib/files";
+import { issuerChain } from "../lib/certificates";
+import { useCertificatePool } from "../components/CertificateDialogs";
+import { ChainTree } from "../components/CertificateView";
 import { FORMAT_EXTENSION, FORMAT_INFO, byTypeThenAlias, cnOf, entryTypeName, saveProblems } from "../lib/keystore";
 import { CERT_OUTPUTS, CONVERTERS, KEY_OUTPUTS, PEM_LABELS, PUBLIC_OUTPUTS, cliHint, converterInfo, outputName, type ConverterId, type OutputTarget } from "../lib/convert";
 import { useStore } from "../state/store";
-import { Alert, Badge, Button, Card, Checkbox, CodeBlock, OptionList, Page, PageHeader, PasswordInput, Segmented, Select, Spinner, TextInput, useToast } from "../components/ui";
+import { Alert, Badge, Button, Card, Checkbox, CodeBlock, OptionList, Page, PageHeader, PasswordInput, Segmented, Select, Spinner, TextArea, TextInput, useToast } from "../components/ui";
 import { FileOrText, usePkcs12Builder } from "../components/AddEntryDialogs";
 import { EntryIcon } from "../components/entry";
 import { TerminalHint } from "../components/Terminal";
@@ -210,18 +213,127 @@ const Hint: React.FC<{ command: string | null }> = ({ command }) => (command ? <
 
 // =========================================================================== certificate
 
+/**
+ * Root and intermediate certificates added to a leaf: from files, pasted text, or found among the
+ * certificates open in the app. Shows the chain they make with the input as a tree.
+ */
+const ChainBuilder: React.FC<{ input: CertificateInfo[]; added: CertificateInfo[]; setAdded: (list: CertificateInfo[]) => void }> = ({ input, added, setAdded }) => {
+  const toast = useToast();
+  const pool = useCertificatePool();
+  const [pasting, setPasting] = useState(false);
+  const [pasted, setPasted] = useState("");
+  const [busy, setBusy] = useState(false);
+  const leaf = input[0];
+  const have = new Set([...input, ...added].map((c) => c.sha256_fingerprint));
+  const add = (certs: CertificateInfo[]) => {
+    const fresh = certs.filter((c, i) => !have.has(c.sha256_fingerprint) && certs.findIndex((x) => x.sha256_fingerprint === c.sha256_fingerprint) === i);
+    if (!fresh.length) toast.info(certs.length ? "Those certificates are already in the chain." : "No certificate found.");
+    else setAdded([...added, ...fresh]);
+    return fresh.length;
+  };
+  const read = async (sources: DataSource[]) => {
+    setBusy(true);
+    try {
+      const found = (await Promise.all(sources.map((src) => api.examineData(src, null)))).flatMap((r) => r.certificates);
+      return add(found);
+    } catch (err) {
+      toast.error(errorMessage(err));
+      return 0;
+    } finally {
+      setBusy(false);
+    }
+  };
+  const fromFiles = async () => {
+    try {
+      const paths = await pickFiles("Add root and intermediate certificates", [FILTERS.certificates]);
+      if (paths.length) await read(paths.map((path) => ({ path })));
+    } catch (err) {
+      toast.error(errorMessage(err));
+    }
+  };
+  // Issuers of the top of what is there so far, among everything open.
+  const top = leaf ? [leaf, ...issuerChain(leaf, [...input, ...added])].pop()! : undefined;
+  const suggestions = top && !top.self_signed ? issuerChain(top, pool).filter((c) => !have.has(c.sha256_fingerprint)) : [];
+  const chain = leaf ? [leaf, ...issuerChain(leaf, [...input.slice(1), ...added])] : [];
+  const loose = added.filter((c) => !chain.includes(c));
+  return (
+    <div className="space-y-3" data-testid="convert-chain">
+      <div className="flex flex-wrap items-center gap-2">
+        <Button size="sm" icon={FolderOpen} onClick={() => void fromFiles()} disabled={busy || !leaf} data-testid="convert-chain-files">
+          Add files…
+        </Button>
+        <Button size="sm" icon={ClipboardPaste} onClick={() => setPasting((v) => !v)} disabled={busy || !leaf} aria-expanded={pasting} data-testid="convert-chain-paste">
+          Paste…
+        </Button>
+        <Button
+          size="sm"
+          icon={Link2}
+          onClick={() => add(suggestions)}
+          disabled={busy || !suggestions.length}
+          title={suggestions.length ? suggestions.map((c) => cnOf(c.subject)).join(" → ") : "No issuer of this certificate is open"}
+          data-testid="convert-chain-find"
+        >
+          {suggestions.length ? `Add ${suggestions.length} issuer${suggestions.length === 1 ? "" : "s"} from open certificates` : "Find among open certificates"}
+        </Button>
+        {busy && <Spinner />}
+      </div>
+      {pasting && (
+        <div className="space-y-2">
+          <TextArea mono rows={6} label="Root or intermediate certificates (PEM)" placeholder="-----BEGIN CERTIFICATE-----" value={pasted} onChange={(e) => setPasted(e.target.value)} data-testid="convert-chain-text" />
+          <Button
+            size="sm"
+            variant="primary"
+            disabled={!pasted.trim() || busy}
+            onClick={async () => {
+              if (await read([{ text: pasted }])) {
+                setPasted("");
+                setPasting(false);
+              }
+            }}
+            data-testid="convert-chain-add"
+          >
+            Add to chain
+          </Button>
+        </div>
+      )}
+      {leaf && (
+        <div className="rounded-card border border-line px-4 py-3 space-y-2">
+          <ChainTree chain={chain} complete={chain[chain.length - 1].self_signed} />
+          {added.length > 0 && (
+            <ul className="flex flex-wrap gap-1.5 pt-1" aria-label="Added certificates">
+              {added.map((c) => (
+                <li key={c.sha256_fingerprint}>
+                  <span className="inline-flex items-center gap-1 h-6 pl-2 pr-1 rounded-control border border-line bg-surface-2 text-[12px] text-ink-2">
+                    {cnOf(c.subject)}
+                    {loose.includes(c) && <span className="text-warning" title="Did not issue any certificate in the chain"> · not linked</span>}
+                    <button type="button" onClick={() => setAdded(added.filter((x) => x !== c))} aria-label={`Remove ${cnOf(c.subject)}`} className="w-4 h-4 flex items-center justify-center rounded hover:bg-surface-3 cursor-pointer">
+                      <X className="w-3 h-3" />
+                    </button>
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
+
 const CertificatePanel: React.FC = () => {
   const runner = useRunner();
   const [path, setPath] = useState<string | null>(null);
   const [text, setText] = useState("");
   const [target, setTarget] = useState("pem");
   const [order, setOrder] = useState(true);
+  const [added, setAdded] = useState<CertificateInfo[]>([]);
   const source = sourceOf(path, text);
   const detection = useDetection(source, "");
   const t = CERT_OUTPUTS.find((o) => o.value === target)!;
   const first = detection.result?.certificates[0];
   const stem = first ? cnOf(first.subject) : "certificate";
-  const convert = (out: string | null) => api.convertCertificates(source!, target, order, out);
+  const total = (detection.result?.certificates.length ?? 0) + added.length;
+  const convert = (out: string | null) => api.convertCertificates(source!, target, order, out, added.map((c) => c.pem).join(""));
   return (
     <Layout
       form={
@@ -230,11 +342,14 @@ const CertificatePanel: React.FC = () => {
             <FileOrText label="Input" filters={[FILTERS.certificates]} path={path} setPath={setPath} text={text} setText={setText} placeholder="-----BEGIN CERTIFICATE-----" testId="convert-input" />
             <Detected {...detection} />
           </Step>
+          <Step title="Root and intermediate certificates" hint="Optional. Added to the leaf in every format that holds a chain.">
+            <ChainBuilder input={detection.result?.certificates ?? []} added={added} setAdded={setAdded} />
+          </Step>
           <Step title="Output format">
             <OptionList label="Certificate output format" value={target} onChange={setTarget} options={targetOptions(CERT_OUTPUTS)} columns={2} />
-            {detection.result && detection.result.certificates.length > 1 && target === "der" && (
+            {total > 1 && target === "der" && (
               <Alert tone="warning" className="mt-3">
-                The input holds {detection.result.certificates.length} certificates. DER keeps only the first; choose PEM or PKCS#7 to keep them all.
+                The chain holds {total} certificates. DER keeps only the first; choose PEM or PKCS#7 to keep them all.
               </Alert>
             )}
             <div className="mt-3">

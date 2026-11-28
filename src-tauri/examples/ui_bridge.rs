@@ -160,7 +160,7 @@ fn handle(cmd: &str, args: &serde_json::Value) -> Result<serde_json::Value, Stri
             use keystore_studio_lib::convert;
             let opt = |k: &str| args.get(k).and_then(|v| v.as_str()).map(String::from).filter(|v| !v.is_empty());
             let out = match cmd {
-                "convert_certificates" => convert::certificates(&source("data")?, &s("target"), args.get("order").and_then(|v| v.as_bool()).unwrap_or(true))?,
+                "convert_certificates" => convert::certificates_with_chain(&source("data")?, s("chainPem").as_bytes(), &s("target"), args.get("order").and_then(|v| v.as_bool()).unwrap_or(true))?,
                 "convert_private_key" => convert::private_key(&source("data")?, opt("password").as_deref(), &s("target"), opt("outPassword").as_deref(), &s("comment"))?,
                 "convert_truststore" => convert::truststore(&source("data")?, &s("format"), &s("password"), &s("alias"))?,
                 "convert_public_key" => convert::public_key(&source("data")?, opt("password").as_deref(), &s("target"), &s("comment"))?,

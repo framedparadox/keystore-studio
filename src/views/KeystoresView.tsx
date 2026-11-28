@@ -71,7 +71,7 @@ import {
   useConfirm,
   useToast,
 } from "../components/ui";
-import { AlgorithmCell, EntryIcon, EntryNameCell, EntryTypeIconCell, ExpiryCell, HealthIcon, LockCell, NAME_COLUMN_CLASS, TYPE_ICON } from "../components/entry";
+import { AlgorithmCell, EntryIcon, EntryNameCell, EntryTypeIconCell, ExpiryDateCell, HealthIcon, LockCell, NAME_COLUMN_CLASS, TimeLeftCell, TYPE_ICON } from "../components/entry";
 import { AssignWorkspaceDialog, CaReplyDialog, CsrDialog, EntryInspector, ExportDialog, LabelsDialog, RenameDialog } from "../components/EntryDialogs";
 import { GenerateKeyPairDialog, GenerateSecretKeyDialog, ImportCertificateDialog, ImportFromKeystoreDialog, ImportKeyPairDialog } from "../components/AddEntryDialogs";
 import { shortcutLabel } from "../lib/platform";
@@ -593,6 +593,7 @@ export const KeystoresView: React.FC = () => {
   } = store;
   const toast = useToast();
   const confirm = useConfirm();
+  const [keystoreWorkspaces, setKeystoreWorkspaces] = useState(false);
 
   const [navHidden, setNavHidden] = useState(() => {
     try {
@@ -859,13 +860,14 @@ export const KeystoresView: React.FC = () => {
     },
     { id: "alias", header: "Alias", className: NAME_COLUMN_CLASS, sortValue: (e) => e.alias.toLowerCase(), cell: (e) => <EntryNameCell entry={e} icon="narrow" /> },
     { id: "alg", header: "Algorithm", hideBelow: "lg", sortValue: (e) => e.algorithm, cell: (e) => <AlgorithmCell entry={e} /> },
-    { id: "expiry", header: "Expires", width: "160px", hideBelow: "sm", sortValue: (e) => daysUntilExpiry(e), cell: (e) => <ExpiryCell entry={e} /> },
+    { id: "expiry", header: "Expires", width: "136px", hideBelow: "sm", sortValue: (e) => daysUntilExpiry(e), cell: (e) => <ExpiryDateCell entry={e} /> },
+    { id: "left", header: "Time left", width: "104px", hideBelow: "lg", sortValue: (e) => daysUntilExpiry(e), cell: (e) => <TimeLeftCell entry={e} /> },
     { id: "status", header: "Status", width: "88px", align: "center", sortValue: (e) => HEALTH_RANK[entryHealth(e)], cell: (e) => <HealthIcon entry={e} /> },
     {
       id: "actions",
       header: <span className="sr-only">Actions</span>,
       align: "right",
-      width: "112px",
+      width: "136px",
       cell: (entry) => (
         <div className="inline-flex items-center gap-0.5" onClick={(ev) => ev.stopPropagation()}>
           {isKeyLocked(entry) ? (
@@ -873,6 +875,7 @@ export const KeystoresView: React.FC = () => {
           ) : (
             <IconButton icon={Download} label={`Export ${entry.alias}`} onClick={() => setDialog({ kind: "export", entry })} />
           )}
+          <IconButton icon={Layers} label={`Workspaces for ${entry.alias}`} onClick={() => setDialog({ kind: "workspaces", entry })} data-testid={`row-workspaces-${entry.alias}`} />
           <IconButton icon={Trash2} label={`Delete ${entry.alias}`} tone="danger" onClick={() => deleteWithConfirm([entry])} />
           <Menu items={rowMenu(entry)} trigger={(p) => <IconButton icon={MoreHorizontal} label={`More actions for ${entry.alias}`} {...p} data-testid={`row-menu-${entry.alias}`} />} />
         </div>
@@ -973,6 +976,14 @@ export const KeystoresView: React.FC = () => {
                   <Button variant={ks.dirty ? "primary" : "secondary"} icon={Save} onClick={() => save(ks.id)} data-testid="ks-save" title={shortcutLabel("Save (Ctrl+S)")}>
                     Save
                   </Button>
+                  <IconButton
+                    icon={Layers}
+                    label={`Add ${ks.name} to a workspace`}
+                    onClick={() => setKeystoreWorkspaces(true)}
+                    disabled={!ks.entries.length}
+                    className="!w-9 !h-9 border border-line-strong"
+                    data-testid="ks-workspaces"
+                  />
                   <Menu
                     items={addMenu}
                     width={300}
@@ -1102,6 +1113,7 @@ export const KeystoresView: React.FC = () => {
                   selectedKey={focusEntryId}
                   onRowClick={(entry) => openEntry(ks.id, entry)}
                   initialSort={{ id: "type", dir: "asc" }}
+                  striped
                   empty={
                     entries.length === 0 ? (
                       <EmptyState
@@ -1198,6 +1210,7 @@ export const KeystoresView: React.FC = () => {
       <RenameDialog keystore={ks} entry={dialog?.kind === "rename" ? current : null} onClose={() => setDialog(null)} />
       <LabelsDialog keystore={ks} entry={dialog?.kind === "labels" ? current : null} onClose={() => setDialog(null)} />
       <AssignWorkspaceDialog entry={dialog?.kind === "workspaces" ? current : null} onClose={() => setDialog(null)} />
+      <AssignWorkspaceDialog group={keystoreWorkspaces ? { name: ks.name, ids: ks.entries.map((e) => e.id) } : null} onClose={() => setKeystoreWorkspaces(false)} />
       <GenerateKeyPairDialog keystore={ks} open={dialog?.kind === "keypair" || dialog?.kind === "ca"} presetCa={dialog?.kind === "ca"} onClose={() => setDialog(null)} />
       <GenerateSecretKeyDialog keystore={ks} open={dialog?.kind === "secret"} onClose={() => setDialog(null)} />
       <ImportCertificateDialog keystore={ks} open={dialog?.kind === "cert"} onClose={() => setDialog(null)} />

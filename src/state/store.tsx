@@ -190,6 +190,8 @@ interface Store {
   saveWorkspace: (ws: Workspace) => void;
   deleteWorkspace: (id: string) => void;
   toggleWorkspaceEntry: (workspaceId: string, entryId: string) => void;
+  /** Adds every id to the workspace (include) or removes every one of them. */
+  setWorkspaceMembers: (workspaceId: string, entryIds: string[], include: boolean) => void;
   // vault
   vault: VaultStatus;
   refreshVault: () => Promise<VaultStatus>;
@@ -964,6 +966,16 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     );
   }, []);
 
+  const setWorkspaceMembers = useCallback((workspaceId: string, entryIds: string[], include: boolean) => {
+    setWorkspaces((list) =>
+      list.map((w) =>
+        w.id !== workspaceId
+          ? w
+          : { ...w, updated_at: now(), entryIds: include ? [...w.entryIds, ...entryIds.filter((id) => !w.entryIds.includes(id))] : w.entryIds.filter((id) => !entryIds.includes(id)) }
+      )
+    );
+  }, []);
+
   // ------------------------------------------------------- vault integration
   const requestVaultUnlock = useCallback((after?: () => void) => {
     afterVaultUnlock.current = after ?? null;
@@ -1227,6 +1239,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     saveWorkspace,
     deleteWorkspace,
     toggleWorkspaceEntry,
+    setWorkspaceMembers,
     vault,
     refreshVault,
     lockVault,

@@ -129,23 +129,29 @@ export function issuerChain(leaf: CertificateInfo, pool: CertificateInfo[]): Cer
   return chain;
 }
 
-/** One row of the Certificates table drawn as a tree: the certificate, its depth and its group. */
+/** One row of the Certificates table: a certificate, its depth under its file's leaf, and its group. */
 export interface CertificateTreeRow {
   cert: OpenCertificate;
   group: string;
-  /** Rows in the group: 1 for a certificate opened on its own. */
+  /** Certificates in the file (that are shown): 1 for a certificate opened on its own. */
   groupSize: number;
-  /** 0 for a root (or for anything whose issuer is not in the same file). */
+  /** 0 for the file's first row (its leaf); 1, 2 … for the issuers above it. */
   depth: number;
-  /** The last child of its parent, so its connector ends here. */
+  /** The last row of its branch, so its connector ends here. */
   lastChild: boolean;
+  /** True on the first row of a file with more than one certificate: it carries the dropdown. */
+  expandable: boolean;
+  /** Whether the file's other certificates are shown under it. */
+  expanded: boolean;
 }
 
 /**
- * Orders certificates as trees, one per file: within a file each root comes first with the
- * certificates it issued under it (root → intermediate → leaf). Files keep the order they are in.
+ * Rows for the Certificates table, one block per file. A file's first row is its leaf (the
+ * certificate furthest from a root); when the file is expanded its issuers follow, each one
+ * indented under the certificate it issued (leaf → intermediate → root), then anything unrelated.
+ * `expanded` holds the group keys that are open, or `true` to open them all (while searching).
  */
-export function certificateTree(list: OpenCertificate[]): CertificateTreeRow[] {
+export function certificateTree(list: OpenCertificate[], expanded: Set<string> | true = new Set()): CertificateTreeRow[] {
   const groups = new Map<string, OpenCertificate[]>();
   for (const c of list) {
     const key = certificateGroupKey(c);
@@ -156,24 +162,34 @@ export function certificateTree(list: OpenCertificate[]): CertificateTreeRow[] {
   const rows: CertificateTreeRow[] = [];
   for (const [group, members] of groups) {
     const info = (c: OpenCertificate) => c.entry.certificate_chain[0];
-    const parentOf = new Map<string, OpenCertificate | undefined>();
-    for (const c of members) {
+    const issuerOf = (c: OpenCertificate) => {
       const ci = info(c);
-      parentOf.set(c.id, ci ? members.find((p) => p !== c && info(p) && isIssuerOf(info(p)!, ci)) : undefined);
-    }
-    const childrenOf = (parent: OpenCertificate | undefined) => members.filter((c) => parentOf.get(c.id) === parent);
-    const placed = new Set<string>();
-    const walk = (c: OpenCertificate, depth: number, lastChild: boolean) => {
-      if (placed.has(c.id)) return;
-      placed.add(c.id);
-      rows.push({ cert: c, group, groupSize: members.length, depth, lastChild });
-      const kids = childrenOf(c).filter((k) => !placed.has(k.id));
-      kids.forEach((k, i) => walk(k, depth + 1, i === kids.length - 1));
+      return ci ? members.find((p) => p !== c && info(p) && isIssuerOf(info(p)!, ci)) : undefined;
     };
-    // Roots: no issuer in the same file, in the file's own order.
-    childrenOf(undefined).forEach((r) => walk(r, 0, true));
-    // A cycle (cross-signed pair) leaves certificates unplaced; list them flat.
-    for (const c of members) if (!placed.has(c.id)) walk(c, 0, true);
+    // How many issuers above it are in the file; the deepest is the leaf. Ties keep file order.
+    const height = (c: OpenCertificate) => {
+      let n = 0;
+      const seen = new Set([c.id]);
+      for (let p = issuerOf(c); p && !seen.has(p.id); p = issuerOf(p)) {
+        seen.add(p.id);
+        n++;
+      }
+      return n;
+    };
+    const leaf = members.reduce((best, c) => (height(c) > height(best) ? c : best), members[0]);
+    const open = members.length > 1 && (expanded === true || expanded.has(group));
+    const base = { group, groupSize: members.length, expandable: members.length > 1, expanded: open };
+    rows.push({ ...base, cert: leaf, depth: 0, lastChild: true });
+    if (!open) continue;
+    const placed = new Set([leaf.id]);
+    const chain: OpenCertificate[] = [];
+    for (let p = issuerOf(leaf); p && !placed.has(p.id); p = issuerOf(p)) {
+      placed.add(p.id);
+      chain.push(p);
+    }
+    const rest = members.filter((c) => !placed.has(c.id));
+    chain.forEach((c, i) => rows.push({ ...base, cert: c, depth: i + 1, lastChild: true }));
+    rest.forEach((c, i) => rows.push({ ...base, cert: c, depth: 1, lastChild: i === rest.length - 1 }));
   }
   return rows;
 }

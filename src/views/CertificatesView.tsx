@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from "react";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
-import { ClipboardPaste, Copy, Download, Eye, FileBadge, FolderArchive, FolderOpen, Layers, Lock, MoreHorizontal, Search, Shapes, ShieldCheck, X } from "lucide-react";
+import { Activity, ChevronDown, ChevronRight, ClipboardPaste, Copy, Download, Eye, FileBadge, FolderArchive, FolderOpen, Layers, MoreHorizontal, Search, Shapes, ShieldCheck, X } from "lucide-react";
 import { certificateTree, issuerChain, type CertificateTreeRow } from "../lib/certificates";
 import type { OpenCertificate } from "../types/crypto";
 import { errorMessage } from "../lib/api";
@@ -9,7 +9,7 @@ import { cnOf, entryMatches } from "../lib/keystore";
 import { daysUntilExpiry, entryHealth, summarize } from "../lib/metrics";
 import { useStore } from "../state/store";
 import { Button, Card, Column, DataTable, EmptyState, IconButton, IconHeader, Menu, MenuItem, Page, PageHeader, SearchInput, Segmented, StatStrip, useConfirm, useToast } from "../components/ui";
-import { AlgorithmCell, EntryIcon, EntryNameCell, ExpiryCell, HealthIcon, LockIcon, NAME_COLUMN_CLASS } from "../components/entry";
+import { AlgorithmCell, EntryIcon, EntryNameCell, ExpiryDateCell, HealthIcon, LockIcon, NAME_COLUMN_CLASS, TimeLeftCell } from "../components/entry";
 import { AssignWorkspaceDialog, ExportDialog } from "../components/EntryDialogs";
 import { CertificateInspector, PasteCertificatesDialog, useAddCertificateToKeystore, useCertificatePool, VerifyCertificateDialog } from "../components/CertificateDialogs";
 
@@ -92,7 +92,16 @@ export const CertificatesView: React.FC = () => {
     return !q || entryMatches(c.entry, q) || c.source.toLowerCase().includes(q) || c.entry.certificate_chain[0]?.sans.some((s) => s.toLowerCase().includes(q));
   });
   // One tree per file: root, then what it issued. Groups keep the page's order.
-  const tree = certificateTree(visible);
+  // Bundles start closed on their leaf; searching or filtering opens them so every match shows.
+  const [openGroups, setOpenGroups] = useState<Set<string>>(new Set());
+  const toggleGroup = (g: string) =>
+    setOpenGroups((cur) => {
+      const next = new Set(cur);
+      if (next.has(g)) next.delete(g);
+      else next.add(g);
+      return next;
+    });
+  const tree = certificateTree(visible, q || kind !== "all" ? true : openGroups);
   const workspacesOf = (c: OpenCertificate) => workspaces.filter((w) => w.entryIds.includes(c.id));
   const inWorkspaces = certificates.filter((c) => workspaces.some((w) => w.entryIds.includes(c.id))).length;
 
@@ -155,35 +164,63 @@ export const CertificatesView: React.FC = () => {
       sortValue: ({ cert: c }) => `${c.entry.certificate_chain[0]?.is_ca ? 0 : 1}${c.entry.alias.toLowerCase()}`,
       cell: ({ cert: c }) => <KindIcon c={c} />,
     },
-    { id: "lock", header: <IconHeader icon={Lock} label="Lock status" />, width: "64px", align: "center", hideBelow: "md", cell: () => <LockIcon state="no-key" /> },
+    {
+      id: "status",
+      header: <IconHeader icon={Activity} label="Status" />,
+      width: "64px",
+      align: "center",
+      sortValue: ({ cert: c }) => HEALTH_RANK[entryHealth(c.entry)],
+      cell: ({ cert: c }) => <HealthIcon entry={c.entry} />,
+    },
     {
       id: "name",
       header: "Certificate",
       className: NAME_COLUMN_CLASS,
       sortValue: ({ cert: c }) => c.entry.alias.toLowerCase(),
-      cell: ({ cert: c, depth, lastChild, groupSize }) => {
+      cell: ({ cert: c, depth, lastChild, groupSize, group, expandable, expanded }) => {
         const leaf = c.entry.certificate_chain[0];
         const issued = leaf?.self_signed ? "Self-signed" : `Issued by ${cnOf(c.entry.issuer)}`;
-        // The top of a bundle says where the rest came from.
-        const meta = depth === 0 && groupSize > 1 ? `${issued} · ${groupSize} certificates in ${c.source}` : issued;
+        // The top of a bundle says what it holds.
+        const meta = expandable ? `${issued} · bundle of ${groupSize} in ${c.source}` : issued;
         return (
-          <TreeIndent depth={depth} lastChild={lastChild}>
-            <EntryNameCell entry={c.entry} icon="narrow" tile={<KindIcon c={c} />} meta={meta} />
-          </TreeIndent>
+          <div className="flex items-center min-w-0">
+            {/* A slot on every row, so names line up whether or not a row has the dropdown. */}
+            <span className="w-7 shrink-0 -ml-1.5 flex items-center" onClick={(e) => e.stopPropagation()}>
+              {expandable && depth === 0 && (
+                <button
+                  type="button"
+                  onClick={() => toggleGroup(group)}
+                  aria-expanded={expanded}
+                  aria-label={`${expanded ? "Hide" : "Show"} the ${groupSize - 1} issuer${groupSize === 2 ? "" : "s"} in ${c.source}`}
+                  title={expanded ? "Hide the chain" : "Show the chain"}
+                  className="w-6 h-6 rounded-control flex items-center justify-center text-muted hover:bg-surface-3 hover:text-ink cursor-pointer"
+                  data-testid={`cert-expand-${c.entry.alias}`}
+                >
+                  {expanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+                </button>
+              )}
+            </span>
+            <div className="min-w-0 flex-1">
+              <TreeIndent depth={depth} lastChild={lastChild}>
+                <EntryNameCell entry={c.entry} icon="narrow" tile={<KindIcon c={c} />} meta={meta} />
+              </TreeIndent>
+            </div>
+          </div>
         );
       },
     },
     { id: "alg", header: "Algorithm", hideBelow: "lg", sortValue: ({ cert: c }) => c.entry.algorithm, cell: ({ cert: c }) => <AlgorithmCell entry={c.entry} /> },
-    { id: "expiry", header: "Expires", width: "160px", hideBelow: "sm", sortValue: ({ cert: c }) => daysUntilExpiry(c.entry), cell: ({ cert: c }) => <ExpiryCell entry={c.entry} /> },
-    { id: "status", header: "Status", width: "88px", align: "center", sortValue: ({ cert: c }) => HEALTH_RANK[entryHealth(c.entry)], cell: ({ cert: c }) => <HealthIcon entry={c.entry} /> },
+    { id: "expiry", header: "Expires", width: "136px", hideBelow: "sm", sortValue: ({ cert: c }) => daysUntilExpiry(c.entry), cell: ({ cert: c }) => <ExpiryDateCell entry={c.entry} /> },
+    { id: "left", header: "Time left", width: "112px", hideBelow: "md", sortValue: ({ cert: c }) => daysUntilExpiry(c.entry), cell: ({ cert: c }) => <TimeLeftCell entry={c.entry} /> },
     {
       id: "actions",
       header: <span className="sr-only">Actions</span>,
       align: "right",
-      width: "112px",
+      width: "96px",
       cell: ({ cert: c }) => (
         <div className="inline-flex items-center gap-0.5" onClick={(e) => e.stopPropagation()}>
-          <IconButton icon={Eye} label={`Inspect ${c.entry.alias}`} onClick={() => setInspectId(c.id)} data-testid={`cert-inspect-${c.entry.alias}`} />
+          {/* Shown only when the certificate is locked; a certificate alone has no key, so normally nothing. */}
+          {c.entry.locked && <LockIcon state="locked" />}
           <IconButton icon={Layers} label={`Workspaces for ${c.entry.alias}`} onClick={() => setWorkspacesId(c.id)} data-testid={`cert-workspaces-${c.entry.alias}`} />
           <Menu items={rowMenu(c)} width={280} trigger={(p) => <IconButton icon={MoreHorizontal} label={`More actions for ${c.entry.alias}`} {...p} data-testid={`cert-menu-${c.entry.alias}`} />} />
         </div>
