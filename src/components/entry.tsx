@@ -4,7 +4,8 @@ import { AlertTriangle, CheckCircle2, Clock, ClockAlert, FileBadge, KeyRound, Ke
 import { EntryType, KeystoreEntry } from "../types/crypto";
 import { Badge, badgeTones, Meter, Tone } from "./ui";
 import { daysUntilExpiry, expiryStatus, ExpiryStatus, formatDuration, isWeak, keyAgeDays, lifeUsed } from "../lib/metrics";
-import { cnOf, ENTRY_TYPE_LABEL, entryTypeName, lockState, LockState } from "../lib/keystore";
+import { CERTIFICATE_ROLE_LABEL, CertificateRole, certificateRole, cnOf, ENTRY_TYPE_LABEL, entryTypeName, lockState, LockState } from "../lib/keystore";
+import { CERTIFICATE_ROLE_VIEW } from "./certificate-icons";
 import { useStore } from "../state/store";
 
 /*
@@ -33,26 +34,28 @@ export const entryTypeLabel = (t: EntryType) => ENTRY_TYPE_LABEL[t];
 
 /**
  * Square glyph for an entry's type, plus a lock badge for keys when `locked` is given. Tables with a
- * Lock column leave `locked` out. `icon` and `label` refine a type, e.g. a CA among certificates.
+ * Lock column leave `locked` out. `role` marks a certificate as root,
+ * intermediate or end entity, and `label` replaces the tooltip.
  */
-export const EntryIcon: React.FC<{ type: EntryType; locked?: boolean; size?: "sm" | "md"; icon?: React.ElementType; label?: string }> = ({
+export const EntryIcon: React.FC<{ type: EntryType; locked?: boolean; size?: "sm" | "md"; role?: CertificateRole; label?: string }> = ({
   type,
   locked,
   size = "md",
-  icon,
+  role,
   label,
 }) => {
-  const Icon = icon ?? TYPE_ICON[type];
+  const view = role ? CERTIFICATE_ROLE_VIEW[role] : null;
+  const Icon = view?.icon ?? TYPE_ICON[type];
   // Key pairs always show whether they are locked; other entries only when they are.
   const badge = locked ? Lock : type === "KeyPair" && locked === false ? LockOpen : null;
-  const title = `${label ?? ENTRY_TYPE_LABEL[type]}${locked ? " — locked" : badge ? " — unlocked" : ""}`;
+  const title = `${label ?? (role ? CERTIFICATE_ROLE_LABEL[role] : ENTRY_TYPE_LABEL[type])}${locked ? " — locked" : badge ? " — unlocked" : ""}`;
   const sm = size === "sm";
   return (
     <span
       title={title}
       data-entry-type={type}
       data-locked={locked ? "true" : undefined}
-      className={clsx("relative rounded-control border flex items-center justify-center shrink-0", sm ? "w-6 h-6" : "w-8 h-8", TYPE_TILE[type])}
+      className={clsx("relative rounded-control border flex items-center justify-center shrink-0", sm ? "w-6 h-6" : "w-8 h-8", view?.tile ?? TYPE_TILE[type])}
     >
       <Icon className={sm ? "w-3.5 h-3.5" : "w-4 h-4"} aria-hidden />
       <span className="sr-only">{title}</span>
@@ -70,6 +73,9 @@ export const EntryIcon: React.FC<{ type: EntryType; locked?: boolean; size?: "sm
   );
 };
 
+/** The role shown in place of the plain certificate icon: only trusted CA certificates have one. */
+const caRole = (e: KeystoreEntry) => (e.entry_type === "TrustedCertificate" && e.certificate_chain[0]?.is_ca ? certificateRole(e.certificate_chain[0]) : undefined);
+
 /**
  * Alias + subject CN, the primary cell of every entry table. Where a table has Type and Lock columns,
  * `icon="narrow"` draws the type tile (with its lock badge) only while those columns are hidden, below
@@ -83,7 +89,7 @@ export const EntryNameCell: React.FC<{ entry: KeystoreEntry; meta?: React.ReactN
 }) => {
   const { isKeyLocked } = useStore();
   const locked = isKeyLocked(entry);
-  const drawn = tile ?? <EntryIcon type={entry.entry_type} locked={entry.entry_type === "KeyPair" ? locked : entry.locked || undefined} />;
+  const drawn = tile ?? <EntryIcon type={entry.entry_type} role={caRole(entry)} locked={entry.entry_type === "KeyPair" ? locked : entry.locked || undefined} />;
   const sub = meta ?? (entry.entry_type === "SecretKey" ? entry.subject : cnOf(entry.subject));
   return (
     <div className="flex items-center gap-3 min-w-0">
@@ -107,7 +113,7 @@ export const EntryNameCell: React.FC<{ entry: KeystoreEntry; meta?: React.ReactN
 export const NAME_COLUMN_CLASS = "w-full max-w-0";
 
 /** Type column: the entry's type as its icon alone, named in the tooltip and to screen readers. */
-export const EntryTypeIconCell: React.FC<{ entry: KeystoreEntry }> = ({ entry }) => <EntryIcon type={entry.entry_type} label={entryTypeName(entry)} />;
+export const EntryTypeIconCell: React.FC<{ entry: KeystoreEntry }> = ({ entry }) => <EntryIcon type={entry.entry_type} role={caRole(entry)} label={entryTypeName(entry)} />;
 
 // Locked and unlocked differ in glyph as well as color; an entry without a key shows a dash.
 const LOCK_VIEW: Record<LockState, { icon: React.ElementType; label: string; cls: string }> = {
@@ -198,14 +204,15 @@ export const ExpiryDateCell: React.FC<{ entry: KeystoreEntry }> = ({ entry }) =>
   );
 };
 
-/** Time until expiry ("2y 6m", "29 d"), or how long ago it expired, coloured by urgency. */
-export const TimeLeftCell: React.FC<{ entry: KeystoreEntry }> = ({ entry }) => {
+/** How much validity remains ("29 d left"), or how long ago it ran out ("1y ago"), coloured by urgency. */
+export const ValidityCell: React.FC<{ entry: KeystoreEntry }> = ({ entry }) => {
   const days = daysUntilExpiry(entry);
   if (days === null) return <span className="text-faint">—</span>;
   const status = expiryStatus(entry);
+  const duration = formatDuration(days);
   return (
-    <span className={clsx("text-[13px] font-medium tabular-nums whitespace-nowrap", status === "ok" ? "text-ink-2" : status === "warning" ? "text-warning" : "text-danger")} data-testid="time-left">
-      {days < 0 ? `Expired ${formatDuration(days)} ago` : formatDuration(days)}
+    <span className={clsx("text-[13px] font-medium tabular-nums whitespace-nowrap", status === "ok" ? "text-ink-2" : status === "warning" ? "text-warning" : "text-danger")} data-testid="validity" aria-label={days < 0 ? `Expired ${duration} ago` : undefined}>
+      {`${duration} ${days < 0 ? "ago" : "left"}`}
     </span>
   );
 };
@@ -217,14 +224,25 @@ export const AgeCell: React.FC<{ entry: KeystoreEntry }> = ({ entry }) => (
   </div>
 );
 
-/** What the status of an entry is: a glyph, a word and a tone. Every status has its own glyph. */
-export const healthView = (entry: KeystoreEntry): { key: string; label: string; detail: string; tone: Tone; icon: React.ElementType } => {
+type HealthView = { key: string; label: string; detail: string; tone: Tone; icon: React.ElementType };
+
+/** Every status an entry can have, each with its own glyph. */
+export const HEALTH_VIEWS = {
+  expired: { key: "expired", label: "Expired", detail: "Expired", tone: "danger", icon: XCircle },
+  weak: { key: "weak", label: "Weak", detail: "Weak", tone: "danger", icon: AlertTriangle },
+  critical: { key: "critical", label: "Expires soon", detail: "Expires soon", tone: "danger", icon: ClockAlert },
+  renew: { key: "renew", label: "Renew", detail: "Renew soon", tone: "warning", icon: Clock },
+  healthy: { key: "healthy", label: "Healthy", detail: "Healthy", tone: "success", icon: CheckCircle2 },
+} satisfies Record<string, HealthView>;
+
+/** What the status of an entry is: a glyph, a word and a tone. */
+export const healthView = (entry: KeystoreEntry): HealthView => {
   const status = expiryStatus(entry);
-  if (status === "expired") return { key: "expired", label: "Expired", detail: "Expired", tone: "danger", icon: XCircle };
-  if (isWeak(entry)) return { key: "weak", label: "Weak", detail: entry.weak_reasons.length ? `Weak: ${entry.weak_reasons.join("; ")}` : "Weak", tone: "danger", icon: AlertTriangle };
-  if (status === "critical") return { key: "critical", label: "Expires soon", detail: "Expires soon", tone: "danger", icon: ClockAlert };
-  if (status === "warning") return { key: "renew", label: "Renew", detail: "Renew soon", tone: "warning", icon: Clock };
-  return { key: "healthy", label: "Healthy", detail: "Healthy", tone: "success", icon: CheckCircle2 };
+  if (status === "expired") return HEALTH_VIEWS.expired;
+  if (isWeak(entry)) return entry.weak_reasons.length ? { ...HEALTH_VIEWS.weak, detail: `Weak: ${entry.weak_reasons.join("; ")}` } : HEALTH_VIEWS.weak;
+  if (status === "critical") return HEALTH_VIEWS.critical;
+  if (status === "warning") return HEALTH_VIEWS.renew;
+  return HEALTH_VIEWS.healthy;
 };
 
 /** Status pill: icon + label so state never relies on color alone. */

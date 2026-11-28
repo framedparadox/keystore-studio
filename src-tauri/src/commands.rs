@@ -161,6 +161,11 @@ async fn probe_file(path: String) -> Res<FileProbe> {
 }
 
 #[tauri::command]
+async fn scan_folder(path: String) -> Res<folder::FolderScan> {
+    blocking(move || folder::scan(&path)).await
+}
+
+#[tauri::command]
 async fn open_keystore(path: String, mut password: String, key_passwords: Option<HashMap<String, String>>) -> Res<KeystoreFile> {
     blocking(move || {
         let mut key_passwords = key_passwords.unwrap_or_default();
@@ -1047,6 +1052,7 @@ pub fn run() {
             load_app_state,
             save_app_state,
             probe_file,
+            scan_folder,
             open_keystore,
             save_keystore,
             export_keystore_csv,

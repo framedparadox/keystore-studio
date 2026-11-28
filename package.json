@@ -1,7 +1,7 @@
 {
   "name": "keystore-studio",
   "private": true,
-  "version": "1.0.0",
+  "version": "1.0.1",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -20,6 +20,7 @@
     "test:all": "pnpm typecheck && pnpm test && pnpm lint && pnpm test:rust"
   },
   "dependencies": {
+    "@peculiar/x509": "^3.1.0",
     "@tailwindcss/vite": "^4.3.3",
     "@tauri-apps/api": "^2",
     "@tauri-apps/plugin-dialog": "^2.8.4",
@@ -28,6 +29,7 @@
     "lucide-react": "^1.61.0",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
+    "reflect-metadata": "^0.2.2",
     "tailwindcss": "^4.3.3"
   },
   "devDependencies": {

@@ -122,7 +122,8 @@ CSR, installs a CA reply, renames it or adds labels.
 ### Certificates
 
 Certificate files opened on their own (PEM, DER, chains, PKCS#7 bundles) get their own page, with
-one row per certificate. Filter CAs from end-entity certificates, add them to a keystore or
+one row per certificate. Root, intermediate and end-entity certificates each have their own
+icon, explained in the legend under Settings → Help. Filter by type, add them to a keystore or
 workspace, and export them in any format.
 
 ![Certificates page listing a partner root CA, a leaf certificate and its issuing CA](docs/screenshots/certificates.png)
@@ -281,6 +282,11 @@ Opened key, CSR, CRL and signature files land here. Certificate files go to Cert
 
 Group keystore entries and certificates by project or audit scope. Workspaces persist across
 sessions.
+
+**Add folder** turns a folder into a workspace. Keystores and certificate files in it and its
+subfolders are recognised by content. Certificates join straight away; a keystore's entries join
+when you open it, and entries you remove stay removed. **Rescan** picks up new certificate files.
+Hidden files, symbolic links, `node_modules`, `target` and files over 8 MB are skipped.
 
 ### Vault
 
@@ -629,7 +635,9 @@ pnpm tauri dev          # desktop app with hot reload
 pnpm tauri build        # release bundles
 ```
 
-`pnpm dev` serves the UI in a browser for layout work only; the native engine is unavailable there.
+`pnpm dev` serves a browser preview. On its Certificates page you can open or paste PEM, DER and
+PKCS#7 certificates; those preview certificates are kept in that browser's local storage. Keystore
+editing, verification, export and other native engine features require the desktop app.
 
 ### Regenerating the screenshots
 

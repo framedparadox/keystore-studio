@@ -324,6 +324,13 @@ async function run() {
         iconOnly: !button.textContent.trim(), pressed: button.getAttribute('aria-pressed'), inTabs: !!button.closest('[role="tablist"]'),
         tabStop: document.querySelector('[role="tablist"] [role="tab"][tabindex="0"]')?.id };`);
     if (!help.sameRow || !help.toRight || help.width < 319 || !help.iconOnly || help.pressed !== "true" || help.inTabs || help.tabStop !== "settings-tab-general") throw new Error(`Help search or navigation has an unexpected layout: ${JSON.stringify(help)}`);
+    for (const group of ["certificates", "entries", "locks", "status", "navigation", "conversions", "actions"]) {
+      if (!(await exists(`[data-testid="legend-${group}"]`))) throw new Error(`the icon legend has no ${group} group`);
+    }
+    await driver.executeScript(`document.querySelector('[data-testid="icon-legend"]').scrollIntoView()`);
+    await shot("34-help-icon-legend");
+    await setField("help-search", "intermediate certificate");
+    if (!(await exists('[data-testid="legend-certificates"] .lucide-shield-intermediate'))) throw new Error("Help search did not show the intermediate icon");
     await setField("help-search", "master key");
     if (!(await exists('[data-testid="help-topic-vault"]'))) throw new Error("Help search did not return the vault topic");
     await setField("help-search", "zzzz-no-help-match");
@@ -1312,7 +1319,7 @@ async function run() {
     await openKeystore(COLS);
     await driver.wait(until.elementLocated(byTest("row-unlock-cols-key")), 10000);
     const ks = '[data-testid="keystore-detail"]';
-    await expectHeaders(ks, ["", "Type", "Lock status", "Alias", "Algorithm", "Expires", "Time left", "Status", "Actions"]);
+    await expectHeaders(ks, ["", "Type", "Lock status", "Alias", "Algorithm", "Expires", "Validity", "Status", "Actions"]);
     const key = await cellsOf(ks, "cols-key");
     const anchor = await cellsOf(ks, "cols-anchor");
     for (const col of ["Type", "Lock status", "Status"]) {
@@ -1376,15 +1383,15 @@ async function run() {
     const page = '[data-testid="certificates-page"]';
     await driver.wait(async () => (await countOf(LEAF_CN)) === 1 && (await countOf(ROOT_CN)) === 1, 10000, "the e2e certificates are not listed");
     // Status sits where the lock was, as an icon; a certificate has no key, so no lock shows at all.
-    await expectHeaders(page, ["Type", "Status", "Certificate", "Algorithm", "Expires", "Time left", "Actions"]);
+    await expectHeaders(page, ["Type", "Status", "Certificate", "Algorithm", "Expires", "Validity", "Actions"]);
     const leaf = await cellsOf(page, LEAF_CN);
     const root = await cellsOf(page, ROOT_CN);
     for (const col of ["Type", "Status"]) {
       expectIconOnly(leaf, col, "the leaf");
       expectIconOnly(root, col, "the root");
     }
-    if (root.Type.kind !== "ca" || leaf.Type.kind !== "end-entity") throw new Error(`kind icons: root ${root.Type.kind}, leaf ${leaf.Type.kind}`);
-    if (!root.Type.tip.startsWith("CA certificate")) throw new Error(`root type tooltip: ${root.Type.tip}`);
+    if (root.Type.kind !== "root" || leaf.Type.kind !== "end-entity") throw new Error(`kind icons: root ${root.Type.kind}, leaf ${leaf.Type.kind}`);
+    if (!root.Type.tip.startsWith("Root certificate")) throw new Error(`root type tooltip: ${root.Type.tip}`);
     if (await exists('[data-testid="certificates-page"] tbody [data-lock]')) throw new Error("a certificate without a key shows a lock");
     // The leaf is valid for 30 days: inside the critical window.
     if (leaf.Status.health !== "critical" || leaf.Status.tip !== "Expires soon") throw new Error(`leaf status: ${JSON.stringify(leaf.Status)}`);
@@ -1420,22 +1427,36 @@ async function run() {
 
   await step("sidebar: collapsed, it expands from the bottom of the navigation", async () => {
     const asideWidth = () => driver.executeScript(`return Math.round(document.querySelector("aside").getBoundingClientRect().width)`);
+    const toggleAt = (id) => driver.executeScript(`const r = document.querySelector(arguments[0]).getBoundingClientRect(); return [r.left, r.top]`, `[data-testid="${id}"]`);
+    const before = await toggleAt("sidebar-collapse");
     await driver.findElement(By.css('aside button[aria-label="Collapse sidebar"]')).click();
+    // Measured at once, while the width is still animating, and again once it has settled.
+    const during = await toggleAt("sidebar-expand");
     await driver.wait(async () => (await asideWidth()) === 64, 5000, "the sidebar did not collapse");
-    const r = await driver.executeScript(`const aside = document.querySelector("aside");
-       const b = aside.querySelector('[aria-label="Expand sidebar"]');
-       const search = document.querySelector('[data-testid="open-palette"]').getBoundingClientRect();
-       const terminal = document.querySelector('[data-testid="header-terminal"]').getBoundingClientRect();
-       return { chevron: !!b?.querySelector('svg path[d="m9 18 6-6-6-6"]'),
-         bottom: b ? aside.getBoundingClientRect().bottom - b.getBoundingClientRect().bottom : null,
-         gap: terminal.left - search.right };`);
-    if (!r.chevron) throw new Error("the collapsed navigation has no expand chevron");
-    if (r.bottom < 0 || r.bottom > 24) throw new Error(`the chevron is not at the bottom of the navigation (${r.bottom}px)`);
-    if (r.gap < 0 || r.gap > 12) throw new Error(`the terminal is not beside search (${r.gap}px gap)`);
-    await shotSizes("25-sidebar-collapsed");
-    await click("sidebar-expand");
+    try {
+      const after = await toggleAt("sidebar-expand");
+      for (const [when, at] of [["while collapsing", during], ["once collapsed", after]]) {
+        if (Math.abs(at[0] - before[0]) > 0.5 || Math.abs(at[1] - before[1]) > 0.5) throw new Error(`the toggle moved ${when}: ${before} to ${at}`);
+      }
+      const r = await driver.executeScript(`const aside = document.querySelector("aside");
+         const b = aside.querySelector('[aria-label="Expand sidebar"]');
+         const search = document.querySelector('[data-testid="open-palette"]').getBoundingClientRect();
+         const terminal = document.querySelector('[data-testid="header-terminal"]').getBoundingClientRect();
+         const box = b?.getBoundingClientRect(), rail = aside.getBoundingClientRect();
+         return { icon: !!b?.querySelector("svg.lucide-panel-left-open"),
+           offCentre: box ? Math.abs((box.left + box.right) / 2 - (rail.left + rail.right) / 2) : null,
+           bottom: b ? aside.getBoundingClientRect().bottom - b.getBoundingClientRect().bottom : null,
+           gap: terminal.left - search.right };`);
+      if (!r.icon) throw new Error("the collapsed navigation has no expand control");
+      if (r.offCentre > 2) throw new Error(`the expand control is off the rail's centre line (${r.offCentre}px)`);
+      if (r.bottom < 0 || r.bottom > 24) throw new Error(`the expand control is not at the bottom of the navigation (${r.bottom}px)`);
+      if (r.gap < 0 || r.gap > 12) throw new Error(`the terminal is not beside search (${r.gap}px gap)`);
+      await shotSizes("25-sidebar-collapsed");
+    } finally {
+      await click("sidebar-expand");
+    }
     await driver.wait(async () => (await asideWidth()) === 240, 5000, "the sidebar did not expand");
-    if (await present("sidebar-expand")) throw new Error("the expand chevron stays visible while the sidebar is expanded");
+    if (await present("sidebar-expand")) throw new Error("the expand control stays visible while the sidebar is expanded");
   });
 
   await step("convert: form sections are unnumbered and aligned at both window sizes", async () => {
@@ -1477,6 +1498,8 @@ async function run() {
             return { matches: [...navIcon.classList].filter(c => c.startsWith('lucide-')).every(c => icon.classList.contains(c)),
               hidden: icon.getAttribute('aria-hidden'), chevron: !!document.querySelector('[data-testid="convert-back"] .lucide-chevron-left') };`, `[data-testid="nav-convert-${id}"]`);
           if (!heading.matches || heading.hidden !== "true" || !heading.chevron) throw new Error(`${id} has an incorrect heading or back icon: ${JSON.stringify(heading)}`);
+          const named = await driver.executeScript(`return document.querySelector('[data-testid="terminal-hint"]').firstElementChild.textContent.trim()`);
+          if (named !== "Terminal") throw new Error(`${id} terminal box is not named: ${named}`);
           const hint = await driver.executeScript(`const hint = document.querySelector('[data-testid="terminal-hint"]');
             const code = hint.querySelector('code'), button = hint.querySelector('button');
             const original = code.textContent, initialHeight = code.getBoundingClientRect().height;
@@ -1760,6 +1783,59 @@ async function run() {
     if (!r.sideBySide) throw new Error("the two Terminal commands are not side by side, one per column");
     // The locked-keystores notice was removed from the dashboard.
     if (await present("sealed-banner")) throw new Error("the locked-keystores notice is back on the dashboard");
+  });
+
+  await step("certificates: a bundle's icon opens and closes its chain; the rest of the row opens the certificate", async () => {
+    const [top, issued] = ["Bundle Root", "bundle.leaf.test"];
+    sh("openssl", ["req", "-x509", "-newkey", "ec", "-pkeyopt", "ec_paramgen_curve:P-256", "-nodes", "-keyout", c("b-root.key"), "-out", c("b-root.pem"), "-days", "365", "-subj", `/CN=${top}`,
+      "-addext", "basicConstraints=critical,CA:TRUE", "-addext", "keyUsage=critical,keyCertSign,cRLSign"]);
+    sh("openssl", ["req", "-new", "-newkey", "ec", "-pkeyopt", "ec_paramgen_curve:P-256", "-nodes", "-keyout", c("b-leaf.key"), "-out", c("b-leaf.csr"), "-subj", `/CN=${issued}`]);
+    sh("openssl", ["x509", "-req", "-in", c("b-leaf.csr"), "-CA", c("b-root.pem"), "-CAkey", c("b-root.key"), "-CAcreateserial", "-out", c("b-leaf.pem"), "-days", "30"]);
+    fs.writeFileSync(c("b-chain.pem"), fs.readFileSync(c("b-leaf.pem"), "utf8") + fs.readFileSync(c("b-root.pem"), "utf8"));
+    await openFile(c("b-chain.pem"));
+    const toggle = By.css(`[data-testid="certificates-page"] tbody [data-testid="cert-expand-${issued}"]`);
+    await driver.wait(until.elementLocated(toggle), 10000);
+    if ((await countOf(top)) !== 0) throw new Error("the bundle does not start closed");
+    const count = await driver.executeScript(`return document.querySelector(arguments[0]).querySelector("[data-bundle-count]")?.textContent`, `[data-testid="cert-expand-${issued}"]`);
+    if (count !== "2") throw new Error(`bundle count: ${count}`);
+    /** The icon that is on screen: the Type column's, or the name cell's in a narrow table. */
+    const clickIcon = () => driver.executeScript(`[...document.querySelectorAll(arguments[0])].find((b) => b.getClientRects().length).click()`, `[data-testid="cert-expand-${issued}"]`);
+    await clickIcon();
+    await driver.wait(async () => (await countOf(top)) === 1, 5000, "the icon did not open the chain");
+    await shotSizes("33-certificate-bundle");
+    // Both rows of the bundle carry its background.
+    const tints = await driver.executeScript(`return [...document.querySelectorAll('[data-testid="certificates-page"] tbody tr')].filter((r) => [arguments[0], arguments[1]].includes(r.querySelector('[data-testid="entry-alias"]').textContent.trim())).map((r) => r.getAttribute("aria-selected") === "true" ? "selected" : r.className.includes("bg-bundle") ? "bundle" : "plain")`, issued, top);
+    if (tints.length !== 2 || tints.includes("plain") || !tints.includes("bundle")) throw new Error(`bundle background: ${JSON.stringify(tints)}`);
+    if (await present("certificate-inspector")) throw new Error("the icon also opened the certificate");
+    await clickIcon();
+    await driver.wait(async () => (await countOf(top)) === 0, 5000, "the icon did not close the chain");
+    await driver.executeScript(`[...document.querySelectorAll('[data-testid="certificates-page"] tbody [data-testid="entry-alias"]')].find((e) => e.textContent.trim() === ${JSON.stringify(issued)}).click()`);
+    await driver.wait(until.elementLocated(byTest("certificate-inspector")), 10000);
+    if ((await countOf(top)) !== 0) throw new Error("clicking the row opened the chain");
+    await keys(ESC);
+    await gone("certificate-inspector");
+  });
+
+  await step("workspaces: a folder becomes a workspace listing its keystores and certificates", async () => {
+    const folder = path.join(WORK, "folder-workspace");
+    fs.mkdirSync(path.join(folder, "nested"), { recursive: true });
+    fs.copyFileSync(path.join(ROOT, "src-tauri/tests/fixtures/sample.bks"), path.join(folder, "sample.bks"));
+    fs.copyFileSync(path.join(ROOT, "src-tauri/tests/fixtures/bouncycastle/trustedCertData.cer"), path.join(folder, "nested", "trusted.cer"));
+    await click("nav-workspaces");
+    await driver.executeScript(`window.__xksStub.open.push(${JSON.stringify(folder)});`);
+    await click("workspace-folder");
+    await driver.wait(until.elementLocated(byTest("folder-file-sample.bks")), 15000);
+    await driver.wait(until.elementLocated(byTest("folder-file-trusted.cer")), 10000);
+    await driver.wait(async () => (await tableText()).includes("Certificate · trusted.cer"), 10000, "the folder's certificate did not join the workspace");
+    await shotSizes("25-folder-workspace");
+    await click("folder-open-sample.bks");
+    await driver.wait(until.elementLocated(byTest("open-password")), 15000);
+    await setField("open-password", "changeit");
+    await click("open-submit");
+    await gone("open-password-dialog", "sample.bks did not open");
+    await click("nav-workspaces");
+    await driver.wait(async () => ((t) => t.includes("server") && t.includes("aes") && t.split("sample.bks").length - 1 === 3)(await tableText()), 10000, "the keystore's entries did not join the folder workspace");
+    await waitText("Open · 3 entries");
   });
 }
 

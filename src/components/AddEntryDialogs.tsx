@@ -33,13 +33,15 @@ export const FileOrText: React.FC<{
   setText: (t: string) => void;
   placeholder: string;
   testId?: string;
-}> = ({ label, filters, path, setPath, text, setText, placeholder, testId }) => (
+  fileDisabled?: boolean;
+}> = ({ label, filters, path, setPath, text, setText, placeholder, testId, fileDisabled }) => (
   <div>
     <div className="flex items-center justify-between mb-1.5">
       <span className="label !mb-0">{label}</span>
       <Button
         size="sm"
         icon={FolderOpen}
+        disabled={fileDisabled}
         onClick={async () => {
           const p = await pickFile(`Select ${label.toLowerCase()}`, filters).catch(() => null);
           if (p) {

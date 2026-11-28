@@ -44,12 +44,14 @@ vi.mock("@tauri-apps/api/window", () => ({ getCurrentWindow: () => ({ setTheme: 
 
 import { StoreProvider, useStore } from "./store";
 import { ConfirmProvider, ToastProvider } from "../components/ui";
+import { ConvertView } from "../views/ConvertView";
 
 type Store = ReturnType<typeof useStore>;
 let store!: Store;
+let renderConverter = false;
 const Probe: React.FC = () => {
   store = useStore();
-  return null;
+  return renderConverter && store.tab === "convert" ? <ConvertView /> : null;
 };
 
 let root: Root;
@@ -134,6 +136,7 @@ async function mount() {
 
 afterEach(async () => {
   await act(async () => root.unmount());
+  renderConverter = false;
   root = undefined as unknown as Root;
   container.remove();
   vi.useRealTimers();
@@ -149,6 +152,26 @@ async function openWithPassword(path: string, entries: KeystoreEntry[] = []) {
   await flush();
   return store.keystores.find((k) => k.path === path)!;
 }
+
+describe("store: converter navigation", () => {
+  it("prefills each selected certificate once without reusing it on later navigation", async () => {
+    renderConverter = true;
+    await act(async () => store.openConverter("certificate", "first certificate"));
+    expect(store.tab).toBe("convert");
+    expect(store.convertMode).toBe("certificate");
+    expect(store.converterInput).toBeNull();
+    expect(container.querySelector<HTMLTextAreaElement>('[data-testid="convert-input"]')?.value).toBe("first certificate");
+
+    await act(async () => store.setTab("certificates"));
+    await act(async () => store.openConverter("certificate"));
+    expect(container.querySelector<HTMLTextAreaElement>('[data-testid="convert-input"]')?.value).toBe("");
+    await act(async () => store.setTab("certificates"));
+    await act(async () => store.openConverter("certificate", "second certificate"));
+    expect(container.querySelector<HTMLTextAreaElement>('[data-testid="convert-input"]')?.value).toBe("second certificate");
+    await act(async () => store.openConverter("truststore", "ignored"));
+    expect(store.converterInput).toBeNull();
+  });
+});
 
 describe("store: save", () => {
   it("keeps an edit made while the save was still running", async () => {

@@ -71,7 +71,7 @@ import {
   useConfirm,
   useToast,
 } from "../components/ui";
-import { AlgorithmCell, EntryIcon, EntryNameCell, EntryTypeIconCell, ExpiryDateCell, HealthIcon, LockCell, NAME_COLUMN_CLASS, TimeLeftCell, TYPE_ICON } from "../components/entry";
+import { AlgorithmCell, EntryIcon, EntryNameCell, EntryTypeIconCell, ExpiryDateCell, HealthIcon, LockCell, NAME_COLUMN_CLASS, ValidityCell, TYPE_ICON } from "../components/entry";
 import { AssignWorkspaceDialog, CaReplyDialog, CsrDialog, EntryInspector, ExportDialog, LabelsDialog, RenameDialog } from "../components/EntryDialogs";
 import { GenerateKeyPairDialog, GenerateSecretKeyDialog, ImportCertificateDialog, ImportFromKeystoreDialog, ImportKeyPairDialog } from "../components/AddEntryDialogs";
 import { shortcutLabel } from "../lib/platform";
@@ -861,7 +861,7 @@ export const KeystoresView: React.FC = () => {
     { id: "alias", header: "Alias", className: NAME_COLUMN_CLASS, sortValue: (e) => e.alias.toLowerCase(), cell: (e) => <EntryNameCell entry={e} icon="narrow" /> },
     { id: "alg", header: "Algorithm", hideBelow: "lg", sortValue: (e) => e.algorithm, cell: (e) => <AlgorithmCell entry={e} /> },
     { id: "expiry", header: "Expires", width: "136px", hideBelow: "sm", sortValue: (e) => daysUntilExpiry(e), cell: (e) => <ExpiryDateCell entry={e} /> },
-    { id: "left", header: "Time left", width: "104px", hideBelow: "lg", sortValue: (e) => daysUntilExpiry(e), cell: (e) => <TimeLeftCell entry={e} /> },
+    { id: "validity", header: "Validity", width: "112px", hideBelow: "lg", sortValue: (e) => daysUntilExpiry(e), cell: (e) => <ValidityCell entry={e} /> },
     { id: "status", header: "Status", width: "88px", align: "center", sortValue: (e) => HEALTH_RANK[entryHealth(e)], cell: (e) => <HealthIcon entry={e} /> },
     {
       id: "actions",

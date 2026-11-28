@@ -3,17 +3,19 @@ import { ArrowRight, ChevronRight, LifeBuoy, Search } from "lucide-react";
 import { HELP_GROUPS, searchHelp, type HelpLink } from "../lib/help";
 import { Button, CardHeader, EmptyState } from "./ui";
 import { shortcutLabel } from "../lib/platform";
+import { IconLegend, searchLegend } from "./IconLegend";
 
 /** Searchable help topics. While a search is typed every match is shown open. */
 export const HelpTopics: React.FC<{ onNavigate: (link: HelpLink) => void }> = ({ onNavigate }) => {
   const [query, setQuery] = useState("");
   const searching = query.trim() !== "";
   const groups = searchHelp(query, HELP_GROUPS);
+  const legend = searchLegend(query);
 
   return (
     <div className="space-y-5" data-testid="help-topics">
       <div className="flex flex-col @xl:flex-row @xl:items-start justify-between gap-3">
-        <CardHeader title="Help" subtitle="Answers to common questions. Keyboard shortcuts have their own tab." icon={LifeBuoy} className="!mb-0" />
+        <CardHeader title="Help" subtitle="Answers to common questions and a legend of the icons. Keyboard shortcuts have their own tab." icon={LifeBuoy} className="!mb-0" />
         <label className="relative block w-full @xl:w-80 shrink-0">
           <span className="sr-only">Search help</span>
           <Search className="w-4 h-4 text-subtle absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" aria-hidden />
@@ -21,7 +23,7 @@ export const HelpTopics: React.FC<{ onNavigate: (link: HelpLink) => void }> = ({
         </label>
       </div>
 
-      {groups.length === 0 ? (
+      {groups.length === 0 && legend.length === 0 ? (
         <EmptyState icon={Search} title="No matching topics" description="Try another word, or look under Keyboard shortcuts." />
       ) : (
         groups.map((g) => (
@@ -53,6 +55,7 @@ export const HelpTopics: React.FC<{ onNavigate: (link: HelpLink) => void }> = ({
           </section>
         ))
       )}
+      {legend.length > 0 && <IconLegend groups={legend} />}
     </div>
   );
 };

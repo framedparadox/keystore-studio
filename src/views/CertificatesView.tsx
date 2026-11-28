@@ -1,19 +1,22 @@
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useRef, useState } from "react";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
-import { Activity, ChevronDown, ChevronRight, ClipboardPaste, Copy, Download, Eye, FileBadge, FolderArchive, FolderOpen, Layers, MoreHorizontal, Search, Shapes, ShieldCheck, X } from "lucide-react";
+import { Activity, ClipboardPaste, Copy, Download, Eye, FileBadge, FolderArchive, FolderOpen, Layers, MoreHorizontal, Search, Shapes, ShieldCheck, X } from "lucide-react";
 import { certificateTree, issuerChain, type CertificateTreeRow } from "../lib/certificates";
 import type { OpenCertificate } from "../types/crypto";
 import { errorMessage } from "../lib/api";
 import { FILTERS, pickFiles } from "../lib/files";
-import { cnOf, entryMatches } from "../lib/keystore";
+import { CERTIFICATE_ROLE_LABEL, certificateRole, cnOf, entryMatches, type CertificateRole } from "../lib/keystore";
+import { CERTIFICATE_ROLE_VIEW } from "../components/certificate-icons";
 import { daysUntilExpiry, entryHealth, summarize } from "../lib/metrics";
 import { useStore } from "../state/store";
-import { Button, Card, Column, DataTable, EmptyState, IconButton, IconHeader, Menu, MenuItem, Page, PageHeader, SearchInput, Segmented, StatStrip, useConfirm, useToast } from "../components/ui";
-import { AlgorithmCell, EntryIcon, EntryNameCell, ExpiryDateCell, HealthIcon, LockIcon, NAME_COLUMN_CLASS, TimeLeftCell } from "../components/entry";
+import { Alert, Button, Card, Column, DataTable, EmptyState, IconButton, IconHeader, Menu, MenuItem, Page, PageHeader, SearchInput, Segmented, StatStrip, useConfirm, useToast } from "../components/ui";
+import { AlgorithmCell, EntryIcon, EntryNameCell, ExpiryDateCell, HealthIcon, LockIcon, NAME_COLUMN_CLASS, ValidityCell } from "../components/entry";
 import { AssignWorkspaceDialog, ExportDialog } from "../components/EntryDialogs";
 import { CertificateInspector, PasteCertificatesDialog, useAddCertificateToKeystore, useCertificatePool, VerifyCertificateDialog } from "../components/CertificateDialogs";
 
-type Kind = "all" | "ca" | "leaf";
+type Kind = "all" | CertificateRole;
+const ROLE_RANK: Record<CertificateRole, number> = { root: 0, intermediate: 1, "end-entity": 2 };
+const roleOf = (c: OpenCertificate) => certificateRole(c.entry.certificate_chain[0]);
 const HEALTH_RANK = { "at-risk": 0, attention: 1, healthy: 2 } as const;
 
 /** Copies text, falling back to a selection copy where the Clipboard API is refused. */
@@ -48,23 +51,48 @@ const TreeIndent: React.FC<{ depth: number; lastChild: boolean; children: React.
     </div>
   );
 
-/** What a certificate is, as one glyph: a shield for a root or intermediate CA, a badged document for an end entity. */
-const KindIcon: React.FC<{ c: OpenCertificate }> = ({ c }) => {
+/** What a certificate is, as one glyph: root, intermediate or end entity, each with its own logo. */
+const KindIcon: React.FC<{ c: OpenCertificate; hint?: string; count?: number }> = ({ c, hint, count }) => {
   const leaf = c.entry.certificate_chain[0];
-  const ca = !!leaf?.is_ca;
-  const label = ca ? `CA certificate · ${leaf?.self_signed ? "root, self-signed" : "intermediate"}` : `End entity${leaf?.self_signed ? " · self-signed" : leaf?.sans[0] ? ` · ${leaf.sans[0]}` : ""}`;
+  const role = roleOf(c);
+  const detail = role !== "end-entity" ? "" : leaf?.self_signed ? " · self-signed" : leaf?.sans[0] ? ` · ${leaf.sans[0]}` : "";
+  const label = `${CERTIFICATE_ROLE_LABEL[role]}${detail}`;
   return (
-    <span data-cert-kind={ca ? "ca" : "end-entity"} className="inline-flex">
-      <EntryIcon type="TrustedCertificate" icon={ca ? ShieldCheck : FileBadge} label={label} />
+    <span data-cert-kind={role} className="relative inline-flex">
+      <EntryIcon type="TrustedCertificate" role={role} label={hint ? `${label} · ${hint}` : label} />
+      {/* How many certificates the bundle holds; the row and the toggle's name say it in words. */}
+      {count !== undefined && (
+        <span aria-hidden data-bundle-count className="absolute -top-1.5 -right-1.5 min-w-4 h-4 px-1 rounded-full border border-surface bg-brand text-on-accent text-[10px] font-semibold leading-none tabular-nums flex items-center justify-center">
+          {count}
+        </span>
+      )}
     </span>
   );
 };
 
+/** The icon of a bundle's top row: a button that shows and hides the rest of its chain. */
+const BundleToggle: React.FC<{ row: CertificateTreeRow; onToggle: () => void }> = ({ row: { cert: c, groupSize, expanded }, onToggle }) => (
+  <button
+    type="button"
+    onClick={(event) => {
+      event.stopPropagation();
+      onToggle();
+    }}
+    aria-expanded={expanded}
+    aria-label={`${expanded ? "Hide" : "Show"} the ${groupSize - 1} issuer${groupSize === 2 ? "" : "s"} in ${c.source}`}
+    className="inline-flex rounded-control cursor-pointer transition hover:ring-2 hover:ring-brand-soft"
+    data-testid={`cert-expand-${c.entry.alias}`}
+  >
+    <KindIcon c={c} count={groupSize} hint={expanded ? "click to hide the chain" : "click to show the chain"} />
+  </button>
+);
+
 export const CertificatesView: React.FC = () => {
-  const { certificates, workspaces, removeCertificates, certificateFocus, openFiles } = useStore();
+  const { certificates, workspaces, removeCertificates, certificateFocus, openFiles, addCertificates, desktop } = useStore();
   const toast = useToast();
   const confirm = useConfirm();
   const { targets, add } = useAddCertificateToKeystore();
+  const browserFileInput = useRef<HTMLInputElement>(null);
   const [search, setSearch] = useState("");
   const [kind, setKind] = useState<Kind>("all");
   const [pasteOpen, setPasteOpen] = useState(false);
@@ -82,13 +110,17 @@ export const CertificatesView: React.FC = () => {
 
   const entries = useMemo(() => certificates.map((c) => c.entry), [certificates]);
   const sum = summarize(entries);
-  const cas = certificates.filter((c) => c.entry.certificate_chain[0]?.is_ca).length;
-  const files = new Set(certificates.filter((c) => c.path).map((c) => c.path)).size;
+  const roleCounts: Record<CertificateRole, number> = { root: 0, intermediate: 0, "end-entity": 0 };
+  for (const c of certificates) roleCounts[roleOf(c)]++;
+  const files = new Set(
+    certificates
+      .map((c) => c.path || (!desktop && c.source !== "Pasted" ? `${c.source}\0${c.opened_at}` : ""))
+      .filter(Boolean)
+  ).size;
+  const unfiled = certificates.filter((c) => !c.path && (desktop || c.source === "Pasted")).length;
   const q = search.trim().toLowerCase();
   const visible = certificates.filter((c) => {
-    const isCa = !!c.entry.certificate_chain[0]?.is_ca;
-    if (kind === "ca" && !isCa) return false;
-    if (kind === "leaf" && isCa) return false;
+    if (kind !== "all" && roleOf(c) !== kind) return false;
     return !q || entryMatches(c.entry, q) || c.source.toLowerCase().includes(q) || c.entry.certificate_chain[0]?.sans.some((s) => s.toLowerCase().includes(q));
   });
   // One tree per file: root, then what it issued. Groups keep the page's order.
@@ -101,17 +133,46 @@ export const CertificatesView: React.FC = () => {
       else next.add(g);
       return next;
     });
-  const tree = certificateTree(visible, q || kind !== "all" ? true : openGroups);
+  const filtering = !!q || kind !== "all";
+  const tree = certificateTree(visible, filtering ? true : openGroups);
+  // While filtering every bundle is held open, so its icon has nothing to toggle.
+  const kindIcon = (row: CertificateTreeRow) => {
+    if (!row.expandable || row.depth > 0) return <KindIcon c={row.cert} />;
+    return filtering ? <KindIcon c={row.cert} count={row.groupSize} /> : <BundleToggle row={row} onToggle={() => toggleGroup(row.group)} />;
+  };
   const workspacesOf = (c: OpenCertificate) => workspaces.filter((w) => w.entryIds.includes(c.id));
   const inWorkspaces = certificates.filter((c) => workspaces.some((w) => w.entryIds.includes(c.id))).length;
 
   const openCertificates = async () => {
+    if (!desktop) {
+      browserFileInput.current?.click();
+      return;
+    }
     const paths = await pickFiles("Open certificates", [FILTERS.certificates]).catch((err) => {
       toast.error(errorMessage(err));
       return [] as string[];
     });
     // Through the same routing as Open and drag and drop: a keystore picked here opens as a keystore.
     if (paths.length) await openFiles(paths);
+  };
+
+  const openBrowserFiles = async (files: FileList | File[]) => {
+    let addedCount = 0;
+    let duplicateCount = 0;
+    for (const file of Array.from(files)) {
+      try {
+        const bytes = new Uint8Array(await file.arrayBuffer());
+        let binary = "";
+        for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+        const result = await addCertificates({ base64: btoa(binary) }, { source: file.name });
+        addedCount += result.added.length;
+        duplicateCount += result.duplicates.length;
+      } catch (err) {
+        toast.error(`Could not open ${file.name}: ${errorMessage(err)}`);
+      }
+    }
+    if (addedCount) toast.success(`Added ${addedCount} certificate${addedCount === 1 ? "" : "s"} to the preview${duplicateCount ? ` (${duplicateCount} already listed)` : ""}.`);
+    else if (duplicateCount) toast.info(duplicateCount === 1 ? "That certificate is already listed." : "Those certificates are already listed.");
   };
 
   const remove = async (c: OpenCertificate) => {
@@ -134,8 +195,12 @@ export const CertificatesView: React.FC = () => {
     const leaf = c.entry.certificate_chain[0];
     return [
       { label: "Inspect", icon: Eye, onSelect: () => setInspectId(c.id) },
-      { label: "Verify…", hint: "Chain, trust and revocation", icon: ShieldCheck, onSelect: () => setVerifyId(c.id), testId: "cert-menu-verify" },
-      { label: "Export…", hint: "PEM, X.509, PKCS#7, SPC, PkiPath, public key", icon: Download, onSelect: () => setExportId(c.id), testId: "cert-menu-export" },
+      ...(desktop
+        ? [
+            { label: "Verify…", hint: "Chain, trust and revocation", icon: ShieldCheck, onSelect: () => setVerifyId(c.id), testId: "cert-menu-verify" },
+            { label: "Export…", hint: "PEM, X.509, PKCS#7, SPC, PkiPath, public key", icon: Download, onSelect: () => setExportId(c.id), testId: "cert-menu-export" },
+          ]
+        : []),
       {
         label: "Copy PEM",
         icon: Copy,
@@ -143,7 +208,7 @@ export const CertificatesView: React.FC = () => {
         testId: "cert-menu-copy",
       },
       { label: "Workspaces…", icon: Layers, onSelect: () => setWorkspacesId(c.id), divider: true, testId: "cert-menu-workspaces" },
-      ...(leaf
+      ...(desktop && leaf
         ? targets.map((k, i) => ({ label: `Add to ${k.name}`, hint: i === 0 ? "As a trusted certificate" : undefined, icon: FolderArchive, onSelect: () => void add(leaf, k.id), divider: i === 0, testId: `cert-menu-add-${k.name}` }))
         : []),
       ...(c.path ? [{ label: "Show in folder", icon: FolderOpen, onSelect: () => void revealItemInDir(c.path).catch(() => undefined), divider: true }] : []),
@@ -161,8 +226,8 @@ export const CertificatesView: React.FC = () => {
       width: "64px",
       align: "center",
       hideBelow: "md",
-      sortValue: ({ cert: c }) => `${c.entry.certificate_chain[0]?.is_ca ? 0 : 1}${c.entry.alias.toLowerCase()}`,
-      cell: ({ cert: c }) => <KindIcon c={c} />,
+      sortValue: ({ cert: c }) => `${ROLE_RANK[roleOf(c)]}${c.entry.alias.toLowerCase()}`,
+      cell: kindIcon,
     },
     {
       id: "status",
@@ -177,41 +242,22 @@ export const CertificatesView: React.FC = () => {
       header: "Certificate",
       className: NAME_COLUMN_CLASS,
       sortValue: ({ cert: c }) => c.entry.alias.toLowerCase(),
-      cell: ({ cert: c, depth, lastChild, groupSize, group, expandable, expanded }) => {
+      cell: (row) => {
+        const { cert: c, depth, lastChild, groupSize, expandable } = row;
         const leaf = c.entry.certificate_chain[0];
         const issued = leaf?.self_signed ? "Self-signed" : `Issued by ${cnOf(c.entry.issuer)}`;
         // The top of a bundle says what it holds.
         const meta = expandable ? `${issued} · bundle of ${groupSize} in ${c.source}` : issued;
         return (
-          <div className="flex items-center min-w-0">
-            {/* A slot on every row, so names line up whether or not a row has the dropdown. */}
-            <span className="w-7 shrink-0 -ml-1.5 flex items-center" onClick={(e) => e.stopPropagation()}>
-              {expandable && depth === 0 && (
-                <button
-                  type="button"
-                  onClick={() => toggleGroup(group)}
-                  aria-expanded={expanded}
-                  aria-label={`${expanded ? "Hide" : "Show"} the ${groupSize - 1} issuer${groupSize === 2 ? "" : "s"} in ${c.source}`}
-                  title={expanded ? "Hide the chain" : "Show the chain"}
-                  className="w-6 h-6 rounded-control flex items-center justify-center text-muted hover:bg-surface-3 hover:text-ink cursor-pointer"
-                  data-testid={`cert-expand-${c.entry.alias}`}
-                >
-                  {expanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
-                </button>
-              )}
-            </span>
-            <div className="min-w-0 flex-1">
-              <TreeIndent depth={depth} lastChild={lastChild}>
-                <EntryNameCell entry={c.entry} icon="narrow" tile={<KindIcon c={c} />} meta={meta} />
-              </TreeIndent>
-            </div>
-          </div>
+          <TreeIndent depth={depth} lastChild={lastChild}>
+            <EntryNameCell entry={c.entry} icon="narrow" tile={kindIcon(row)} meta={meta} />
+          </TreeIndent>
         );
       },
     },
     { id: "alg", header: "Algorithm", hideBelow: "lg", sortValue: ({ cert: c }) => c.entry.algorithm, cell: ({ cert: c }) => <AlgorithmCell entry={c.entry} /> },
     { id: "expiry", header: "Expires", width: "136px", hideBelow: "sm", sortValue: ({ cert: c }) => daysUntilExpiry(c.entry), cell: ({ cert: c }) => <ExpiryDateCell entry={c.entry} /> },
-    { id: "left", header: "Time left", width: "112px", hideBelow: "md", sortValue: ({ cert: c }) => daysUntilExpiry(c.entry), cell: ({ cert: c }) => <TimeLeftCell entry={c.entry} /> },
+    { id: "validity", header: "Validity", width: "112px", hideBelow: "md", sortValue: ({ cert: c }) => daysUntilExpiry(c.entry), cell: ({ cert: c }) => <ValidityCell entry={c.entry} /> },
     {
       id: "actions",
       header: <span className="sr-only">Actions</span>,
@@ -228,14 +274,21 @@ export const CertificatesView: React.FC = () => {
     },
   ];
 
-  const kindOption = (value: Kind, label: React.ReactNode, count: number) => ({ value, label, count });
+  const roleOption = (role: CertificateRole, name: string) => {
+    const Icon = CERTIFICATE_ROLE_VIEW[role].icon;
+    return { value: role, label: <><Icon className="w-3.5 h-3.5" aria-hidden /> {name}</>, count: roleCounts[role] };
+  };
 
   return (
     <Page data-testid="certificates-page">
       <PageHeader
         icon={FileBadge}
         title="Certificates"
-        description="Certificate files you open on their own (PEM, DER or PKCS#7) are listed here, one row per certificate. Add them to a keystore or a workspace. Removing one from the list never changes its file."
+        description={
+          desktop
+            ? "Certificate files you open on their own (PEM, DER or PKCS#7) are listed here, one row per certificate. Add them to a keystore or a workspace. Removing one from the list never changes its file."
+            : "Open certificate files (PEM, DER or PKCS#7) to inspect them in this browser preview. Removing one from the list never changes its file."
+        }
         actions={
           <>
             <IconButton icon={ClipboardPaste} label="Paste certificates" onClick={() => setPasteOpen(true)} className="!w-9 !h-9" data-testid="cert-paste" />
@@ -246,12 +299,34 @@ export const CertificatesView: React.FC = () => {
         }
       />
 
+      <input
+        ref={browserFileInput}
+        type="file"
+        multiple
+        accept=".pem,.crt,.cer,.der,.p7b,.p7c,.pkipath,.txt"
+        className="hidden"
+        aria-label="Choose certificate files"
+        onChange={(event) => {
+          if (event.currentTarget.files?.length) void openBrowserFiles(event.currentTarget.files);
+          event.currentTarget.value = "";
+        }}
+      />
+      {!desktop && (
+        <Alert tone="info">
+          Preview mode: certificates are parsed locally in this browser and saved in this browser. Keystore changes, verification and export require the desktop app.
+        </Alert>
+      )}
+
       {certificates.length === 0 ? (
         <Card className="py-16">
           <EmptyState
             icon={FileBadge}
             title="No certificates open"
-            description="Open a .pem, .crt, .cer, .der or .p7b file, drop one on the window, or paste PEM text. Each certificate in the file is listed here."
+            description={
+              desktop
+                ? "Open a .pem, .crt, .cer, .der or .p7b file, drop one on the window, or paste PEM text. Each certificate in the file is listed here."
+                : "Choose a .pem, .crt, .cer, .der or .p7b file, or paste certificate text. Preview entries are stored in this browser."
+            }
             action={
               <>
                 <Button variant="primary" icon={FolderOpen} onClick={() => void openCertificates()} data-testid="cert-empty-open">
@@ -271,9 +346,10 @@ export const CertificatesView: React.FC = () => {
                 value={kind}
                 onChange={setKind}
                 options={[
-                  kindOption("all", "All", certificates.length),
-                  kindOption("ca", <><ShieldCheck className="w-3.5 h-3.5" /> CAs</>, cas),
-                  kindOption("leaf", <><FileBadge className="w-3.5 h-3.5" /> End entity</>, certificates.length - cas),
+                  { value: "all", label: "All", count: certificates.length },
+                  roleOption("root", "Root"),
+                  roleOption("intermediate", "Intermediate"),
+                  roleOption("end-entity", "End entity"),
                 ]}
               />
               <div className="flex-1" />
@@ -285,6 +361,7 @@ export const CertificatesView: React.FC = () => {
               rows={tree}
               rowKey={(r) => r.cert.id}
               groupKey={(r) => r.group}
+              tinted={(r) => r.expandable}
               selectedKey={inspectId ?? certificateFocus}
               onRowClick={(r) => setInspectId(r.cert.id)}
               empty={
@@ -318,10 +395,10 @@ export const CertificatesView: React.FC = () => {
             className="mt-4"
             label="Certificates summary"
             items={[
-              { label: "Certificates", value: sum.total, hint: `${cas} CA · ${sum.total - cas} end entity` },
+              { label: "Certificates", value: sum.total, hint: `${roleCounts.root} root · ${roleCounts.intermediate} intermediate · ${roleCounts["end-entity"]} end entity` },
               { label: "Expiring soon", value: sum.expiringWarning, hint: sum.expiringCritical ? `${sum.expiringCritical} critical` : "None critical", hintTone: sum.expiringCritical ? "warning" : "neutral" },
               { label: "Needs action", value: sum.expired + sum.weak, hint: `${sum.expired} expired · ${sum.weak} weak`, hintTone: sum.expired + sum.weak ? "danger" : "success" },
-              { label: "Files", value: files, hint: certificates.length - certificates.filter((c) => c.path).length ? `${certificates.length - certificates.filter((c) => c.path).length} pasted or kept` : "Opened from disk" },
+              { label: "Files", value: files, hint: unfiled ? `${unfiled} pasted${desktop ? " or kept" : ""}` : "Opened from disk" },
             ]}
           />
         </>

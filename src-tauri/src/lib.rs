@@ -15,6 +15,7 @@ pub mod dh;
 pub mod entry;
 pub mod export;
 mod ffdhe;
+pub mod folder;
 pub mod jar;
 pub mod javaser;
 pub mod jks;

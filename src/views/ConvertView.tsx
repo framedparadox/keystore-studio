@@ -321,14 +321,18 @@ const ChainBuilder: React.FC<{ input: CertificateInfo[]; added: CertificateInfo[
 };
 
 const CertificatePanel: React.FC = () => {
+  const { converterInput, clearConverterInput, desktop } = useStore();
   const runner = useRunner();
   const [path, setPath] = useState<string | null>(null);
-  const [text, setText] = useState("");
+  const [text, setText] = useState(converterInput ?? "");
   const [target, setTarget] = useState("pem");
   const [order, setOrder] = useState(true);
   const [added, setAdded] = useState<CertificateInfo[]>([]);
+  useEffect(() => {
+    if (converterInput !== null) clearConverterInput();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const source = sourceOf(path, text);
-  const detection = useDetection(source, "");
+  const detection = useDetection(desktop ? source : null, "");
   const t = CERT_OUTPUTS.find((o) => o.value === target)!;
   const first = detection.result?.certificates[0];
   const stem = first ? cnOf(first.subject) : "certificate";
@@ -338,8 +342,9 @@ const CertificatePanel: React.FC = () => {
     <Layout
       form={
         <>
+          {!desktop && <Alert tone="info">Certificate conversion requires the Keystore Studio desktop app.</Alert>}
           <Step title="Certificate or chain" hint="PEM, DER, PKCS#7 or PkiPath">
-            <FileOrText label="Input" filters={[FILTERS.certificates]} path={path} setPath={setPath} text={text} setText={setText} placeholder="-----BEGIN CERTIFICATE-----" testId="convert-input" />
+            <FileOrText label="Input" filters={[FILTERS.certificates]} path={path} setPath={setPath} text={text} setText={setText} placeholder="-----BEGIN CERTIFICATE-----" testId="convert-input" fileDisabled={!desktop} />
             <Detected {...detection} />
           </Step>
           <Step title="Root and intermediate certificates" hint="Optional. Added to the leaf in every format that holds a chain.">
@@ -358,7 +363,7 @@ const CertificatePanel: React.FC = () => {
           </Step>
           <Actions
             runner={runner}
-            disabled={!source}
+            disabled={!source || !desktop}
             onSave={() => runner.save(convert, { title: "Save converted certificate", input: path, stem, ext: t.ext })}
             onPreview={t.text ? () => runner.preview(convert) : undefined}
             previewHint={t.text ? undefined : "Binary output cannot be previewed"}

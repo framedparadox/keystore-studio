@@ -5,7 +5,7 @@ import { useStore } from "../state/store";
 import { CONVERTER_ICONS, NAV_GROUPS, PAGE_TITLES } from "./Sidebar";
 import { CONVERTERS } from "../lib/convert";
 import { useTerminal } from "./Terminal";
-import { cnOf } from "../lib/keystore";
+import { cnOf, CERTIFICATE_ROLE_LABEL, certificateRole } from "../lib/keystore";
 import { resolveTheme } from "../lib/theme";
 import { showSettingsSection, type SectionId } from "../views/SettingsView";
 import { shortcutLabel } from "../lib/platform";
@@ -108,7 +108,7 @@ export const CommandPalette: React.FC<{ open: boolean; onClose: () => void }> = 
       ...store.certificates.map((c) => ({
         id: `cert-${c.id}`,
         label: c.entry.alias,
-        hint: `${c.entry.certificate_chain[0]?.is_ca ? "CA certificate" : "Certificate"} · ${c.source}`,
+        hint: `${CERTIFICATE_ROLE_LABEL[certificateRole(c.entry.certificate_chain[0])]} · ${c.source}`,
         group: "Certificates",
         icon: FileBadge,
         run: () => store.setTab("certificates"),

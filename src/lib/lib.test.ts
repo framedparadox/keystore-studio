@@ -408,11 +408,14 @@ describe("entry listing", () => {
     expect(entryMatches(e, "nope")).toBe(false);
   });
 
-  it("names CA certificates apart from other trusted certificates", () => {
+  it("names root and intermediate certificates apart from other trusted certificates", () => {
     const anchor = entry("root", { entry_type: "TrustedCertificate" });
     expect(entryTypeName(anchor)).toBe("Trusted certificate");
     anchor.certificate_chain[0].is_ca = true;
-    expect(entryTypeName(anchor)).toBe("CA certificate");
+    anchor.certificate_chain[0].self_signed = true;
+    expect(entryTypeName(anchor)).toBe("Root certificate");
+    anchor.certificate_chain[0].self_signed = false;
+    expect(entryTypeName(anchor)).toBe("Intermediate certificate");
     expect(entryTypeName(entry("k"))).toBe("Key pair");
   });
 });

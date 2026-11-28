@@ -123,6 +123,7 @@ fn handle(cmd: &str, args: &serde_json::Value) -> Result<serde_json::Value, Stri
             let probe = keystore_studio_lib::model::FileProbe { name: keystore_studio_lib::util::file_name_of(&path), size: head.len() as u64, kind, keystore_format: fmt, path };
             serde_json::to_value(probe).map_err(|e| e.to_string())
         }
+        "scan_folder" => to_json(keystore_studio_lib::folder::scan(&s("path"))?),
         "open_keystore" => {
             let key_passwords: std::collections::HashMap<String, String> = match args.get("keyPasswords") {
                 Some(v) if !v.is_null() => serde_json::from_value(v.clone()).map_err(|e| e.to_string())?,

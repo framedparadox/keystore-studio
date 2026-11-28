@@ -100,9 +100,25 @@ export const ENTRY_TYPE_LABEL: Record<EntryType, string> = {
  */
 export const isCaEntry = (e: KeystoreEntry) => e.entry_type === "KeyPair" && !!e.certificate_chain[0]?.is_ca;
 
-/** Type label for one entry: trusted certificates that are CAs read "CA certificate". */
+export type CertificateRole = "root" | "intermediate" | "end-entity";
+
+export const CERTIFICATE_ROLE_LABEL: Record<CertificateRole, string> = {
+  root: "Root certificate",
+  intermediate: "Intermediate certificate",
+  "end-entity": "End-entity certificate",
+};
+
+/**
+ * Where a certificate stands: a self-signed CA is a root, any other CA an intermediate. `position`
+ * is its place in a chain (leaf first): above the leaf it issued something, even if it does not say
+ * it is a CA, as some old roots do not.
+ */
+export const certificateRole = (c: { is_ca: boolean; self_signed: boolean } | undefined, position = 0): CertificateRole =>
+  !c || (!c.is_ca && position === 0) ? "end-entity" : c.self_signed ? "root" : "intermediate";
+
+/** Type label for one entry: trusted CA certificates are named root or intermediate. */
 export const entryTypeName = (e: Pick<KeystoreEntry, "entry_type" | "certificate_chain">) =>
-  e.entry_type === "TrustedCertificate" && e.certificate_chain[0]?.is_ca ? "CA certificate" : ENTRY_TYPE_LABEL[e.entry_type];
+  e.entry_type === "TrustedCertificate" && e.certificate_chain[0]?.is_ca ? CERTIFICATE_ROLE_LABEL[certificateRole(e.certificate_chain[0])] : ENTRY_TYPE_LABEL[e.entry_type];
 
 /**
  * Whether an entry's key must be unlocked before it can be used.

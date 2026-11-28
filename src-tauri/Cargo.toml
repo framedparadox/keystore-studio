@@ -1,6 +1,6 @@
 [package]
 name = "keystore-studio"
-version = "1.0.0"
+version = "1.0.1"
 description = "Keystore Studio — native keystore and X.509 certificate workbench"
 authors = ["Ajay Kontham"]
 license = "MIT"

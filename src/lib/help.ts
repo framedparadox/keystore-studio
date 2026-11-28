@@ -57,6 +57,14 @@ export const HELP_GROUPS: HelpGroup[] = [
           "Yes. Ctrl+Z undoes and Ctrl+Shift+Z redoes edits to open keystores, up to 30 steps. Labels and workspaces are Keystore Studio's own notes, not edits to the file, so they are not part of undo.",
         ],
       },
+      {
+        id: "folder-workspace",
+        question: "Can a folder be a workspace?",
+        answer: [
+          "Yes. On the Workspaces page, choose Add folder. Keystores and certificate files in the folder and its subfolders are listed; hidden files, symbolic links, node_modules, target and files over 8 MB are skipped.",
+          "Certificates join the workspace straight away. A keystore's entries join when you open it, and an entry you remove from the workspace stays removed. Rescan picks up new certificate files. Nothing in the folder is changed.",
+        ],
+      },
     ],
   },
   {

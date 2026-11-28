@@ -654,6 +654,8 @@ interface DataTableProps<T> {
   groupKey?: (row: T) => string;
   /** Alternate row backgrounds. */
   striped?: boolean;
+  /** Rows given the bundle background instead of the usual one. A selected row still shows as selected. */
+  tinted?: (row: T) => boolean;
 }
 
 // Container queries (the table's wrapper is an @container). Tailwind needs the literal names.
@@ -680,6 +682,7 @@ export function DataTable<T>({
   fill,
   groupKey,
   striped,
+  tinted,
 }: DataTableProps<T>) {
   const [sort, setSort] = useState(initialSort ?? null);
   const [hoverGroup, setHoverGroup] = useState<string | null>(null);
@@ -792,7 +795,7 @@ export function DataTable<T>({
                   className={clsx(
                     "group transition-colors",
                     onRowClick && "cursor-pointer",
-                    selected ? "bg-brand-tint" : group === undefined ? (striped ? clsx("hover:bg-surface-3", rowIndex % 2 === 1 && "bg-surface-2") : "hover:bg-surface-2") : groupHovered ? "bg-surface-3" : groupOdd ? "bg-surface-2" : undefined,
+                    selected ? "bg-brand-tint" : tinted?.(row) ? (group === undefined ? "bg-bundle hover:bg-bundle-hover" : groupHovered ? "bg-bundle-hover" : "bg-bundle") : group === undefined ? (striped ? clsx("hover:bg-surface-3", rowIndex % 2 === 1 && "bg-surface-2") : "hover:bg-surface-2") : groupHovered ? "bg-surface-3" : groupOdd ? "bg-surface-2" : undefined,
                     groupEnds && "[&>td]:border-line-strong",
                     rowClassName?.(row)
                   )}
@@ -953,7 +956,9 @@ export const Modal: React.FC<{
   testId?: string;
   /** Keep one height whatever the content, so switching tabs inside does not resize the window. */
   fixedHeight?: boolean;
-}> = ({ open, onClose, title, description, icon: Icon, size = "md", footer, children, busy, testId, fixedHeight }) => {
+  bodyClassName?: string;
+  footerClassName?: string;
+}> = ({ open, onClose, title, description, icon: Icon, size = "md", footer, children, busy, testId, fixedHeight, bodyClassName, footerClassName }) => {
   const panel = useRef<HTMLDivElement>(null);
   const stackId = useRef(0);
   const titleId = useFieldId();
@@ -1047,8 +1052,8 @@ export const Modal: React.FC<{
           </div>
           <IconButton icon={X} label="Close" onClick={close} disabled={busy} />
         </div>
-        <div className="flex-1 overflow-y-auto px-6 py-5">{children}</div>
-        {footer && <div className="px-6 py-4 border-t border-line bg-surface-2 rounded-b-panel flex justify-end gap-2">{footer}</div>}
+        <div className={clsx("flex-1 min-h-0 overflow-y-auto px-6 py-5", bodyClassName)}>{children}</div>
+        {footer && <div className={clsx("shrink-0 px-6 py-4 border-t border-line bg-surface-2 rounded-b-panel flex justify-end gap-2", footerClassName)}>{footer}</div>}
       </div>
     </div>
   );
@@ -1548,15 +1553,16 @@ export const PathText: React.FC<{ path: string; className?: string; copy?: boole
   );
 };
 
-export const CodeBlock: React.FC<{ label?: React.ReactNode; value: string; maxHeight?: number; actions?: React.ReactNode; wrap?: boolean; testId?: string }> = ({
+export const CodeBlock: React.FC<{ label?: React.ReactNode; value: string; maxHeight?: number; actions?: React.ReactNode; wrap?: boolean; testId?: string; fill?: boolean }> = ({
   label,
   value,
   maxHeight = 260,
   actions,
   wrap,
   testId,
+  fill = false,
 }) => (
-  <div>
+  <div className={clsx(fill && "flex flex-col flex-1 min-h-0")}>
     {(label || actions) && (
       <div className="flex items-center justify-between mb-1.5 gap-2">
         <span className="text-[11.5px] font-semibold uppercase tracking-[0.04em] text-faint">{label}</span>
@@ -1568,9 +1574,11 @@ export const CodeBlock: React.FC<{ label?: React.ReactNode; value: string; maxHe
     )}
     <pre
       data-testid={testId}
-      style={{ maxHeight }}
+      tabIndex={fill ? 0 : undefined}
+      style={fill ? undefined : { maxHeight }}
       className={clsx(
         "bg-term-bg text-term-fg p-3.5 rounded-control font-mono text-[11.5px] leading-relaxed overflow-auto select-text",
+        fill && "flex-1 min-h-0",
         wrap ? "whitespace-pre-wrap break-all" : "whitespace-pre"
       )}
     >

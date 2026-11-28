@@ -1,13 +1,17 @@
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { api, classifyError, errorMessage, isDesktop, passwordSecretId } from "../lib/api";
-import { allowDialogStub, baseName, pickFile, FILTERS } from "../lib/files";
+import { allowDialogStub, baseName, pickFile, pickFolder, FILTERS } from "../lib/files";
 import { canonicalAlias, entryIdRemap, entryKey, isKeyLocked, keyPasswordMatches, normalizeEntries, uniqueAlias } from "../lib/keystore";
 import type { ConverterId } from "../lib/convert";
 import { setThresholds } from "../lib/metrics";
 import { applyTheme, cachedThemePreference, isThemePreference, watchSystemTheme, type ThemePreference } from "../lib/theme";
 import { isCertificateBundle, isCertificateProbe, mergeCertificates, persistCertificates, toOpenCertificates, type PersistedCertificate } from "../lib/certificates";
+import { syncFolderMembers, withMembers } from "../lib/workspaces";
 import { useConfirm, useToast } from "../components/ui";
-import type { AppInfo, DataSource, KeystoreEntry, KeystoreFile, KeystoreFormat, OpenCertificate, OpenKeystore, Pkcs12Profile, TabType, VaultStatus, Workspace } from "../types/crypto";
+import type { AppInfo, DataSource, FolderScan, KeystoreEntry, KeystoreFile, KeystoreFormat, OpenCertificate, OpenKeystore, Pkcs12Profile, TabType, VaultStatus, Workspace } from "../types/crypto";
+
+const PREVIEW_CERTIFICATES_KEY = "keystore-studio.preview-certificates";
+const parseBrowserCertificates = async (data: DataSource) => (await import("../lib/browser-certificates")).parseBrowserCertificates(data);
 
 export interface Settings {
   /** Light, dark (black) or follow the operating system. */
@@ -116,8 +120,10 @@ interface Store {
   examine: (input: { path?: string; text?: string }) => void;
   jarRequest: { path: string; nonce: number } | null;
   convertMode: ConverterId | null;
+  converterInput: string | null;
+  clearConverterInput: () => void;
   /** Opens the Convert page on one converter, or on the overview with null. */
-  openConverter: (id: ConverterId | null) => void;
+  openConverter: (id: ConverterId | null, certificatePem?: string) => void;
   // keystores
   keystores: OpenKeystore[];
   activeKeystoreId: string | null;
@@ -192,6 +198,10 @@ interface Store {
   toggleWorkspaceEntry: (workspaceId: string, entryId: string) => void;
   /** Adds every id to the workspace (include) or removes every one of them. */
   setWorkspaceMembers: (workspaceId: string, entryIds: string[], include: boolean) => void;
+  /** Asks for a folder and makes a workspace of it, or selects the one that already has it. */
+  addFolderWorkspace: () => Promise<void>;
+  /** Reads a folder workspace's folder again, adding certificate files that appeared in it. */
+  rescanFolderWorkspace: (workspaceId: string) => Promise<FolderScan | null>;
   // vault
   vault: VaultStatus;
   refreshVault: () => Promise<VaultStatus>;
@@ -230,6 +240,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const [examineRequest, setExamineRequest] = useState<Store["examineRequest"]>(null);
   const [jarRequest, setJarRequest] = useState<Store["jarRequest"]>(null);
   const [convertMode, setConvertMode] = useState<ConverterId | null>(null);
+  const [converterInput, setConverterInput] = useState<string | null>(null);
 
   // Keystores and their undo/redo history live in refs, which are the single source of truth;
   // every change goes through setAll(), synchronously, and bumps `version` to re-render. This
@@ -358,7 +369,8 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const migrateKeys = useCallback((mapping: Record<string, string>) => {
     if (!Object.keys(mapping).length) return;
     setUnlockedKeys((cur) => (Object.keys(mapping).some((id) => cur.has(id)) ? new Set([...cur].map((id) => mapping[id] ?? id)) : cur));
-    setWorkspaces((list) => list.map((w) => ({ ...w, entryIds: [...new Set(w.entryIds.map((id) => mapping[id] ?? id))] })));
+    const remap = (ids: string[]) => [...new Set(ids.map((id) => mapping[id] ?? id))];
+    setWorkspaces((list) => list.map((w) => ({ ...w, entryIds: remap(w.entryIds), ...(w.excludedIds && { excludedIds: remap(w.excludedIds) }) })));
     setLabels((l) => {
       const next = { ...l };
       for (const [from, to] of Object.entries(mapping)) {
@@ -515,8 +527,9 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   // ------------------------------------------------------------ certificates
   const addCertificates = useCallback(
     async (data: DataSource, origin: { path?: string; source: string }) => {
-      // The engine reads PEM (one or many), DER or a PKCS#7 bundle, and orders a chain leaf first.
-      const entries = await api.importTrustedCertificates("certificate", data, []);
+      const entries = isDesktop()
+        ? await api.importTrustedCertificates("certificate", data, [])
+        : await parseBrowserCertificates(data);
       const incoming = toOpenCertificates(entries, { path: origin.path ?? "", source: origin.source, openedAt: now() });
       const { list, added, duplicates } = mergeCertificates(certificatesRef.current, incoming);
       if (added.length) setCertificates(list);
@@ -957,24 +970,78 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   }, []);
 
   const toggleWorkspaceEntry = useCallback((workspaceId: string, entryId: string) => {
-    setWorkspaces((list) =>
-      list.map((w) =>
-        w.id !== workspaceId
-          ? w
-          : { ...w, updated_at: now(), entryIds: w.entryIds.includes(entryId) ? w.entryIds.filter((x) => x !== entryId) : [...w.entryIds, entryId] }
-      )
-    );
+    setWorkspaces((list) => list.map((w) => (w.id !== workspaceId ? w : withMembers(w, [entryId], !w.entryIds.includes(entryId), now()))));
   }, []);
 
   const setWorkspaceMembers = useCallback((workspaceId: string, entryIds: string[], include: boolean) => {
-    setWorkspaces((list) =>
-      list.map((w) =>
-        w.id !== workspaceId
-          ? w
-          : { ...w, updated_at: now(), entryIds: include ? [...w.entryIds, ...entryIds.filter((id) => !w.entryIds.includes(id))] : w.entryIds.filter((id) => !entryIds.includes(id)) }
-      )
-    );
+    setWorkspaces((list) => list.map((w) => (w.id !== workspaceId ? w : withMembers(w, entryIds, include, now()))));
   }, []);
+
+  // Keystores under a workspace's folder contribute their entries once open (and as they change).
+  useEffect(() => {
+    setWorkspaces((list) => syncFolderMembers(list, keystores, now()));
+  }, [keystores, workspaces]);
+
+  /** Scans a folder and lists its certificate files on the Certificates page. */
+  const readFolder = useCallback(
+    async (folder: string) => {
+      const scan = await api.scanFolder(folder);
+      const certificateIds: string[] = [];
+      const failed: string[] = [];
+      for (const file of scan.files.filter((f) => f.kind === "certificate")) {
+        try {
+          const { added, duplicates } = await addCertificates({ path: file.path }, { path: file.path, source: file.name });
+          certificateIds.push(...[...added, ...duplicates].map((c) => c.id));
+        } catch {
+          failed.push(file.name);
+        }
+      }
+      setCertificateFocus(null);
+      if (failed.length) toast.error(`Could not read ${failed.join(", ")}.`);
+      if (scan.truncated) toast.info("The folder is too large to scan completely. Choose a smaller folder to see every file.");
+      return { scan, certificateIds: [...new Set(certificateIds)] };
+    },
+    [addCertificates, toast]
+  );
+
+  const addFolderWorkspace = useCallback(async () => {
+    try {
+      const folder = await pickFolder("Add a folder as a workspace");
+      if (!folder) return;
+      const existing = workspacesRef.current.find((w) => w.folder === folder);
+      if (existing) {
+        setActiveWorkspaceId(existing.id);
+        toast.info(`That folder is already the workspace “${existing.name}”.`);
+        return;
+      }
+      const { scan, certificateIds } = await readFolder(folder);
+      const name = baseName(folder.replace(/[\\/]+$/, "")) || folder;
+      saveWorkspace({ id: `ws-${uid()}`, name, description: folder, environment: "Development", created_at: now(), updated_at: now(), entryIds: certificateIds, folder });
+      const stores = scan.files.filter((f) => f.kind === "keystore").length;
+      const certs = scan.files.length - stores;
+      toast.success(`Created workspace “${name}”: ${stores} keystore${stores === 1 ? "" : "s"} and ${certs} certificate file${certs === 1 ? "" : "s"} found.`);
+    } catch (err) {
+      toast.error(errorMessage(err));
+    }
+  }, [readFolder, saveWorkspace, toast]);
+
+  const rescanFolderWorkspace = useCallback(
+    async (workspaceId: string) => {
+      const folder = workspacesRef.current.find((w) => w.id === workspaceId)?.folder;
+      if (!folder) return null;
+      const { scan, certificateIds } = await readFolder(folder);
+      // Read the removals now: one may have been made while the folder was being read.
+      setWorkspaces((list) =>
+        list.map((w) => {
+          if (w.id !== workspaceId) return w;
+          const fresh = certificateIds.filter((id) => !w.entryIds.includes(id) && !w.excludedIds?.includes(id));
+          return fresh.length ? withMembers(w, fresh, true, now()) : w;
+        })
+      );
+      return scan;
+    },
+    [readFolder]
+  );
 
   // ------------------------------------------------------- vault integration
   const requestVaultUnlock = useCallback((after?: () => void) => {
@@ -1027,7 +1094,27 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   // -------------------------------------------------------------- bootstrap
   useEffect(() => {
     if (!desktop) {
-      setReady(true);
+      (async () => {
+        try {
+          const raw = window.localStorage.getItem(PREVIEW_CERTIFICATES_KEY);
+          if (raw) {
+            const saved = JSON.parse(raw) as PersistedCertificate[];
+            if (!Array.isArray(saved)) throw new Error("Preview certificate data is not a list.");
+            const restored = await Promise.all(
+              saved.map(async (c) => {
+                if (!c || typeof c.pem !== "string" || !c.pem) throw new Error("Preview certificate data has an invalid entry.");
+                const entries = await parseBrowserCertificates({ text: c.pem });
+                return toOpenCertificates(entries.slice(0, 1), { path: c.path, source: c.source, openedAt: c.opened_at });
+              })
+            );
+            setCertificates(mergeCertificates([], restored.flat()).list);
+          }
+        } catch (err) {
+          toast.error(`Could not restore preview certificates: ${errorMessage(err)}`);
+        } finally {
+          setReady(true);
+        }
+      })();
       return;
     }
     (async () => {
@@ -1088,9 +1175,17 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   // -------------------------------------------------------------- persistence
   const persistTimer = useRef<number | undefined>(undefined);
   useEffect(() => {
-    if (!ready || !desktop) return;
+    if (!ready) return;
     window.clearTimeout(persistTimer.current);
     persistTimer.current = window.setTimeout(() => {
+      if (!desktop) {
+        try {
+          window.localStorage.setItem(PREVIEW_CERTIFICATES_KEY, JSON.stringify(persistCertificates(certificates)));
+        } catch (err) {
+          toast.error(`Could not save preview certificates: ${errorMessage(err)}`);
+        }
+        return;
+      }
       const state: PersistedState = {
         version: 1,
         keystores: keystores.filter((k) => k.path).map((k) => ({ id: k.id, path: k.path, name: k.name, format: k.format })),
@@ -1179,8 +1274,11 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     },
     jarRequest,
     convertMode,
-    openConverter: (id) => {
+    converterInput,
+    clearConverterInput: () => setConverterInput(null),
+    openConverter: (id, certificatePem) => {
       setConvertMode(id);
+      setConverterInput(id === "certificate" ? certificatePem ?? null : null);
       setTab("convert");
     },
     keystores,
@@ -1240,6 +1338,8 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     deleteWorkspace,
     toggleWorkspaceEntry,
     setWorkspaceMembers,
+    addFolderWorkspace,
+    rescanFolderWorkspace,
     vault,
     refreshVault,
     lockVault,

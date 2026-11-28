@@ -144,6 +144,23 @@ export interface Workspace {
   updated_at: string;
   /** Entry keys: `${keystorePathOrId}::${alias}`, or `cert::<sha256>` for a certificate on the Certificates page. */
   entryIds: string[];
+  /** A folder workspace: keys and certificates found under this folder join it. */
+  folder?: string;
+  /** Folder workspaces only: ids removed by hand, which the folder does not add again. */
+  excludedIds?: string[];
+}
+
+export interface FolderFile {
+  path: string;
+  name: string;
+  kind: "keystore" | "certificate";
+  keystore_format?: string | null;
+}
+
+export interface FolderScan {
+  files: FolderFile[];
+  /** A scan limit was reached, so some files may be missing. */
+  truncated: boolean;
 }
 
 export interface GenerateKeyPairInput {

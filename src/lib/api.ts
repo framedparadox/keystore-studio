@@ -14,6 +14,7 @@ import type {
   DhParamsResult,
   ExportResult,
   FileProbe,
+  FolderScan,
   GeneratedKeyPair,
   GenerateKeyPairInput,
   GenerateSecretKeyInput,
@@ -92,6 +93,7 @@ export const api = {
   saveAppState: (state: unknown) => call<void>("save_app_state", { state }),
 
   probeFile: (path: string) => call<FileProbe>("probe_file", { path }),
+  scanFolder: (path: string) => call<FolderScan>("scan_folder", { path }),
   openKeystore: (path: string, password: string, keyPasswords?: Record<string, string>) =>
     call<KeystoreFile>("open_keystore", { path, password, keyPasswords: keyPasswords ?? null }),
   saveKeystore: (ks: KeystoreFile, path: string, password: string, format: KeystoreFormat, mac?: Pkcs12Profile | null, force?: boolean) =>

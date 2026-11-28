@@ -28,6 +28,10 @@
   --color-line: #eaecf0;
   --color-line-strong: #d0d5dd;
 
+  /* Rows of a certificate bundle, at rest and while the bundle is hovered */
+  --color-bundle: #f0f5ff;
+  --color-bundle-hover: #e4ecfd;
+
   /* Brand — monochrome emphasis for links, selection and primary actions */
   --color-brand: #18181b;
   --color-brand-deep: #27272a;
@@ -101,6 +105,9 @@
 
     --color-line: #222222;
     --color-line-strong: #333333;
+
+    --color-bundle: #0d1526;
+    --color-bundle-hover: #142038;
 
     /* "deep" means stronger contrast, so on black it is lighter. */
     --color-brand: #d4d4d8;

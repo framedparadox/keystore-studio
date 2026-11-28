@@ -52,23 +52,29 @@ export const TerminalProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 export const TerminalHint: React.FC<{ command: string; label?: string; iconOnly?: boolean }> = ({ command, label = "Run in terminal", iconOnly = false }) => {
   const { open } = useTerminal();
   return (
-    <div className="flex items-start gap-2 rounded-control bg-term-bg px-3 py-2 text-[11.5px] font-mono text-term-fg" data-testid="terminal-hint">
-      <span className="text-term-dim select-none">$</span>
-      <code className="flex-1 min-w-0 whitespace-pre-wrap break-words select-text" title={command}>
-        {command}
-      </code>
-      <button
-        type="button"
-        aria-label={iconOnly ? label : undefined}
-        title={iconOnly ? label : undefined}
-        onClick={() => open(command)}
-        className={`inline-flex shrink-0 items-center justify-center rounded-sm bg-white/10 text-white hover:bg-white/20 cursor-pointer ${
-          iconOnly ? "w-7 h-7" : "gap-1 px-2 py-0.5 font-sans text-[11px] font-semibold whitespace-nowrap"
-        }`}
-      >
-        <Play className={iconOnly ? "w-4 h-4" : "w-3 h-3"} />
-        {!iconOnly && label}
-      </button>
+    <div className="rounded-control border border-white/20 bg-term-bg px-3 py-2 text-[11.5px] font-mono text-term-fg" data-testid="terminal-hint">
+      <div className="flex items-center gap-1.5 mb-1.5 font-sans text-[11px] font-semibold text-term-dim select-none">
+        <TerminalSquare className="w-3.5 h-3.5" aria-hidden />
+        Terminal
+      </div>
+      <div className="flex items-start gap-2">
+        <span className="text-term-dim select-none">$</span>
+        <code className="flex-1 min-w-0 whitespace-pre-wrap break-words select-text" title={command}>
+          {command}
+        </code>
+        <button
+          type="button"
+          aria-label={iconOnly ? label : undefined}
+          title={iconOnly ? label : undefined}
+          onClick={() => open(command)}
+          className={`inline-flex shrink-0 items-center justify-center rounded-sm bg-white/10 text-white hover:bg-white/20 cursor-pointer ${
+            iconOnly ? "w-7 h-7" : "gap-1 px-2 py-0.5 font-sans text-[11px] font-semibold whitespace-nowrap"
+          }`}
+        >
+          <Play className={iconOnly ? "w-4 h-4" : "w-3 h-3"} />
+          {!iconOnly && label}
+        </button>
+      </div>
     </div>
   );
 };
@@ -202,12 +208,12 @@ const TerminalPanel: React.FC<{
     <section
       aria-label="Terminal"
       style={{ left: "calc(var(--sidebar-w, 240px) + 16px)" }}
-      className={`fixed right-4 bottom-4 z-40 flex flex-col overflow-hidden rounded-panel border border-white/10 bg-term-bg shadow-pop select-text ${
+      className={`fixed right-4 bottom-4 z-40 flex flex-col overflow-hidden rounded-panel border border-white/25 bg-term-bg shadow-pop select-text ${
         expanded ? "top-[72px]" : "h-[300px]"
       }`}
       data-testid="terminal"
     >
-      <header className="flex items-center justify-between border-b border-white/10 px-4 py-2 text-term-fg select-none">
+      <header className="flex items-center justify-between border-b border-white/15 bg-white/5 px-4 py-2 text-term-fg select-none">
         <div className="flex items-center gap-2 text-[12px] font-semibold">
           <TerminalSquare className="w-4 h-4 text-term-cmd" />
           Terminal

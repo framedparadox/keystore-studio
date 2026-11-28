@@ -3,7 +3,8 @@ import clsx from "clsx";
 import { AlertTriangle, CheckCircle2, ChevronDown, ChevronRight, CircleHelp, Network, ShieldCheck, ShieldAlert, ShieldX } from "lucide-react";
 import type { CertificateInfo, OcspInfo, RevocationMethodResult } from "../types/crypto";
 import { api, errorMessage } from "../lib/api";
-import { cnOf } from "../lib/keystore";
+import { CERTIFICATE_ROLE_LABEL, certificateRole, cnOf } from "../lib/keystore";
+import { CERTIFICATE_ROLE_VIEW } from "./certificate-icons";
 import { extensionItems, LIST_OIDS, NAME_OIDS } from "../lib/certificates";
 import { Alert, Badge, Button, Checkbox, CodeBlock, CopyButton, Segmented, Spinner, TextInput } from "./ui";
 
@@ -222,6 +223,17 @@ export const OcspPanel: React.FC<{ cert: CertificateInfo; issuer: CertificateInf
   );
 };
 
+/** The logo of a certificate's place in its chain. */
+const RoleTile: React.FC<{ cert: CertificateInfo; position: number; className: string }> = ({ cert, position, className }) => {
+  const role = certificateRole(cert, position);
+  const { icon: Icon, tile } = CERTIFICATE_ROLE_VIEW[role];
+  return (
+    <span title={CERTIFICATE_ROLE_LABEL[role]} data-cert-role={role} className={clsx("rounded-control border flex items-center justify-center shrink-0", tile, className)}>
+      <Icon className="w-3.5 h-3.5" aria-hidden />
+    </span>
+  );
+};
+
 /** Collapsible certificate cards for a chain (leaf first). */
 export const ChainView: React.FC<{
   certs: CertificateInfo[];
@@ -233,13 +245,13 @@ export const ChainView: React.FC<{
     <ol className="space-y-2">
       {certs.map((c, i) => {
         const expanded = open === i;
-        const role = i === 0 ? (c.is_ca ? "CA certificate" : "Leaf certificate") : c.self_signed ? "Root CA" : "Intermediate CA";
+        const role = CERTIFICATE_ROLE_LABEL[certificateRole(c, i)];
         return (
           <li key={c.sha256_fingerprint + i} className="rounded-card border border-line bg-surface overflow-hidden">
             <div className="flex items-center gap-3 px-4 py-3">
               <button onClick={() => setOpen(expanded ? null : i)} className="flex items-center gap-3 flex-1 min-w-0 text-left cursor-pointer" aria-expanded={expanded}>
                 {expanded ? <ChevronDown className="w-4 h-4 text-subtle shrink-0" /> : <ChevronRight className="w-4 h-4 text-subtle shrink-0" />}
-                <span className="w-7 h-7 rounded-control bg-surface-3 text-muted flex items-center justify-center shrink-0 text-[12px] font-semibold">{i + 1}</span>
+                <RoleTile cert={c} position={i} className="w-7 h-7" />
                 <span className="min-w-0">
                   <span className="block text-[13px] font-semibold text-ink truncate">{cnOf(c.subject)}</span>
                   <span className="block text-[12px] text-faint truncate">
@@ -356,7 +368,7 @@ export const WarningList: React.FC<{ warnings: string[] }> = ({ warnings }) =>
 // ------------------------------------------------------------------------------------- verify
 
 /** A certificate's role in its chain, for labels. */
-const roleOf = (c: CertificateInfo, index: number) => (c.self_signed ? (c.is_ca ? "Root CA" : "Self-signed") : c.is_ca ? "Intermediate CA" : index === 0 ? "End entity" : "Certificate");
+const roleOf = (c: CertificateInfo, index: number) => CERTIFICATE_ROLE_LABEL[certificateRole(c, index)];
 
 /** The chain drawn as a tree, root at the top and the certificate being verified at the bottom. */
 export const ChainTree: React.FC<{ chain: CertificateInfo[]; complete: boolean }> = ({ chain, complete }) => {
@@ -372,9 +384,7 @@ export const ChainTree: React.FC<{ chain: CertificateInfo[]; complete: boolean }
       {top.map((c, i) => (
         <li key={c.sha256_fingerprint} className="flex items-center gap-2 min-w-0 py-1" style={{ paddingLeft: i * 20 }}>
           {i > 0 && <span aria-hidden className="w-3 h-3 -mt-2 border-l border-b border-line-strong rounded-bl-[3px] shrink-0" />}
-          <span className={clsx("w-6 h-6 rounded-control flex items-center justify-center shrink-0", c.is_ca ? "bg-brand-tint text-brand" : "bg-surface-3 text-muted")}>
-            <ShieldCheck className="w-3.5 h-3.5" />
-          </span>
+          <RoleTile cert={c} position={chain.length - 1 - i} className="w-6 h-6" />
           <span className="min-w-0">
             <span className="block text-[13px] font-medium text-ink truncate">{cnOf(c.subject)}</span>
             <span className="block text-[11.5px] text-faint truncate">

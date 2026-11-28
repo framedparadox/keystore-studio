@@ -266,14 +266,17 @@ export const Sidebar: React.FC<{ collapsed: boolean; onCollapse: () => void; onE
       </nav>
       <div className="shell-accent shrink-0 px-3 pb-3">
         <div className="w-1/2 mx-auto border-t border-line" role="separator" />
-        {collapsed ? (
-          // The rail is 64px: the expand control sits alone on its centre line, under the nav icons.
-          <div className="flex items-center justify-center pt-2">
-            <IconButton icon={PanelLeftOpen} label="Expand sidebar" onClick={onExpand} className="!w-9 !h-9 shrink-0" data-testid="sidebar-expand" />
-          </div>
-        ) : (
-          <div className="flex items-center pt-2 gap-1">
-            <IconButton icon={PanelLeftClose} label="Collapse sidebar" onClick={onCollapse} className="!w-9 !h-9 shrink-0" data-testid="sidebar-collapse" />
+        {/* One toggle at one place, in both states: under the nav icons, 32px from the left edge, so
+            it neither jumps nor slides while the width animates. The other controls are clipped away. */}
+        <div className="flex items-center pt-2 gap-1">
+          <IconButton
+            icon={collapsed ? PanelLeftOpen : PanelLeftClose}
+            label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+            onClick={collapsed ? onExpand : onCollapse}
+            className="!w-9 !h-9 shrink-0 ml-0.5"
+            data-testid={collapsed ? "sidebar-expand" : "sidebar-collapse"}
+          />
+          {!collapsed && (
             <div className="flex flex-1 items-center justify-evenly">
               <IconButton
                 icon={theme === "dark" ? Sun : Moon}
@@ -294,8 +297,8 @@ export const Sidebar: React.FC<{ collapsed: boolean; onCollapse: () => void; onE
               />
               <IconButton icon={TerminalSquare} label={shortcutLabel("Terminal (Ctrl+`)")} onClick={toggleTerminal} className="!w-9 !h-9" data-testid="sidebar-terminal" />
             </div>
-          </div>
-        )}
+          )}
+        </div>
       </div>
     </aside>
   );

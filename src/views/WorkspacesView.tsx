@@ -1,15 +1,16 @@
 import React, { useLayoutEffect, useMemo, useState } from "react";
 import clsx from "clsx";
-import { AlertTriangle, CalendarClock, Check, Edit3, Eye, FileBadge, FolderPlus, KeyRound, Layers, Plus, Trash2, X } from "lucide-react";
+import { AlertTriangle, CalendarClock, Check, Edit3, Eye, FileBadge, FolderOpen, FolderPlus, KeyRound, Layers, Plus, Trash2, X } from "lucide-react";
 import type { KeystoreEntry, OpenCertificate, OpenKeystore, Workspace } from "../types/crypto";
 import { useStore, uid } from "../state/store";
 import { baseName } from "../lib/files";
-import { ENTRY_TYPE_LABEL, cnOf } from "../lib/keystore";
+import { CERTIFICATE_ROLE_LABEL, ENTRY_TYPE_LABEL, certificateRole, cnOf } from "../lib/keystore";
 import { isCertificateId, shortFingerprint } from "../lib/certificates";
 import { daysUntilExpiry, plural, summarize } from "../lib/metrics";
 import { Badge, Button, Card, Column, DataTable, EmptyState, IconButton, KpiCard, Modal, Page, PageHeader, SearchInput, Select, TextArea, TextInput, useConfirm, useToast } from "../components/ui";
 import { AlgorithmCell, EntryNameCell, ExpiryCell, HealthBadge } from "../components/entry";
 import { AssignWorkspaceDialog, EntryInspector, ExportDialog } from "../components/EntryDialogs";
+import { FolderFiles } from "../components/FolderFiles";
 import { CertificateInspector } from "../components/CertificateDialogs";
 
 interface Member {
@@ -42,7 +43,7 @@ const WorkspaceDialog: React.FC<{ initial: Workspace | null; open: boolean; onCl
     e.preventDefault();
     if (!name.trim()) return;
     const ts = new Date().toISOString();
-    saveWorkspace({ id: initial?.id ?? `ws-${uid()}`, name: name.trim(), description: desc.trim(), environment: env, created_at: initial?.created_at ?? ts, updated_at: ts, entryIds: initial?.entryIds ?? [] });
+    saveWorkspace({ ...initial, id: initial?.id ?? `ws-${uid()}`, name: name.trim(), description: desc.trim(), environment: env, created_at: initial?.created_at ?? ts, updated_at: ts, entryIds: initial?.entryIds ?? [] });
     toast.success(initial ? `Updated workspace “${name.trim()}”.` : `Created workspace “${name.trim()}”.`);
     onClose();
   };
@@ -77,7 +78,7 @@ const WorkspaceDialog: React.FC<{ initial: Workspace | null; open: boolean; onCl
 };
 
 export const WorkspacesView: React.FC = () => {
-  const { workspaces, activeWorkspaceId, setActiveWorkspaceId, deleteWorkspace, toggleWorkspaceEntry, keystores, certificates, setTab, selectKeystore, ensureKeyAccess } = useStore();
+  const { workspaces, activeWorkspaceId, setActiveWorkspaceId, deleteWorkspace, toggleWorkspaceEntry, keystores, certificates, setTab, selectKeystore, ensureKeyAccess, addFolderWorkspace, desktop } = useStore();
   const confirm = useConfirm();
   const toast = useToast();
   const [search, setSearch] = useState("");
@@ -188,12 +189,17 @@ export const WorkspacesView: React.FC = () => {
       <PageHeader
         icon={Layers}
         title="Workspaces"
-        description="Group keys and certificates from your keystores and the Certificates page by project, environment or audit scope. Workspaces never change keystore or certificate files."
+        description="Group keys and certificates from your keystores and the Certificates page by project, environment or audit scope. A workspace can also follow a folder. Workspaces never change keystore or certificate files."
         actions={
           <>
             {active && (
               <Button icon={FolderPlus} onClick={() => setPickerOpen(true)} data-testid="workspace-assign">
                 Add entries
+              </Button>
+            )}
+            {desktop && (
+              <Button icon={FolderOpen} onClick={() => void addFolderWorkspace()} data-testid="workspace-folder">
+                Add folder
               </Button>
             )}
             <Button variant="primary" icon={Plus} onClick={() => setEditing({ ws: null })} data-testid="workspace-new">
@@ -208,11 +214,18 @@ export const WorkspacesView: React.FC = () => {
           <EmptyState
             icon={Layers}
             title="No workspaces yet"
-            description="Create a workspace for a project, cluster or audit and add entries from any keystore, or certificates from the Certificates page."
+            description="Create a workspace for a project, cluster or audit and add entries from any keystore, or certificates from the Certificates page. Or add a folder to gather the keystores and certificates in it."
             action={
-              <Button variant="primary" icon={Plus} onClick={() => setEditing({ ws: null })}>
-                New workspace
-              </Button>
+              <>
+                <Button variant="primary" icon={Plus} onClick={() => setEditing({ ws: null })}>
+                  New workspace
+                </Button>
+                {desktop && (
+                  <Button icon={FolderOpen} onClick={() => void addFolderWorkspace()}>
+                    Add folder
+                  </Button>
+                )}
+              </>
             }
           />
         </Card>
@@ -234,7 +247,7 @@ export const WorkspacesView: React.FC = () => {
                   <div className="flex items-start justify-between gap-2">
                     <div className="flex items-center gap-2.5 min-w-0">
                       <span className={clsx("w-8 h-8 rounded-control flex items-center justify-center shrink-0", selected ? "bg-brand-tint text-brand" : "bg-surface-3 text-muted")}>
-                        <Layers className="w-4 h-4" />
+                        {ws.folder ? <FolderOpen className="w-4 h-4" /> : <Layers className="w-4 h-4" />}
                       </span>
                       <h3 className="text-[14px] font-semibold text-ink truncate">{ws.name}</h3>
                     </div>
@@ -278,6 +291,7 @@ export const WorkspacesView: React.FC = () => {
                 <KpiCard label="Expiring soon" value={sum.expiringWarning} icon={CalendarClock} tone="warning" hint={`${sum.expiringCritical} critical`} hintTone={sum.expiringCritical ? "warning" : "neutral"} />
                 <KpiCard label="Needs action" value={sum.expired + sum.weak} icon={AlertTriangle} tone="danger" hint={`${sum.expired} expired · ${sum.weak} weak`} hintTone={sum.expired + sum.weak ? "danger" : "success"} />
               </div>
+              {active.folder && <FolderFiles key={active.id} workspace={{ ...active, folder: active.folder }} />}
               <Card padded={false} className="mt-4 overflow-hidden">
                 <div className="px-5 py-3 border-b border-line flex flex-wrap items-center justify-between gap-3">
                   <div className="min-w-0">
@@ -351,7 +365,7 @@ export const WorkspacesView: React.FC = () => {
                       <span className="min-w-0 flex-1">
                         <span className="block text-[13px] font-semibold text-ink truncate">{c.entry.alias}</span>
                         <span className="block text-[12px] text-faint truncate">
-                          {c.entry.certificate_chain[0]?.is_ca ? "CA certificate" : "Certificate"} · {c.source}
+                          {CERTIFICATE_ROLE_LABEL[certificateRole(c.entry.certificate_chain[0])]} · {c.source}
                         </span>
                       </span>
                       <Badge icon={FileBadge}>Certificates</Badge>

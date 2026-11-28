@@ -162,7 +162,7 @@ export const HomeView: React.FC = () => {
         <PageHeader icon={LayoutDashboard} title="Welcome to Keystore Studio" description="A workbench for Java keystores, PKCS#12 files and X.509 certificates. Everything runs locally." />
         {!desktop && !notices.dismissed("browser-preview") && (
           <Alert tone="warning" className="mb-4" title="Browser preview" testId="browser-preview" onDismiss={() => notices.dismiss(["browser-preview"])}>
-            The native engine is only available in the desktop app (pnpm tauri dev). Buttons that touch files or keys will report an error here.
+            Open and inspect certificates in this browser preview. Keystore editing, verification, export and other native file or key workflows require the desktop app (pnpm tauri dev).
           </Alert>
         )}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">

@@ -1,10 +1,10 @@
 import React, { useLayoutEffect, useMemo, useState } from "react";
 import clsx from "clsx";
-import { AlertTriangle, ChevronDown, ClipboardPaste, Download, FileBadge, FolderArchive, Layers, ShieldCheck, X } from "lucide-react";
+import { AlertTriangle, ArrowLeftRight, ChevronDown, ClipboardPaste, Download, FileBadge, FolderArchive, Layers, ShieldCheck, X } from "lucide-react";
 import type { CertificateInfo, OpenCertificate } from "../types/crypto";
 import { api, errorMessage } from "../lib/api";
 import { aliasForCertificate, certificateName, issuerChain } from "../lib/certificates";
-import { cnOf } from "../lib/keystore";
+import { CERTIFICATE_ROLE_LABEL, certificateRole, cnOf } from "../lib/keystore";
 import { findingsFor } from "../lib/metrics";
 import { useStore } from "../state/store";
 import { Alert, Button, CodeBlock, Menu, Modal, PathText, Segmented, TextArea, useToast } from "./ui";
@@ -118,7 +118,7 @@ export const CertificateInspector: React.FC<{
   /** The tab to open on; Overview when omitted. */
   initialTab?: InspectTab;
 }> = ({ certificate, onClose, onExport, onWorkspaces, onRemove, initialTab }) => {
-  const { certificates, keystores } = useStore();
+  const { certificates, keystores, desktop, openConverter } = useStore();
   const [tab, setTab] = useState<InspectTab>(initialTab ?? "overview");
   useLayoutEffect(() => setTab(initialTab ?? "overview"), [certificate.id, initialTab]);
   const { entry } = certificate;
@@ -131,7 +131,7 @@ export const CertificateInspector: React.FC<{
     { value: "overview", label: "Overview" },
     { value: "chain", label: `Chain (${issuers.length + 1})` },
     { value: "extensions", label: `Extensions (${leaf?.extensions.length ?? 0})` },
-    { value: "verify", label: <span data-testid="cert-inspector-verify-tab">Verify</span> },
+    ...(desktop ? [{ value: "verify" as const, label: <span data-testid="cert-inspector-verify-tab">Verify</span> }] : []),
     ...(entry.public_key_pem ? [{ value: "public" as const, label: "Public key" }] : []),
     { value: "pem", label: "PEM" },
   ];
@@ -141,13 +141,15 @@ export const CertificateInspector: React.FC<{
       onClose={onClose}
       size="xl"
       fixedHeight
+      bodyClassName={tab === "pem" ? "flex flex-col" : undefined}
+      footerClassName="flex-wrap"
       testId="certificate-inspector"
       title={
         <span className="flex items-center gap-2 min-w-0">
           <span className="truncate">{entry.alias}</span> <HealthBadge entry={entry} />
         </span>
       }
-      description={`${leaf?.is_ca ? "CA certificate" : "Certificate"} · ${entry.algorithm}${entry.key_size ? ` ${entry.key_size}-bit` : ""} · issued by ${leaf?.self_signed ? "itself" : cnOf(entry.issuer)}`}
+      description={`${CERTIFICATE_ROLE_LABEL[certificateRole(leaf)]} · ${entry.algorithm}${entry.key_size ? ` ${entry.key_size}-bit` : ""} · issued by ${leaf?.self_signed ? "itself" : cnOf(entry.issuer)}`}
       footer={
         <>
           {onRemove && (
@@ -158,19 +160,33 @@ export const CertificateInspector: React.FC<{
           <Button icon={Layers} onClick={onWorkspaces} data-testid="cert-inspector-workspaces">
             Workspaces
           </Button>
-          {leaf && <AddToKeystoreMenu cert={leaf} />}
-          {tab !== "verify" && (
+          {leaf && (
+            <Button
+              icon={ArrowLeftRight}
+              onClick={() => {
+                onClose();
+                openConverter("certificate", leaf.pem);
+              }}
+              data-testid="cert-inspector-convert"
+            >
+              Convert format…
+            </Button>
+          )}
+          {desktop && leaf && <AddToKeystoreMenu cert={leaf} />}
+          {desktop && tab !== "verify" && (
             <Button icon={ShieldCheck} onClick={() => setTab("verify")} data-testid="cert-inspector-verify">
               Verify
             </Button>
           )}
-          <Button variant="primary" icon={Download} onClick={onExport} data-testid="cert-inspector-export">
-            Export…
-          </Button>
+          {desktop && (
+            <Button variant="primary" icon={Download} onClick={onExport} data-testid="cert-inspector-export">
+              Export…
+            </Button>
+          )}
         </>
       }
     >
-      <div className="space-y-4">
+      <div className={tab === "pem" ? "flex flex-col flex-1 min-h-0 gap-4" : "space-y-4"}>
         <Segmented label="Inspector section" value={tab} onChange={setTab} options={tabs} />
         {tab === "overview" && (
           <div className="space-y-4">
@@ -204,7 +220,7 @@ export const CertificateInspector: React.FC<{
         {tab === "extensions" && leaf && <ExtensionsList cert={leaf} />}
         {tab === "verify" && leaf && <VerifyCertificate key={certificate.id} cert={leaf} issuers={issuers} />}
         {tab === "public" && entry.public_key_pem && <CodeBlock label="SubjectPublicKeyInfo (PEM)" value={entry.public_key_pem} />}
-        {tab === "pem" && leaf && <CodeBlock label="Certificate (PEM)" value={leaf.pem} />}
+        {tab === "pem" && leaf && <CodeBlock label="Certificate (PEM)" value={leaf.pem} fill />}
       </div>
     </Modal>
   );
